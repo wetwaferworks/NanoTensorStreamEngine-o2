@@ -53,8 +53,7 @@ numbers below are stated the way we measured them.
 Start with EXPERIMENTS-2026-11-24.md for the measured story,
 WHAT-WE-CAN-DO.md for the capability ledger, and
 BASELINE-2026-11-23.md for the frozen baseline everything is
-judged against. NIGHT-LOG-2026-11-23.md is the raw working record
-of the night the experiments ran.
+judged against.
 
 ## Build
 
