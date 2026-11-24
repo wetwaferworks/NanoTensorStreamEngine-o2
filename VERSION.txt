@@ -1,7 +1,7 @@
 Nano Quant Engine (NanoQuat-O2)
 
 Release version:        0.1.0
-Rolling build counter:  0.0.0.0.0.0.0.1  (Build 1)
+Rolling build counter:  0001  (Build 0001)
 Git tag:                v0.1.0
 
 The rolling counter started on 2026-11-24 at JD's direction, with
