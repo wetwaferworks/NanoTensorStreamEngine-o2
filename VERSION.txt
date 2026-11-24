@@ -1,0 +1,10 @@
+Nano Quant Engine (NanoQuat-O2)
+
+Release version:        0.1.0
+Rolling build counter:  0.0.0.0.0.0.0.1  (Build 1)
+Git tag:                v0.1.0
+
+The rolling counter started on 2026-11-24 at JD's direction, with
+the initial GitHub release. It increments on every shipped build.
+Version, counter, and tag are three different numbers; state each
+one labeled, every time, and never conflate them.
