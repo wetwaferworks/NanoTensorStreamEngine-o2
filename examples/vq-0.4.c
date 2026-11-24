@@ -1,5 +1,8 @@
 /* vq-0.4.c ... NanoQuatTwo example 1: 0.4 bits per weight.
  *
+ * Implemented by Elfie (E.L.F.I.E.): the packing scheme, this code,
+ * and the bench verification. Direction and executive planning by JD.
+ *
  * FREESTANDING: no standard library, no libc, no libm. Every helper
  * below (output, sine, memory) is implemented in this file. Build:
  *

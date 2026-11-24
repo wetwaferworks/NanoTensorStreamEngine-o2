@@ -59,6 +59,11 @@ NanoQuatTwo is the quantizer project: take a big model and turn it into a little
 - A learned dictionary is not optional at these rates. The dictionary is where the intelligence migrates; training it is the research.
 - Never quote a rate without the book standing next to it.
 
+## Credits
+
+- **Direction and executive planning:** JD (David Rittenhouse), Wet Wafer Works. The questions were his: how much intelligence fits in a quad word, whether sub-half-bit packing is possible, and whether it can be taught to read.
+- **Implementation and discovery:** Elfie (E.L.F.I.E.). The packing scheme as demonstrated, all three freestanding examples, the taught-plus-learned dictionary, and the bench verification are hers.
+
 ## License
 
 MIT. See LICENSE.
