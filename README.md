@@ -158,17 +158,17 @@ int8 (100 KB) at some fidelity cost to every block it serves.
 
 ## Credits
 
-- **Direction and executive planning:** JD (David Rittenhouse),
-  Wet Wafer Works. The questions were his: how much intelligence
-  fits in a quad word, whether sub-half-bit packing is possible,
-  whether it can be taught to read, and the four-loop streaming
-  architecture the engine now runs on.
-- **Implementation and discovery:** Elfie (E.L.F.I.E.). The packing
-  scheme as demonstrated, all three freestanding examples, the
-  taught-plus-learned dictionary, the quantizer, the streaming
+- **Implementation and core mathematics:** Elfie (E.L.F.I.E.). The
+  packing scheme as demonstrated, all three freestanding examples,
+  the taught-plus-learned dictionary, the quantizer, the streaming
   engine, and the bench verification are hers.
-- **Outside review:** Gizmo, whose engineering handoffs set the
-  research program the experiments file answers.
+- **Consultee:** Gizmo, whose engineering handoffs set the research
+  program the experiments file answers.
+- **Executive direction:** JD (David Rittenhouse), Wet Wafer Works.
+  The questions were his: how much intelligence fits in a quad word,
+  whether sub-half-bit packing is possible, whether it can be taught
+  to read, and the four-loop streaming architecture the engine now
+  runs on.
 
 ## License
 

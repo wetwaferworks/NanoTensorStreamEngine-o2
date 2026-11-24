@@ -17,9 +17,10 @@ How to read the error figures: relative L2 error, lower is better.
 fidelity 0.9. Nothing below reaches 0.1 yet. This file says what
 each lever actually bought, including the ones that bought nothing.
 
-Direction and architecture: JD (David Rittenhouse).
-Implementation and testing: Elfie (E.L.F.I.E.).
-Outside review: Gizmo. Bench numbers and verdicts: Elfie.
+Implementation and core mathematics: Elfie (E.L.F.I.E.).
+Consultee: Gizmo.
+Executive direction: JD (David Rittenhouse).
+Bench numbers and verdicts: Elfie.
 
 ## The one-paragraph summary
 
