@@ -1,0 +1,22 @@
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000  nonfinite 0
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000  nonfinite 0
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07  nonfinite 0
+
+DC2/DC4 real tensor: encoder.layers.0.self_attn.q_proj.weight  [4096 x 3072], 49152 blocks, J=12 segments
+  weight-space fingerprint: reconstruction rel L2 0.9921 vs the raw tensor
+  active indices per segment: mean 89.8 of 256 (min 86, max 93); segments using the full book: 0/12; mean reuse 45.6 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 0.751 + apply 0.077 (stage minima); paired totals below
+    active: mask 0.110 + build 0.410 + apply 0.140 (stage minima); paired best 0.663, median 0.693 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 0.738 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 4.036e-06  max abs 3.655e-06  cos 1.000000000  nonfinite 0
+  recon vs fp64 oracle : rel L2 1.218e-06  max abs 2.124e-06  cos 1.000000000  nonfinite 0
+  NQDC  vs recon       : rel L2 4.182e-06  max abs 3.606e-06  nonfinite 0
+  recon vs RAW weights : rel L2 1.0075 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms); stage minima may come from different repetitions, paired totals are single-run:
+    dense raw GEMV        :   13.426
+    materialize + GEMV    :    9.383 + 14.200 (stages); paired best 23.821, median 110.685
+    fused reconstruct-dot :   13.585
+    NQDC build + apply    :    0.751 + 0.077 (stages); paired best 0.832, median 0.924
+  arithmetic: conventional 12582912 MACs; NQDC table 786432 + lookups 49152

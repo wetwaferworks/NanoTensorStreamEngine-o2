@@ -1,0 +1,1 @@
+{"added_tokens":[{"content":"<|begin_of_text|>","id":8,"special":true},{"content":"<|end_of_text|>","id":9,"special":true}],"model":{"merges":["a b","ab c"],"type":"BPE","vocab":{"a":0,"ab":4,"abc":5,"b":1,"c":2,"Ã©":7,"é":6,"Ġ":3}},"version":"1.0"}

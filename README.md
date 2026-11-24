@@ -57,7 +57,30 @@ numbers below are stated the way we measured them.
 - A four-loop streaming design (one compute loop, one disc-lookup
   loop, two unpack loops, one serialized consumption order) streams
   the whole model at up to 168.8 million weights per second on a
-  1.5-core bench VM, bit-identical in every configuration.
+  1.5-core bench VM, bit-identical in every configuration. On
+  2026-11-24 JD named this streaming system **Mega Tensor**; see
+  MEGA-TENSOR.md.
+- The pack format itself is now proven two ways: an independent
+  probe re-expands all 3.83 billion weights from the shipped pack
+  and the stream hashes to 7bd9557531df1ab7, identical to the
+  production runner's recorded checksum. Two separately written
+  decoders produce the same byte stream, so the format contract
+  is verified, not assumed. A hardening pass over all 21 tools
+  (header-length and span guards at every trust boundary,
+  hostile-fixture refusals, ASan/LSan clean) then re-ran the
+  anchor battery: every recorded anchor still reproduces exactly.
+- Dictionary compute: a packed model never has to be unpacked to
+  be used. Per-segment prototype tables turn the matrix multiply
+  into lookups, measured about 16 to 28 times faster than
+  materialize-then-multiply on a real tensor, equal to float
+  noise, with a 23-check adversarial campaign holding end to
+  end. See DICTIONARY-COMPUTE.md.
+- Little Nemo: a pure C engine for NVIDIA's Nemotron-Nano-9B-v2
+  (56-layer Mamba-2 hybrid), built as the raw-weight reference
+  the packed models will be scored against. Kernels verified
+  against hand-computed fixtures, the forward pass verified on
+  real weights, a streaming chat engine with per-layer telemetry
+  and a GUI. See LITTLE-NEMO.md.
 - Product quantization is the first representation that moves
   fidelity by a third at comparable rate. Best measured so far:
   relative L2 error 0.3148 on a projection tensor (PQ d4, RMS
@@ -70,9 +93,11 @@ numbers below are stated the way we measured them.
 
 Start with EXPERIMENTS-2026-11-24.md for the measured story,
 PIPELINE-2026-11-24.md for the streaming pipeline and its
-verification, WHAT-WE-CAN-DO.md for the capability ledger, and
-BASELINE-2026-11-23.md for the frozen baseline everything is
-judged against.
+verification, MEGA-TENSOR.md for the streaming system,
+DICTIONARY-COMPUTE.md for compute that never unpacks,
+LITTLE-NEMO.md for the Nemotron engine, WHAT-WE-CAN-DO.md for
+the capability ledger, and BASELINE-2026-11-23.md for the frozen
+baseline everything is judged against.
 
 ## Build
 
@@ -99,10 +124,11 @@ project's update packages under dist/linux64 and dist/win64.
 ## What's in the repo, and what isn't
 
 In: all tool sources under tools/ (production, research, the
-instrumented lab engine, the Triforce pipeline engine, and the
-behavioral comparator), the toy examples under examples/, build
-scripts, the baseline and experiment documents, and the text
-receipts under results/.
+instrumented lab engine, the Triforce pipeline engine, the
+behavioral comparator, and the dictionary compute probes), the
+Little Nemo engine under littlenemo/, the toy examples under
+examples/, build scripts, the baseline and experiment documents,
+and the text receipts under results/.
 
 Not in: the model itself (7.7 GB, NVIDIA's download, their
 license) and the packed .nq2 artifacts (up to 75 MB each,

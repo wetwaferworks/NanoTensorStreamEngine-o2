@@ -1,0 +1,132 @@
+=== match: k_proj ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.0.self_attn.k_proj.weight  [1024 x 3072], 12288 blocks, J=12 segments
+  active indices per segment: mean 81.5 of 256 (min 79, max 86); segments using the full book: 0/12; mean reuse 12.6 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 0.736 + apply 0.017 = 0.753 ms
+    active: mask 0.015 + build 0.258 + apply 0.026 = 0.299 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 0.292 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 3.901e-06  max abs 4.238e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.076e-06  max abs 1.418e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 4.039e-06  max abs 4.232e-06
+  recon vs RAW weights : rel L2 1.0031 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :    3.310
+    materialize + GEMV    :    2.299 + 3.327 = 5.627
+    fused reconstruct-dot :    3.333
+    NQDC build + apply    :    0.736 + 0.017 = 0.753
+  arithmetic: conventional 3145728 MACs; NQDC table 786432 + lookups 12288
+=== match: o_proj ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.0.self_attn.o_proj.weight  [3072 x 4096], 49152 blocks, J=16 segments
+  active indices per segment: mean 88.2 of 256 (min 84, max 92); segments using the full book: 0/16; mean reuse 34.8 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 0.998 + apply 0.066 = 1.064 ms
+    active: mask 0.058 + build 0.376 + apply 0.104 = 0.538 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 0.458 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 8.196e-06  max abs 5.777e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.299e-06  max abs 1.113e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 8.177e-06  max abs 4.664e-06
+  recon vs RAW weights : rel L2 0.9993 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :   13.470
+    materialize + GEMV    :    9.320 + 13.420 = 22.740
+    fused reconstruct-dot :   13.443
+    NQDC build + apply    :    0.998 + 0.066 = 1.064
+  arithmetic: conventional 12582912 MACs; NQDC table 1048576 + lookups 49152
+=== match: gate ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.0.mlp.gate_proj.weight  [9216 x 3072], 110592 blocks, J=12 segments
+  active indices per segment: mean 95.7 of 256 (min 93, max 99); segments using the full book: 0/12; mean reuse 96.3 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 0.742 + apply 0.150 = 0.891 ms
+    active: mask 0.122 + build 0.303 + apply 0.235 = 0.660 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 0.524 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 4.066e-06  max abs 2.017e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.066e-06  max abs 1.201e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 4.218e-06  max abs 3.219e-06
+  recon vs RAW weights : rel L2 0.9941 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :   30.815
+    materialize + GEMV    :   21.207 + 30.132 = 51.338
+    fused reconstruct-dot :   30.794
+    NQDC build + apply    :    0.742 + 0.150 = 0.891
+  arithmetic: conventional 28311552 MACs; NQDC table 786432 + lookups 110592
+=== match: down ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.0.mlp.down_proj.weight  [3072 x 9216], 110592 blocks, J=36 segments
+  active indices per segment: mean 89.3 of 256 (min 87, max 93); segments using the full book: 0/36; mean reuse 34.4 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 2.256 + apply 0.145 = 2.401 ms
+    active: mask 0.134 + build 0.872 + apply 0.232 = 1.238 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 1.125 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 1.151e-05  max abs 8.406e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.700e-06  max abs 1.968e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 1.155e-05  max abs 6.437e-06
+  recon vs RAW weights : rel L2 0.9992 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :   89.060
+    materialize + GEMV    :   21.922 + 30.648 = 52.570
+    fused reconstruct-dot :   30.768
+    NQDC build + apply    :    2.256 + 0.145 = 2.401
+  arithmetic: conventional 28311552 MACs; NQDC table 2359296 + lookups 110592
+=== match: layers.13 ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.13.mlp.down_proj.weight  [3072 x 9216], 110592 blocks, J=36 segments
+  active indices per segment: mean 89.6 of 256 (min 85, max 93); segments using the full book: 0/36; mean reuse 34.3 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 2.266 + apply 0.148 = 2.413 ms
+    active: mask 0.134 + build 0.869 + apply 0.233 = 1.236 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 1.067 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 1.144e-05  max abs 3.633e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.734e-06  max abs 1.716e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 1.155e-05  max abs 3.949e-06
+  recon vs RAW weights : rel L2 0.9901 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :   31.421
+    materialize + GEMV    :   23.240 + 89.891 = 113.131
+    fused reconstruct-dot :   30.526
+    NQDC build + apply    :    2.266 + 0.148 = 2.413
+  arithmetic: conventional 28311552 MACs; NQDC table 2359296 + lookups 110592
+=== match: layers.25 ===
+DC1 synthetic (M=384 N=1024 B=256 K=256):
+  NQDC  vs fp64 oracle : rel L2 1.527e-07  max abs 8.157e-08  cos 1.000000000
+  recon vs fp64 oracle : rel L2 5.728e-07  max abs 3.047e-07  cos 1.000000000
+  NQDC  vs recon       : rel L2 5.904e-07  max abs 3.576e-07
+
+DC2/DC4 real tensor: encoder.layers.25.mlp.down_proj.weight  [3072 x 9216], 110592 blocks, J=36 segments
+  active indices per segment: mean 88.7 of 256 (min 85, max 94); segments using the full book: 0/36; mean reuse 34.6 rows per entry
+  DC3 construction policies (best of 15, contended):
+    eager : build 2.258 + apply 0.146 = 2.404 ms
+    active: mask 0.138 + build 0.860 + apply 0.233 = 1.231 ms (max |diff vs eager| 0.000e+00)
+    lazy  : interleaved total 1.058 ms (max |diff vs eager| 0.000e+00)
+  NQDC  vs fp64 oracle : rel L2 1.069e-05  max abs 7.859e-06  cos 1.000000000
+  recon vs fp64 oracle : rel L2 1.405e-06  max abs 1.464e-06  cos 1.000000000
+  NQDC  vs recon       : rel L2 1.076e-05  max abs 8.464e-06
+  recon vs RAW weights : rel L2 0.9979 (the representation's own distortion)
+  timing, best of 15, CONTENDED bench (ms):
+    dense raw GEMV        :   88.917
+    materialize + GEMV    :   21.144 + 30.865 = 52.009
+    fused reconstruct-dot :   83.834
+    NQDC build + apply    :    2.258 + 0.146 = 2.404
+  arithmetic: conventional 28311552 MACs; NQDC table 2359296 + lookups 110592

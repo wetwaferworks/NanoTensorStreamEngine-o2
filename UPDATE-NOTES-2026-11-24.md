@@ -68,3 +68,40 @@ The dist/ binaries travel in this zip and attach to the GitHub
 release, because the connector's file push is text-only.
 Nothing in this package has been pushed yet; it publishes at
 JD's word.
+
+## Second update, later on 2026-11-24
+
+Written and pushed the same day, at JD's word. The release
+identity is still unchanged: version 0.1.0, rolling build
+counter 0001 (Build 0001), unpublished.
+
+- MEGA-TENSOR.md (new): JD named the streaming system under the
+  engine **Mega Tensor**. The document covers the four loops,
+  the no-walls concurrency rule (fetch, expand, prefetch run
+  concurrently; the only boundary is serialized consumption,
+  plus the pass-restart epoch), and the measured rates.
+- DICTIONARY-COMPUTE.md (new): the discovery that a packed model
+  never has to be unpacked to be used, with the math, the
+  measured speed and error figures, the adversarial campaign,
+  and the honest limits, including the break-even and the
+  not-bit-identical disclosure. Sources join the tree:
+  tools/nq2-dc.c and tools/nq2-dc-adv.c, with receipts
+  results/dc-probe-2026-11-24.txt, results/dc-adv-2026-11-24.txt,
+  and results/dc-sweep-2026-11-24.txt.
+- LITTLE-NEMO.md (new) and the littlenemo/ tree: the pure C
+  engine for Nemotron-Nano-9B-v2. Kernels verified against
+  hand-computed fixtures; the forward pass verified on the real
+  checkpoint (7/7, bit-exact across reset); the protocol engine
+  and GUI included. The document states plainly what is not
+  done: the full 56-layer run waits on the checkpoint download
+  still in flight.
+- README.md: refreshed with the Mega Tensor naming, the
+  whole-model checksum identity (an independent probe's
+  expansion of all 3.83 billion weights hashes to the runner's
+  recorded 7bd9557531df1ab7), the completed hardening pass with
+  its anchor re-verification, dictionary compute, and Little
+  Nemo.
+- The morning note above said the read-integrity hardening's own
+  exam was still to run. It has now run: hardened anchors
+  reproduce exactly (raw, packed, Triforce packed), hostile
+  fixtures are refused, and the sanitizer battery is clean.

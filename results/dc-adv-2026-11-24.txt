@@ -1,0 +1,26 @@
+NQDC adversarial suite (B=256 K=256)
+  [HOLD] comparator: no false success at zero reference wrong-vs-zero 1.000e+30 (must be huge), zero-vs-zero 0.0, NaN candidate scores NaN
+  [HOLD] zero representation agrees at zero             rel L2 0.0 at a zero reference (agreement, not false success)
+  [HOLD] delta activation                               rel L2 vs oracle 2.943e-08
+  [HOLD] zero activation gives exact zero               nonzero outputs: 0 of 128
+  [HOLD] constant activation                            rel L2 vs oracle 5.706e-08
+  [HOLD] extreme dynamic range activation               rel L2 vs oracle 1.875e-07 (10^+/-18 mix)
+  [HOLD] cancellation stress (proto sd 100, x +/-1e4)   rel L2 vs oracle 3.082e-07
+  [HOLD] NaN poisons both paths identically             nonfinite outputs: dc 64, recon 64, of 64
+  [HOLD] zero-scale blocks (pure offset)                rel L2 vs oracle 4.864e-07
+  [HOLD] fp16-max frames                                rel L2 vs oracle 5.885e-07
+  [HOLD] max reuse (one prototype per segment)          lazy max-reuse 0.044 ms, rel L2 3.00e-07
+  [HOLD] min reuse (full book per segment)              lazy min-reuse 0.777 ms, rel L2 3.23e-07
+  [HOLD] single row (M=1)                               rel L2 vs oracle 3.932e-08 at M=1
+  [HOLD] batched activations (8 columns)                worst rel L2 over 8 columns 5.400e-07
+  [HOLD] PQ d8 shared frame (offset once)               correct form rel L2 2.356e-07
+  [HOLD] PQ offset trap is real (naive form fails)      naive form rel L2 3.083e+01 (must be large)
+  [HOLD] two-stage residual dictionaries                rel L2 vs oracle 1.968e-07
+  [HOLD] learned rotation (tables against Rx)           rel L2 vs decoded oracle 1.390e-08
+  [HOLD] corrupted index tracked, not hidden            vs corrupted oracle 2.28e-07; vs clean output 0.013
+  [HOLD] stale tables diverge detectably                stale-table output rel L2 0.593 (must be large)
+  [HOLD] determinism: dc output hash stable             dc FNV 839d3f72ad1a3d60 stable x5; recon FNV bdae48bdf7a78a40; equal: no (expected: different summation order)
+    book FNV 35e1adcc254bf68e, index-stream FNV 1cd08a5dff229720
+  [HOLD] long accumulation (512 segments)               rel L2 vs oracle 4.257e-07 at J=512
+  [HOLD] subnormal activations                          rel L2 vs oracle 7.548e-05 (x ~ 1e-40)
+suite done.
