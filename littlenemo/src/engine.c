@@ -18,7 +18,9 @@
  * serially and prefetches nothing yet.
  */
 #define _POSIX_C_SOURCE 200809L
+#if !defined(_WIN32)
 #include <poll.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,10 +30,51 @@
 #include "loader.h"
 #include "tokenizer.h"
 
+#if defined(_WIN32)
+#include <conio.h>
+#include <windows.h>
+
+/* getline() is POSIX; this is the same contract built on fgetc:
+ * returns the byte count (newline included), or -1 at EOF when
+ * nothing was read. The buffer is (re)allocated as needed. */
+static long eng_getline(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n) return -1;
+    if (!*lineptr || *n == 0) {
+        *n = 128;
+        *lineptr = (char *)realloc(*lineptr, *n);
+        if (!*lineptr) return -1;
+    }
+    size_t len = 0;
+    int c;
+    while ((c = fgetc(stream)) != EOF) {
+        if (len + 2 > *n) {
+            *n *= 2;
+            char *nb = (char *)realloc(*lineptr, *n);
+            if (!nb) return -1;
+            *lineptr = nb;
+        }
+        (*lineptr)[len++] = (char)c;
+        if (c == '\n') break;
+    }
+    if (len == 0) return -1;
+    (*lineptr)[len] = '\0';
+    return (long)len;
+}
+#define getline eng_getline
+#endif
+
 static double now_ms(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER t;
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart * 1000.0 / (double)freq.QuadPart;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+#endif
 }
 
 static long peak_kb(void) {
@@ -223,10 +266,24 @@ typedef struct {
 /* Returns 1 if a command line was waiting on stdin (it is consumed
  * into e->pending_cmd; the caller checks for STOP). */
 static int poll_command(engine *e) {
+#if defined(_WIN32)
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD avail = 0;
+    DWORD type = (h == INVALID_HANDLE_VALUE) ? 0 : GetFileType(h);
+    if (type == FILE_TYPE_PIPE) {
+        if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) || avail == 0)
+            return 0;
+    } else if (type == FILE_TYPE_CHAR) {
+        if (!_kbhit()) return 0;
+    } else {
+        return 0;
+    }
+#else
     struct pollfd pfd;
     pfd.fd = 0;
     pfd.events = POLLIN;
     if (poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) return 0;
+#endif
     char *line = NULL;
     size_t cap = 0;
     if (getline(&line, &cap, stdin) < 0) {
