@@ -1,0 +1,12 @@
+NanoQuatTwo quantization report (per-tensor books, format v2)
+tensors packed: 1 (one book each)
+weights packed: 2097152
+block size: 256, entries per book: 256
+normalization: rms (no offset)
+index stream (.nq2): 41004 bytes
+memory file (.nq2book): 262164 bytes
+stream rate: 0.1564 bits per weight (stream only)
+complete rate: 1.1565 bits per weight (stream + book, two-part accounting)
+relative L2 error on real weights: 0.9597
+per-tensor relative L2:
+  replaid_embedding_matrix.matrix: 0.9597

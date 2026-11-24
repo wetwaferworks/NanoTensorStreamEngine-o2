@@ -1,0 +1,7 @@
+=== P3 joint additive codebooks vs sequential residual, q_proj, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight
+weights: 12582912 in 49152 blocks of 256, two books K 256, one minmax frame
+  seed    42: sequential 0.9146   joint (3 rounds, 25 s) 0.9124   delta -0.0023
+  seed     7: sequential 0.9180   joint (3 rounds, 34 s) 0.9156   delta -0.0023
+  seed  1234: sequential 0.9198   joint (3 rounds, 27 s) 0.9172   delta -0.0026
+rate: stream 6 bytes/block = 0.1875 bpw; books 2 x 262144 B; complete on this tensor 0.5208 bpw

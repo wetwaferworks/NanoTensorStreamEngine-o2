@@ -1,0 +1,29 @@
+=== P1 Hadamard experiment, 2026-11-24, bench/nq2-hadamard (block 256, K 256, minmax, sample 8192 blocks, iters 8, transform seed 42) ===
+
+--- q_proj (encoder.layers.0.self_attn.q_proj.weight) ---
+bare transform round trip: max abs error 4.424e-09 over 64 blocks
+
+baseline (no transform):
+  relative L2: 0.9427
+  encode: 31.74 s; decode: 1.0 M weights/s
+
+hadamard (randomized signs + normalized FWHT per block):
+  relative L2 (original space): 0.9322
+  encode: 26.19 s; decode working space: 1.0 M weights/s
+  decode + naive inverse: 0.9 M weights/s
+  decode folded book: 1.0 M weights/s; folded rel L2 0.9322; fold vs naive max abs diff 3.362e-07
+
+verdict: baseline 0.9427 -> hadamard 0.9322 (delta -0.0105)
+
+--- E matrix (replaid_embedding_matrix.matrix) ---
+bare transform round trip: max abs error 1.192e-07 over 64 blocks
+baseline (no transform): relative L2 0.9689
+hadamard: relative L2 0.9725 (delta +0.0036, worse)
+fold vs naive max abs diff 1.820e-06; folded rel L2 0.9725
+
+Note: the decode rates printed by this tool include the
+nearest-centroid assignment pass, so they are not pure
+reconstruction rates; pure reconstruction is the streamtest's
+168.8 M weights/s territory. The fold comparison (folded vs naive
+inverse) is the valid decode-side result: identical L2, max abs
+diff at fp32 rounding scale.

@@ -1,0 +1,31 @@
+=== P4 embedding specialization: the E matrix, every representation ===
+Tensor: replaid_embedding_matrix.matrix, 2,097,152 weights, F32.
+Global-pack column: the shipped baseline (rel L2 0.6922, E holding
+39.80% of all squared error at 0.9922) with only E's representation
+swapped. fp16/bf16 figures measured by round trip, 2026-11-24.
+
+representation          E rel L2   E bytes      E bpw    global if swapped
+global VQ b256 (ship)   0.9922     40,960*      0.156    0.6922 (as shipped)
+per-tensor VQ b256      0.9689     303,104      1.156    0.6903
+per-tensor RMS b256     0.9597     303,104      1.156    0.6894
+Hadamard VQ b256        0.9725     303,104      1.156    0.6906
+PQ d16 K256             0.6579     425,984      1.625    0.6124
+PQ d8 K64               0.6310     360,448      1.375    0.6046
+PQ d8 K256              0.5070     557,056      2.125    0.5816
+fp16 raw storage        0.000208   4,194,304    16.0     0.5371
+fp32 raw storage        0.000000   8,388,608    32.0     0.5371
+
+* global VQ row: E's stream bytes only; the 262,156 B book is
+  shared by all 243 tensors and is not attributable to E alone.
+  Per-tensor rows carry E's own book in the byte count.
+
+Verdict: every VQ variant leaves E essentially unreconstructed
+(0.96 to 0.99) and barely moves the global number, because E's
+error is already priced into the pack at 0.99. PQ d8 K256 is the
+best VQ-family result (global 0.5816 for about 0.56 MB). The fp16
+carve-out is the best fidelity decision: 4.19 MB against a
+75.15 MB artifact (+5.6 percent) removes 39.8 percent of the
+global squared error outright (0.6922 to 0.5371), and fp16 is
+indistinguishable from fp32 here (0.000208) at half the bytes.
+Recommendation for format v3: E ships as fp16 raw; PQ d8 is the
+fallback if bytes ever outrank fidelity.

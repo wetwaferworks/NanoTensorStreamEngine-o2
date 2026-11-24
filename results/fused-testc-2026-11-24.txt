@@ -1,0 +1,6 @@
+=== Normalization Test C: fused reconstruction (matvec), q_proj block 256 K 256, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight  [4096 x 3072], 49152 blocks of 256
+path A materialize+matvec: 5.137 s for 100 passes (245.0 M weights/s)
+path B fused matvec:        6.287 s for 100 passes (200.1 M weights/s)
+output agreement: max abs diff 0.000e+00 (same accumulation order)
+memory: expanded 50.3 MB held by A; packed 0.51 MB held by B (indices + frames + book)

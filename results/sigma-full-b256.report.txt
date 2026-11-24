@@ -1,0 +1,8 @@
+NanoQuatTwo quantization report
+tensors packed: 243
+weights packed: 1918074368
+block size: 256, entries: 256
+index stream (.nq2): 37462422 bytes
+memory file (.nq2book): 262152 bytes
+total rate: 0.1563 bits per weight (stream only; book amortizes separately)
+relative L2 error on real weights: 0.7525

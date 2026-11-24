@@ -1,0 +1,21 @@
+=== P2 product quantization, q_proj, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight
+weights: 12582912 in 49152 blocks of 256 (minmax frame)
+  flat VQ block 256 (baseline)   rel L2 0.9427   complete 0.3229 bpw (packed 0.3229)   books 262144 B   encode 30.3 s   decode 1349.0 M w/s
+  PQ d16 K256                    rel L2 0.7667   complete 0.7917 bpw (packed 0.7917)   books 262144 B   encode 27.1 s   decode 681.7 M w/s
+  PQ d8 K256                     rel L2 0.5895   complete 1.2917 bpw (packed 1.2917)   books 262144 B   encode 29.9 s   decode 152.3 M w/s
+  PQ d16 K64                     rel L2 0.8303   complete 0.6667 bpw (packed 0.5417)   books 65536 B   encode 7.0 s   decode 1186.2 M w/s
+  PQ d8 K64                      rel L2 0.6897   complete 1.1667 bpw (packed 0.9167)   books 65536 B   encode 7.4 s   decode 1345.3 M w/s
+  PQ d16 K16                     rel L2 0.9003   complete 0.6354 bpw (packed 0.3854)   books 16384 B   encode 2.0 s   decode 1442.8 M w/s
+  PQ d8 K16                      rel L2 0.8041   complete 1.1354 bpw (packed 0.6354)   books 16384 B   encode 1.8 s   decode 982.0 M w/s
+
+=== P2 product quantization, E matrix ===
+tensor: replaid_embedding_matrix.matrix
+weights: 2097152 in 8192 blocks of 256 (minmax frame)
+  flat VQ block 256 (baseline)   rel L2 0.9689   complete 1.1562 bpw (packed 1.1562)   books 262144 B   encode 24.7 s   decode 1381.0 M w/s
+  PQ d16 K256                    rel L2 0.6579   complete 1.6250 bpw (packed 1.6250)   books 262144 B   encode 18.2 s   decode 30.6 M w/s
+  PQ d8 K256                     rel L2 0.5070   complete 2.1250 bpw (packed 2.1250)   books 262144 B   encode 15.8 s   decode 1331.8 M w/s
+  PQ d16 K64                     rel L2 0.7706   complete 0.8750 bpw (packed 0.7500)   books 65536 B   encode 3.1 s   decode 762.0 M w/s
+  PQ d8 K64                      rel L2 0.6310   complete 1.3750 bpw (packed 1.1250)   books 65536 B   encode 3.8 s   decode 1324.9 M w/s
+  PQ d16 K16                     rel L2 0.8736   complete 0.6875 bpw (packed 0.4375)   books 16384 B   encode 0.9 s   decode 1359.0 M w/s
+  PQ d8 K16                      rel L2 0.7672   complete 1.1875 bpw (packed 0.6875)   books 16384 B   encode 0.9 s   decode 1378.4 M w/s

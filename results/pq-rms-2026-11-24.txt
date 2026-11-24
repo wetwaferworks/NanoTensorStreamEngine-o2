@@ -1,0 +1,25 @@
+=== PQ with RMS frame + d4 sweep, q_proj, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight
+weights: 12582912 in 49152 blocks of 256 (rms frame)
+  flat VQ block 256 (baseline)   rel L2 0.9112   complete 0.3229 bpw (packed 0.3229)   books 262144 B   encode 37.4 s   decode 1467.5 M w/s
+  PQ d16 K256                    rel L2 0.7371   complete 0.7917 bpw (packed 0.7917)   books 262144 B   encode 33.5 s   decode 939.8 M w/s
+  PQ d8 K256                     rel L2 0.5613   complete 1.2917 bpw (packed 1.2917)   books 262144 B   encode 29.7 s   decode 181.8 M w/s
+  PQ d4 K256                     rel L2 0.3148   complete 2.2917 bpw (packed 2.2917)   books 262144 B   encode 40.4 s   decode 1195.0 M w/s
+  PQ d16 K64                     rel L2 0.8012   complete 0.6667 bpw (packed 0.5417)   books 65536 B   encode 7.4 s   decode 1354.4 M w/s
+  PQ d8 K64                      rel L2 0.6578   complete 1.1667 bpw (packed 0.9167)   books 65536 B   encode 10.0 s   decode 261.9 M w/s
+  PQ d4 K64                      rel L2 0.4322   complete 2.1667 bpw (packed 1.6667)   books 65536 B   encode 9.1 s   decode 1107.9 M w/s
+  PQ d16 K16                     rel L2 0.8718   complete 0.6354 bpw (packed 0.3854)   books 16384 B   encode 2.4 s   decode 310.3 M w/s
+  PQ d8 K16                      rel L2 0.7711   complete 1.1354 bpw (packed 0.6354)   books 16384 B   encode 3.1 s   decode 162.9 M w/s
+
+=== PQ with RMS frame + d4 sweep, E matrix ===
+tensor: replaid_embedding_matrix.matrix
+weights: 2097152 in 8192 blocks of 256 (rms frame)
+  flat VQ block 256 (baseline)   rel L2 0.9597   complete 1.1562 bpw (packed 1.1562)   books 262144 B   encode 27.7 s   decode 1369.7 M w/s
+  PQ d16 K256                    rel L2 0.6396   complete 1.6250 bpw (packed 1.6250)   books 262144 B   encode 20.9 s   decode 1484.4 M w/s
+  PQ d8 K256                     rel L2 0.4932   complete 2.1250 bpw (packed 2.1250)   books 262144 B   encode 20.9 s   decode 690.4 M w/s
+  PQ d4 K256                     rel L2 0.2771   complete 3.1250 bpw (packed 3.1250)   books 262144 B   encode 28.9 s   decode 1169.4 M w/s
+  PQ d16 K64                     rel L2 0.7544   complete 0.8750 bpw (packed 0.7500)   books 65536 B   encode 4.2 s   decode 1482.0 M w/s
+  PQ d8 K64                      rel L2 0.6170   complete 1.3750 bpw (packed 1.1250)   books 65536 B   encode 6.3 s   decode 1411.9 M w/s
+  PQ d4 K64                      rel L2 0.4018   complete 2.3750 bpw (packed 1.8750)   books 65536 B   encode 6.3 s   decode 1092.3 M w/s
+  PQ d16 K16                     rel L2 0.8601   complete 0.6875 bpw (packed 0.4375)   books 16384 B   encode 1.4 s   decode 779.1 M w/s
+  PQ d8 K16                      rel L2 0.7540   complete 1.1875 bpw (packed 0.6875)   books 16384 B   encode 1.3 s   decode 1380.0 M w/s

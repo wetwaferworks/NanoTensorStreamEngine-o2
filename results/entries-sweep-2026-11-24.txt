@@ -1,0 +1,9 @@
+=== entries sweep past 256, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight (12582912 weights), minmax frame, sample 8192, iters 8
+  block  256 K  512: rel L2 0.9325   complete 0.4935 bpw packed / 0.5208 bpw 2-byte idx   book 524288 B   72 s
+  block  256 K 1024: rel L2 0.9210   complete 0.8307 bpw packed / 0.8542 bpw 2-byte idx   book 1048576 B   151 s
+  block   32 K  512: rel L2 0.8710   complete 1.3229 bpw packed / 1.5417 bpw 2-byte idx   book 65536 B   32 s
+tensor: replaid_embedding_matrix.matrix (2097152 weights), minmax frame, sample 8192, iters 8
+  block  256 K  512: rel L2 0.9499   complete 2.1602 bpw packed / 2.1875 bpw 2-byte idx   book 524288 B   47 s
+  block  256 K 1024: rel L2 0.9174   complete 4.1641 bpw packed / 4.1875 bpw 2-byte idx   book 1048576 B   82 s
+  block   32 K  512: rel L2 0.8491   complete 1.5312 bpw packed / 1.7500 bpw 2-byte idx   book 65536 B   8 s

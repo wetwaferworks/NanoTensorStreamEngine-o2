@@ -1,0 +1,287 @@
+per-tensor error breakdown: results/sigma-full-b256-v2run.nq2
+total relative L2: 0.6922 over 243 tensors (fallback weights unpacked: 34)
+
+top 15 tensors by share of total squared error:
+  replaid_embedding_matrix.matrix                      rel L2 0.9922  err share 39.80%  (cum 39.8%)
+  encoder.embed_tokens.weight                          rel L2 0.9885  err share  5.32%  (cum 45.1%)
+  diffusion_head.weight                                rel L2 0.8491  err share  5.31%  (cum 50.4%)
+  encoder.layers.25.mlp.gate_proj.weight               rel L2 0.9940  err share  0.79%  (cum 51.2%)
+  encoder.layers.24.mlp.gate_proj.weight               rel L2 0.9941  err share  0.60%  (cum 51.8%)
+  encoder.layers.23.mlp.gate_proj.weight               rel L2 0.9941  err share  0.59%  (cum 52.4%)
+  encoder.layers.22.mlp.gate_proj.weight               rel L2 0.9941  err share  0.56%  (cum 53.0%)
+  encoder.layers.7.mlp.gate_proj.weight                rel L2 0.9939  err share  0.54%  (cum 53.5%)
+  encoder.layers.21.mlp.gate_proj.weight               rel L2 0.9942  err share  0.54%  (cum 54.1%)
+  encoder.layers.0.self_attn.q_proj.weight             rel L2 0.9921  err share  0.53%  (cum 54.6%)
+  encoder.layers.25.mlp.up_proj.weight                 rel L2 0.9944  err share  0.52%  (cum 55.1%)
+  encoder.layers.20.mlp.up_proj.weight                 rel L2 0.9943  err share  0.52%  (cum 55.6%)
+  encoder.layers.8.mlp.gate_proj.weight                rel L2 0.9941  err share  0.50%  (cum 56.1%)
+  encoder.layers.19.mlp.up_proj.weight                 rel L2 0.9943  err share  0.50%  (cum 56.6%)
+  encoder.layers.6.mlp.gate_proj.weight                rel L2 0.9940  err share  0.49%  (cum 57.1%)
+
+full ranked table (all tensors, by share of total squared error):
+rank  tensor                                                     params   rel L2    err %    cum %  representation
+   1  replaid_embedding_matrix.matrix                           2097152   0.9922    39.80    39.80  global book, block 256
+   2  encoder.embed_tokens.weight                             402653184   0.9885     5.32    45.12  global book, block 256
+   3  diffusion_head.weight                                   402653184   0.8491     5.31    50.43  global book, block 256
+   4  encoder.layers.25.mlp.gate_proj.weight                   28311552   0.9940     0.79    51.22  global book, block 256
+   5  encoder.layers.24.mlp.gate_proj.weight                   28311552   0.9941     0.60    51.83  global book, block 256
+   6  encoder.layers.23.mlp.gate_proj.weight                   28311552   0.9941     0.59    52.42  global book, block 256
+   7  encoder.layers.22.mlp.gate_proj.weight                   28311552   0.9941     0.56    52.98  global book, block 256
+   8  encoder.layers.7.mlp.gate_proj.weight                    28311552   0.9939     0.54    53.52  global book, block 256
+   9  encoder.layers.21.mlp.gate_proj.weight                   28311552   0.9942     0.54    54.06  global book, block 256
+  10  encoder.layers.0.self_attn.q_proj.weight                 12582912   0.9921     0.53    54.59  global book, block 256
+  11  encoder.layers.25.mlp.up_proj.weight                     28311552   0.9944     0.52    55.11  global book, block 256
+  12  encoder.layers.20.mlp.up_proj.weight                     28311552   0.9943     0.52    55.63  global book, block 256
+  13  encoder.layers.8.mlp.gate_proj.weight                    28311552   0.9941     0.50    56.12  global book, block 256
+  14  encoder.layers.19.mlp.up_proj.weight                     28311552   0.9943     0.50    56.62  global book, block 256
+  15  encoder.layers.6.mlp.gate_proj.weight                    28311552   0.9940     0.49    57.11  global book, block 256
+  16  encoder.layers.4.mlp.gate_proj.weight                    28311552   0.9941     0.49    57.61  global book, block 256
+  17  encoder.layers.20.mlp.down_proj.weight                   28311552   0.9951     0.49    58.10  global book, block 256
+  18  encoder.layers.9.mlp.gate_proj.weight                    28311552   0.9940     0.49    58.58  global book, block 256
+  19  encoder.layers.17.mlp.up_proj.weight                     28311552   0.9943     0.48    59.07  global book, block 256
+  20  encoder.layers.18.mlp.up_proj.weight                     28311552   0.9944     0.48    59.55  global book, block 256
+  21  encoder.layers.3.mlp.gate_proj.weight                    28311552   0.9942     0.48    60.03  global book, block 256
+  22  encoder.layers.5.mlp.gate_proj.weight                    28311552   0.9941     0.48    60.51  global book, block 256
+  23  encoder.layers.19.mlp.down_proj.weight                   28311552   0.9950     0.47    60.98  global book, block 256
+  24  encoder.layers.16.mlp.up_proj.weight                     28311552   0.9943     0.47    61.45  global book, block 256
+  25  encoder.layers.21.mlp.up_proj.weight                     28311552   0.9943     0.47    61.92  global book, block 256
+  26  encoder.layers.10.mlp.gate_proj.weight                   28311552   0.9940     0.47    62.39  global book, block 256
+  27  encoder.layers.15.mlp.up_proj.weight                     28311552   0.9943     0.47    62.85  global book, block 256
+  28  encoder.layers.23.mlp.up_proj.weight                     28311552   0.9943     0.46    63.31  global book, block 256
+  29  encoder.layers.22.mlp.up_proj.weight                     28311552   0.9943     0.46    63.78  global book, block 256
+  30  encoder.layers.24.mlp.up_proj.weight                     28311552   0.9943     0.46    64.23  global book, block 256
+  31  encoder.layers.2.mlp.gate_proj.weight                    28311552   0.9943     0.46    64.69  global book, block 256
+  32  encoder.layers.18.mlp.down_proj.weight                   28311552   0.9954     0.46    65.15  global book, block 256
+  33  encoder.layers.18.mlp.gate_proj.weight                   28311552   0.9941     0.46    65.61  global book, block 256
+  34  encoder.layers.19.mlp.gate_proj.weight                   28311552   0.9942     0.46    66.06  global book, block 256
+  35  encoder.layers.17.mlp.down_proj.weight                   28311552   0.9965     0.46    66.52  global book, block 256
+  36  encoder.layers.20.mlp.gate_proj.weight                   28311552   0.9942     0.46    66.98  global book, block 256
+  37  encoder.layers.12.mlp.up_proj.weight                     28311552   0.9943     0.45    67.43  global book, block 256
+  38  encoder.layers.13.mlp.up_proj.weight                     28311552   0.9944     0.45    67.88  global book, block 256
+  39  encoder.layers.21.mlp.down_proj.weight                   28311552   0.9954     0.45    68.33  global book, block 256
+  40  encoder.layers.11.mlp.up_proj.weight                     28311552   0.9943     0.45    68.77  global book, block 256
+  41  encoder.layers.16.mlp.down_proj.weight                   28311552   0.9957     0.45    69.22  global book, block 256
+  42  encoder.layers.15.mlp.down_proj.weight                   28311552   0.9957     0.44    69.66  global book, block 256
+  43  encoder.layers.14.mlp.up_proj.weight                     28311552   0.9943     0.44    70.11  global book, block 256
+  44  encoder.layers.22.mlp.down_proj.weight                   28311552   0.9950     0.44    70.55  global book, block 256
+  45  encoder.layers.17.mlp.gate_proj.weight                   28311552   0.9941     0.44    70.99  global book, block 256
+  46  encoder.layers.23.mlp.down_proj.weight                   28311552   0.9950     0.43    71.42  global book, block 256
+  47  encoder.layers.10.mlp.up_proj.weight                     28311552   0.9943     0.43    71.86  global book, block 256
+  48  encoder.layers.13.mlp.down_proj.weight                   28311552   0.9954     0.43    72.29  global book, block 256
+  49  encoder.layers.12.mlp.down_proj.weight                   28311552   0.9954     0.43    72.72  global book, block 256
+  50  encoder.layers.11.mlp.down_proj.weight                   28311552   0.9950     0.43    73.15  global book, block 256
+  51  encoder.layers.14.mlp.down_proj.weight                   28311552   0.9955     0.43    73.58  global book, block 256
+  52  encoder.layers.16.mlp.gate_proj.weight                   28311552   0.9941     0.43    74.01  global book, block 256
+  53  encoder.layers.11.mlp.gate_proj.weight                   28311552   0.9941     0.43    74.43  global book, block 256
+  54  encoder.layers.1.mlp.gate_proj.weight                    28311552   0.9944     0.42    74.86  global book, block 256
+  55  encoder.layers.24.mlp.down_proj.weight                   28311552   0.9985     0.42    75.28  global book, block 256
+  56  encoder.layers.9.mlp.up_proj.weight                      28311552   0.9943     0.42    75.70  global book, block 256
+  57  encoder.layers.10.mlp.down_proj.weight                   28311552   0.9948     0.42    76.12  global book, block 256
+  58  encoder.layers.12.mlp.gate_proj.weight                   28311552   0.9941     0.42    76.54  global book, block 256
+  59  encoder.layers.8.mlp.up_proj.weight                      28311552   0.9944     0.41    76.95  global book, block 256
+  60  encoder.layers.9.mlp.down_proj.weight                    28311552   0.9948     0.41    77.37  global book, block 256
+  61  encoder.layers.8.mlp.down_proj.weight                    28311552   0.9948     0.41    77.77  global book, block 256
+  62  encoder.layers.13.mlp.gate_proj.weight                   28311552   0.9940     0.41    78.18  global book, block 256
+  63  encoder.layers.6.mlp.up_proj.weight                      28311552   0.9944     0.40    78.58  global book, block 256
+  64  encoder.layers.6.mlp.down_proj.weight                    28311552   0.9958     0.40    78.98  global book, block 256
+  65  encoder.layers.0.mlp.gate_proj.weight                    28311552   0.9952     0.40    79.38  global book, block 256
+  66  encoder.layers.14.mlp.gate_proj.weight                   28311552   0.9940     0.39    79.77  global book, block 256
+  67  encoder.layers.7.mlp.up_proj.weight                      28311552   0.9943     0.39    80.16  global book, block 256
+  68  encoder.layers.15.mlp.gate_proj.weight                   28311552   0.9941     0.39    80.55  global book, block 256
+  69  encoder.layers.5.mlp.down_proj.weight                    28311552   0.9956     0.39    80.94  global book, block 256
+  70  encoder.layers.5.mlp.up_proj.weight                      28311552   0.9944     0.39    81.33  global book, block 256
+  71  encoder.layers.7.mlp.down_proj.weight                    28311552   0.9950     0.39    81.72  global book, block 256
+  72  encoder.layers.2.mlp.up_proj.weight                      28311552   0.9944     0.38    82.10  global book, block 256
+  73  encoder.layers.4.mlp.up_proj.weight                      28311552   0.9943     0.38    82.47  global book, block 256
+  74  encoder.layers.2.mlp.down_proj.weight                    28311552   0.9958     0.37    82.85  global book, block 256
+  75  encoder.layers.1.mlp.down_proj.weight                    28311552   0.9957     0.37    83.22  global book, block 256
+  76  encoder.layers.3.mlp.up_proj.weight                      28311552   0.9944     0.37    83.59  global book, block 256
+  77  encoder.layers.4.mlp.down_proj.weight                    28311552   0.9965     0.37    83.96  global book, block 256
+  78  encoder.layers.3.mlp.down_proj.weight                    28311552   0.9960     0.37    84.33  global book, block 256
+  79  encoder.layers.1.mlp.up_proj.weight                      28311552   0.9948     0.37    84.70  global book, block 256
+  80  encoder.layers.0.mlp.down_proj.weight                    28311552   0.9961     0.37    85.06  global book, block 256
+  81  encoder.layers.0.mlp.up_proj.weight                      28311552   0.9951     0.36    85.42  global book, block 256
+  82  encoder.layers.25.mlp.down_proj.weight                   28311552   1.0077     0.35    85.77  global book, block 256
+  83  encoder.layers.2.self_attn.q_proj.weight                 12582912   0.9942     0.33    86.11  global book, block 256
+  84  encoder.layers.1.self_attn.q_proj.weight                 12582912   0.9946     0.33    86.44  global book, block 256
+  85  encoder.layers.5.self_attn.q_proj.weight                 12582912   0.9942     0.29    86.73  global book, block 256
+  86  encoder.layers.9.self_attn.q_proj.weight                 12582912   0.9942     0.28    87.01  global book, block 256
+  87  encoder.layers.7.self_attn.q_proj.weight                 12582912   0.9942     0.28    87.29  global book, block 256
+  88  encoder.layers.4.self_attn.q_proj.weight                 12582912   0.9942     0.28    87.58  global book, block 256
+  89  encoder.layers.10.self_attn.q_proj.weight                12582912   0.9942     0.28    87.85  global book, block 256
+  90  encoder.layers.8.self_attn.q_proj.weight                 12582912   0.9942     0.28    88.13  global book, block 256
+  91  encoder.layers.11.self_attn.q_proj.weight                12582912   0.9943     0.28    88.41  global book, block 256
+  92  encoder.layers.3.self_attn.q_proj.weight                 12582912   0.9942     0.27    88.68  global book, block 256
+  93  encoder.layers.6.self_attn.q_proj.weight                 12582912   0.9941     0.27    88.95  global book, block 256
+  94  encoder.layers.25.self_attn.o_proj.weight                12582912   0.9947     0.27    89.22  global book, block 256
+  95  encoder.layers.0.self_attn.k_proj.weight                  3145728   0.9920     0.27    89.49  global book, block 256
+  96  encoder.layers.12.self_attn.q_proj.weight                12582912   0.9942     0.26    89.75  global book, block 256
+  97  encoder.layers.13.self_attn.q_proj.weight                12582912   0.9942     0.26    90.01  global book, block 256
+  98  encoder.layers.16.self_attn.q_proj.weight                12582912   0.9943     0.25    90.26  global book, block 256
+  99  encoder.layers.18.self_attn.q_proj.weight                12582912   0.9943     0.25    90.52  global book, block 256
+ 100  encoder.layers.20.self_attn.q_proj.weight                12582912   0.9943     0.25    90.77  global book, block 256
+ 101  encoder.layers.15.self_attn.q_proj.weight                12582912   0.9943     0.25    91.02  global book, block 256
+ 102  encoder.layers.19.self_attn.q_proj.weight                12582912   0.9942     0.25    91.27  global book, block 256
+ 103  encoder.layers.24.self_attn.o_proj.weight                12582912   0.9947     0.25    91.52  global book, block 256
+ 104  encoder.layers.21.self_attn.q_proj.weight                12582912   0.9943     0.25    91.77  global book, block 256
+ 105  encoder.layers.17.self_attn.q_proj.weight                12582912   0.9942     0.25    92.02  global book, block 256
+ 106  encoder.layers.14.self_attn.q_proj.weight                12582912   0.9942     0.25    92.26  global book, block 256
+ 107  encoder.layers.23.self_attn.o_proj.weight                12582912   0.9947     0.24    92.50  global book, block 256
+ 108  encoder.layers.22.self_attn.q_proj.weight                12582912   0.9942     0.23    92.73  global book, block 256
+ 109  encoder.layers.25.self_attn.q_proj.weight                12582912   0.9942     0.21    92.94  global book, block 256
+ 110  encoder.layers.23.self_attn.q_proj.weight                12582912   0.9942     0.21    93.15  global book, block 256
+ 111  encoder.layers.24.self_attn.q_proj.weight                12582912   0.9942     0.20    93.35  global book, block 256
+ 112  encoder.layers.22.self_attn.o_proj.weight                12582912   0.9948     0.19    93.54  global book, block 256
+ 113  encoder.layers.21.self_attn.o_proj.weight                12582912   0.9947     0.18    93.72  global book, block 256
+ 114  encoder.layers.20.self_attn.o_proj.weight                12582912   0.9949     0.17    93.88  global book, block 256
+ 115  encoder.layers.19.self_attn.o_proj.weight                12582912   0.9949     0.15    94.04  global book, block 256
+ 116  encoder.layers.17.self_attn.o_proj.weight                12582912   0.9947     0.15    94.19  global book, block 256
+ 117  encoder.layers.18.self_attn.o_proj.weight                12582912   0.9948     0.15    94.34  global book, block 256
+ 118  encoder.layers.15.self_attn.o_proj.weight                12582912   0.9949     0.15    94.48  global book, block 256
+ 119  encoder.layers.10.self_attn.o_proj.weight                12582912   0.9953     0.15    94.63  global book, block 256
+ 120  encoder.layers.16.self_attn.o_proj.weight                12582912   0.9951     0.15    94.77  global book, block 256
+ 121  encoder.layers.9.self_attn.o_proj.weight                 12582912   0.9950     0.14    94.92  global book, block 256
+ 122  encoder.layers.8.self_attn.o_proj.weight                 12582912   0.9948     0.14    95.06  global book, block 256
+ 123  encoder.layers.6.self_attn.o_proj.weight                 12582912   0.9949     0.14    95.20  global book, block 256
+ 124  encoder.layers.7.self_attn.o_proj.weight                 12582912   0.9948     0.14    95.34  global book, block 256
+ 125  encoder.layers.12.self_attn.o_proj.weight                12582912   0.9949     0.14    95.47  global book, block 256
+ 126  encoder.layers.14.self_attn.o_proj.weight                12582912   0.9949     0.13    95.61  global book, block 256
+ 127  encoder.layers.5.self_attn.o_proj.weight                 12582912   0.9948     0.13    95.74  global book, block 256
+ 128  encoder.layers.11.self_attn.o_proj.weight                12582912   0.9952     0.13    95.87  global book, block 256
+ 129  encoder.layers.2.self_attn.k_proj.weight                  3145728   0.9946     0.13    96.00  global book, block 256
+ 130  encoder.layers.1.self_attn.k_proj.weight                  3145728   0.9949     0.13    96.13  global book, block 256
+ 131  encoder.layers.13.self_attn.o_proj.weight                12582912   0.9951     0.13    96.26  global book, block 256
+ 132  encoder.layers.4.self_attn.o_proj.weight                 12582912   0.9952     0.13    96.39  global book, block 256
+ 133  encoder.layers.11.self_attn.k_proj.weight                 3145728   0.9943     0.12    96.50  global book, block 256
+ 134  encoder.layers.2.self_attn.o_proj.weight                 12582912   0.9958     0.11    96.61  global book, block 256
+ 135  encoder.layers.3.self_attn.o_proj.weight                 12582912   0.9950     0.11    96.72  global book, block 256
+ 136  encoder.layers.5.self_attn.k_proj.weight                  3145728   0.9943     0.11    96.83  global book, block 256
+ 137  encoder.layers.10.self_attn.k_proj.weight                 3145728   0.9942     0.11    96.94  global book, block 256
+ 138  encoder.layers.9.self_attn.k_proj.weight                  3145728   0.9942     0.11    97.04  global book, block 256
+ 139  encoder.layers.12.self_attn.k_proj.weight                 3145728   0.9942     0.11    97.15  global book, block 256
+ 140  encoder.layers.7.self_attn.k_proj.weight                  3145728   0.9942     0.10    97.25  global book, block 256
+ 141  encoder.layers.1.self_attn.o_proj.weight                 12582912   0.9956     0.10    97.35  global book, block 256
+ 142  encoder.layers.3.self_attn.k_proj.weight                  3145728   0.9942     0.10    97.45  global book, block 256
+ 143  encoder.layers.4.self_attn.k_proj.weight                  3145728   0.9943     0.10    97.55  global book, block 256
+ 144  encoder.layers.8.self_attn.k_proj.weight                  3145728   0.9942     0.10    97.65  global book, block 256
+ 145  encoder.layers.24.self_attn.v_proj.weight                 3145728   0.9943     0.10    97.75  global book, block 256
+ 146  encoder.layers.13.self_attn.k_proj.weight                 3145728   0.9943     0.09    97.84  global book, block 256
+ 147  encoder.layers.25.self_attn.v_proj.weight                 3145728   0.9945     0.09    97.93  global book, block 256
+ 148  encoder.layers.14.self_attn.k_proj.weight                 3145728   0.9943     0.09    98.03  global book, block 256
+ 149  encoder.layers.6.self_attn.k_proj.weight                  3145728   0.9942     0.09    98.12  global book, block 256
+ 150  encoder.layers.23.self_attn.v_proj.weight                 3145728   0.9944     0.09    98.21  global book, block 256
+ 151  encoder.layers.19.self_attn.k_proj.weight                 3145728   0.9943     0.09    98.29  global book, block 256
+ 152  encoder.layers.17.self_attn.k_proj.weight                 3145728   0.9943     0.08    98.38  global book, block 256
+ 153  encoder.layers.18.self_attn.k_proj.weight                 3145728   0.9943     0.08    98.46  global book, block 256
+ 154  encoder.layers.15.self_attn.k_proj.weight                 3145728   0.9943     0.08    98.54  global book, block 256
+ 155  encoder.layers.16.self_attn.k_proj.weight                 3145728   0.9943     0.08    98.62  global book, block 256
+ 156  encoder.layers.20.self_attn.k_proj.weight                 3145728   0.9943     0.08    98.70  global book, block 256
+ 157  encoder.layers.21.self_attn.k_proj.weight                 3145728   0.9946     0.07    98.77  global book, block 256
+ 158  encoder.layers.0.self_attn.o_proj.weight                 12582912   1.0009     0.07    98.84  global book, block 256
+ 159  encoder.layers.25.self_attn.k_proj.weight                 3145728   0.9950     0.06    98.90  global book, block 256
+ 160  encoder.layers.22.self_attn.k_proj.weight                 3145728   0.9945     0.06    98.96  global book, block 256
+ 161  encoder.layers.22.self_attn.v_proj.weight                 3145728   0.9945     0.06    99.02  global book, block 256
+ 162  encoder.layers.24.self_attn.k_proj.weight                 3145728   0.9946     0.05    99.07  global book, block 256
+ 163  encoder.norm.weight                                          3072   0.0538     0.05    99.12  global book, block 256
+ 164  encoder.layers.23.self_attn.k_proj.weight                 3145728   0.9945     0.05    99.17  global book, block 256
+ 165  encoder.layers.21.self_attn.v_proj.weight                 3145728   0.9944     0.05    99.22  global book, block 256
+ 166  encoder.layers.20.self_attn.v_proj.weight                 3145728   0.9944     0.04    99.26  global book, block 256
+ 167  encoder.layers.19.self_attn.v_proj.weight                 3145728   0.9944     0.04    99.30  global book, block 256
+ 168  encoder.layers.15.self_attn.v_proj.weight                 3145728   0.9944     0.04    99.33  global book, block 256
+ 169  encoder.layers.18.self_attn.v_proj.weight                 3145728   0.9943     0.03    99.37  global book, block 256
+ 170  encoder.layers.16.self_attn.v_proj.weight                 3145728   0.9945     0.03    99.40  global book, block 256
+ 171  encoder.layers.17.self_attn.v_proj.weight                 3145728   0.9945     0.03    99.43  global book, block 256
+ 172  encoder.layers.6.self_attn.v_proj.weight                  3145728   0.9944     0.03    99.46  global book, block 256
+ 173  encoder.layers.8.self_attn.v_proj.weight                  3145728   0.9943     0.03    99.49  global book, block 256
+ 174  encoder.layers.10.self_attn.v_proj.weight                 3145728   0.9944     0.03    99.52  global book, block 256
+ 175  encoder.layers.7.self_attn.v_proj.weight                  3145728   0.9944     0.03    99.55  global book, block 256
+ 176  encoder.layers.9.self_attn.v_proj.weight                  3145728   0.9945     0.03    99.58  global book, block 256
+ 177  encoder.layers.5.self_attn.v_proj.weight                  3145728   0.9944     0.03    99.61  global book, block 256
+ 178  encoder.layers.14.self_attn.v_proj.weight                 3145728   0.9944     0.03    99.64  global book, block 256
+ 179  encoder.layers.0.input_layernorm.weight                      3072   0.7645     0.03    99.66  global book, block 256
+ 180  encoder.layers.4.self_attn.v_proj.weight                  3145728   0.9943     0.03    99.69  global book, block 256
+ 181  encoder.layers.12.self_attn.v_proj.weight                 3145728   0.9945     0.03    99.71  global book, block 256
+ 182  encoder.layers.13.self_attn.v_proj.weight                 3145728   0.9945     0.02    99.74  global book, block 256
+ 183  encoder.layers.3.self_attn.v_proj.weight                  3145728   0.9942     0.02    99.76  global book, block 256
+ 184  encoder.layers.11.self_attn.v_proj.weight                 3145728   0.9944     0.02    99.78  global book, block 256
+ 185  encoder.layers.2.self_attn.v_proj.weight                  3145728   0.9951     0.02    99.80  global book, block 256
+ 186  encoder.layers.1.self_attn.v_proj.weight                  3145728   0.9944     0.02    99.82  global book, block 256
+ 187  encoder.layers.0.self_attn.v_proj.weight                  3145728   0.9958     0.02    99.83  global book, block 256
+ 188  encoder.layers.22.input_layernorm.weight                     3072   0.0586     0.01    99.84  global book, block 256
+ 189  encoder.layers.21.input_layernorm.weight                     3072   0.0574     0.01    99.85  global book, block 256
+ 190  encoder.layers.25.post_attention_layernorm.weight            3072   0.0516     0.01    99.86  global book, block 256
+ 191  encoder.layers.25.input_layernorm.weight                     3072   0.0501     0.01    99.86  global book, block 256
+ 192  encoder.layers.20.input_layernorm.weight                     3072   0.0538     0.01    99.87  global book, block 256
+ 193  encoder.layers.23.input_layernorm.weight                     3072   0.0481     0.01    99.88  global book, block 256
+ 194  encoder.layers.3.input_layernorm.weight                      3072   0.0717     0.01    99.89  global book, block 256
+ 195  encoder.layers.24.input_layernorm.weight                     3072   0.0439     0.01    99.89  global book, block 256
+ 196  encoder.layers.19.input_layernorm.weight                     3072   0.0445     0.01    99.90  global book, block 256
+ 197  encoder.layers.13.input_layernorm.weight                     3072   0.0479     0.01    99.90  global book, block 256
+ 198  encoder.layers.12.input_layernorm.weight                     3072   0.0512     0.00    99.91  global book, block 256
+ 199  encoder.layers.18.input_layernorm.weight                     3072   0.0419     0.00    99.91  global book, block 256
+ 200  encoder.layers.11.input_layernorm.weight                     3072   0.0463     0.00    99.91  global book, block 256
+ 201  encoder.layers.16.input_layernorm.weight                     3072   0.0399     0.00    99.92  global book, block 256
+ 202  encoder.layers.14.input_layernorm.weight                     3072   0.0425     0.00    99.92  global book, block 256
+ 203  encoder.layers.22.post_attention_layernorm.weight            3072   0.0356     0.00    99.93  global book, block 256
+ 204  encoder.layers.17.input_layernorm.weight                     3072   0.0378     0.00    99.93  global book, block 256
+ 205  encoder.layers.15.input_layernorm.weight                     3072   0.0439     0.00    99.93  global book, block 256
+ 206  encoder.layers.24.post_attention_layernorm.weight            3072   0.0320     0.00    99.94  global book, block 256
+ 207  encoder.layers.21.post_attention_layernorm.weight            3072   0.0365     0.00    99.94  global book, block 256
+ 208  encoder.layers.7.input_layernorm.weight                      3072   0.0447     0.00    99.94  global book, block 256
+ 209  encoder.layers.8.input_layernorm.weight                      3072   0.0458     0.00    99.95  global book, block 256
+ 210  encoder.layers.6.input_layernorm.weight                      3072   0.0469     0.00    99.95  global book, block 256
+ 211  encoder.layers.10.input_layernorm.weight                     3072   0.0413     0.00    99.95  global book, block 256
+ 212  encoder.layers.20.post_attention_layernorm.weight            3072   0.0356     0.00    99.95  global book, block 256
+ 213  encoder.layers.19.post_attention_layernorm.weight            3072   0.0381     0.00    99.96  global book, block 256
+ 214  encoder.layers.23.post_attention_layernorm.weight            3072   0.0282     0.00    99.96  global book, block 256
+ 215  encoder.layers.4.input_layernorm.weight                      3072   0.0469     0.00    99.96  global book, block 256
+ 216  encoder.layers.1.input_layernorm.weight                      3072   0.0606     0.00    99.96  global book, block 256
+ 217  encoder.layers.9.input_layernorm.weight                      3072   0.0371     0.00    99.97  global book, block 256
+ 218  encoder.layers.18.post_attention_layernorm.weight            3072   0.0365     0.00    99.97  global book, block 256
+ 219  encoder.layers.0.post_attention_layernorm.weight             3072   0.0591     0.00    99.97  global book, block 256
+ 220  replaid_selfcond_linear.weight                              49152   0.9928     0.00    99.97  global book, block 256
+ 221  replaid_input_linear.weight                                 49152   0.9953     0.00    99.97  global book, block 256
+ 222  encoder.layers.5.input_layernorm.weight                      3072   0.0393     0.00    99.98  global book, block 256
+ 223  encoder.layers.9.post_attention_layernorm.weight             3072   0.0391     0.00    99.98  global book, block 256
+ 224  encoder.layers.7.post_attention_layernorm.weight             3072   0.0402     0.00    99.98  global book, block 256
+ 225  encoder.layers.2.input_layernorm.weight                      3072   0.0536     0.00    99.98  global book, block 256
+ 226  encoder.layers.8.post_attention_layernorm.weight             3072   0.0384     0.00    99.98  global book, block 256
+ 227  encoder.layers.10.post_attention_layernorm.weight            3072   0.0360     0.00    99.99  global book, block 256
+ 228  encoder.layers.2.post_attention_layernorm.weight             3072   0.0439     0.00    99.99  global book, block 256
+ 229  encoder.layers.3.post_attention_layernorm.weight             3072   0.0422     0.00    99.99  global book, block 256
+ 230  encoder.layers.1.post_attention_layernorm.weight             3072   0.0463     0.00    99.99  global book, block 256
+ 231  encoder.layers.4.post_attention_layernorm.weight             3072   0.0391     0.00    99.99  global book, block 256
+ 232  encoder.layers.5.post_attention_layernorm.weight             3072   0.0372     0.00    99.99  global book, block 256
+ 233  encoder.layers.6.post_attention_layernorm.weight             3072   0.0361     0.00    99.99  global book, block 256
+ 234  encoder.layers.11.post_attention_layernorm.weight            3072   0.0335     0.00    99.99  global book, block 256
+ 235  encoder.layers.17.post_attention_layernorm.weight            3072   0.0258     0.00   100.00  global book, block 256
+ 236  encoder.layers.12.post_attention_layernorm.weight            3072   0.0300     0.00   100.00  global book, block 256
+ 237  encoder.layers.14.post_attention_layernorm.weight            3072   0.0276     0.00   100.00  global book, block 256
+ 238  encoder.layers.13.post_attention_layernorm.weight            3072   0.0279     0.00   100.00  global book, block 256
+ 239  encoder.layers.16.post_attention_layernorm.weight            3072   0.0256     0.00   100.00  global book, block 256
+ 240  encoder.layers.15.post_attention_layernorm.weight            3072   0.0229     0.00   100.00  global book, block 256
+ 241  replaid_gamma_linear.weight                                196608   0.9873     0.00   100.00  global book, block 256
+ 242  gamma_bounds.endpoint_values                                    2   0.0000     0.00   100.00  raw fallback (unpacked)
+ 243  noise_schedule.increment_values                                32   0.0000     0.00   100.00  raw fallback (unpacked)
+
+worst 10 tensors by their own relative L2:
+  encoder.layers.25.mlp.down_proj.weight               rel L2 1.0077  (28311552 weights)
+  encoder.layers.0.self_attn.o_proj.weight             rel L2 1.0009  (12582912 weights)
+  encoder.layers.24.mlp.down_proj.weight               rel L2 0.9985  (28311552 weights)
+  encoder.layers.4.mlp.down_proj.weight                rel L2 0.9965  (28311552 weights)
+  encoder.layers.17.mlp.down_proj.weight               rel L2 0.9965  (28311552 weights)
+  encoder.layers.0.mlp.down_proj.weight                rel L2 0.9961  (28311552 weights)
+  encoder.layers.3.mlp.down_proj.weight                rel L2 0.9960  (28311552 weights)
+  encoder.layers.2.mlp.down_proj.weight                rel L2 0.9958  (28311552 weights)
+  encoder.layers.0.self_attn.v_proj.weight             rel L2 0.9958  (3145728 weights)
+  encoder.layers.6.mlp.down_proj.weight                rel L2 0.9958  (28311552 weights)
+
+best 5 tensors by their own relative L2:
+  encoder.layers.17.post_attention_layernorm.weight    rel L2 0.0258  (3072 weights)
+  encoder.layers.16.post_attention_layernorm.weight    rel L2 0.0256  (3072 weights)
+  encoder.layers.15.post_attention_layernorm.weight    rel L2 0.0229  (3072 weights)
+  gamma_bounds.endpoint_values                         rel L2 0.0000  (0 weights)
+  noise_schedule.increment_values                      rel L2 0.0000  (0 weights)
+
+summary: top-10 tensors hold 54.6% of the squared error;
+median per-tensor rel L2 over 241 packed tensors: 0.9943

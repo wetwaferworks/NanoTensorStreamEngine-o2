@@ -1,0 +1,45 @@
+NanoQuatTwo quantization report (per-tensor books, format v2)
+tensors packed: 36 (one book each)
+weights packed: 465592320
+block size: 1024, entries per book: 256
+index stream (.nq2): 2273724 bytes
+memory file (.nq2book): 37748756 bytes
+total rate: 0.0391 bits per weight (stream only; books amortize separately)
+relative L2 error on real weights: 0.7437
+per-tensor relative L2:
+  encoder.layers.0.input_layernorm.weight: 0.0000
+  encoder.layers.0.mlp.down_proj.weight: 1.0000
+  encoder.layers.0.mlp.gate_proj.weight: 1.0014
+  encoder.layers.0.mlp.up_proj.weight: 1.0023
+  encoder.layers.0.post_attention_layernorm.weight: 0.0000
+  encoder.layers.0.self_attn.k_proj.weight: 0.8636
+  encoder.layers.0.self_attn.o_proj.weight: 1.0004
+  encoder.layers.0.self_attn.q_proj.weight: 0.9003
+  encoder.layers.0.self_attn.v_proj.weight: 0.9646
+  encoder.layers.1.input_layernorm.weight: 0.0000
+  encoder.layers.1.mlp.down_proj.weight: 1.0010
+  encoder.layers.1.mlp.gate_proj.weight: 0.9982
+  encoder.layers.1.mlp.up_proj.weight: 0.9975
+  encoder.layers.1.post_attention_layernorm.weight: 0.0000
+  encoder.layers.1.self_attn.k_proj.weight: 0.9554
+  encoder.layers.1.self_attn.o_proj.weight: 0.9922
+  encoder.layers.1.self_attn.q_proj.weight: 0.9848
+  encoder.layers.1.self_attn.v_proj.weight: 0.9584
+  encoder.layers.2.input_layernorm.weight: 0.0000
+  encoder.layers.2.mlp.down_proj.weight: 1.0006
+  encoder.layers.2.mlp.gate_proj.weight: 0.9980
+  encoder.layers.2.mlp.up_proj.weight: 0.9980
+  encoder.layers.2.post_attention_layernorm.weight: 0.0000
+  encoder.layers.2.self_attn.k_proj.weight: 0.9601
+  encoder.layers.2.self_attn.o_proj.weight: 0.9930
+  encoder.layers.2.self_attn.q_proj.weight: 0.9806
+  encoder.layers.2.self_attn.v_proj.weight: 0.9629
+  encoder.layers.3.input_layernorm.weight: 0.0000
+  encoder.layers.3.mlp.down_proj.weight: 1.0024
+  encoder.layers.3.mlp.gate_proj.weight: 0.9978
+  encoder.layers.3.mlp.up_proj.weight: 0.9963
+  encoder.layers.3.post_attention_layernorm.weight: 0.0000
+  encoder.layers.3.self_attn.k_proj.weight: 0.9601
+  encoder.layers.3.self_attn.o_proj.weight: 0.9900
+  encoder.layers.3.self_attn.q_proj.weight: 0.9814
+  encoder.layers.3.self_attn.v_proj.weight: 0.9609

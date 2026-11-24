@@ -1,0 +1,47 @@
+NanoQuatTwo quantization report (per-tensor books, format v2)
+tensors packed: 36 (one book each)
+weights packed: 465592320
+block size: 128, entries per book: 256
+normalization: rms (no offset)
+index stream (.nq2): 18187524 bytes
+memory file (.nq2book): 4718612 bytes
+stream rate: 0.3125 bits per weight (stream only)
+complete rate: 0.3936 bits per weight (stream + book, two-part accounting)
+relative L2 error on real weights: 0.6748
+per-tensor relative L2:
+  encoder.layers.0.input_layernorm.weight: 0.0001
+  encoder.layers.0.mlp.down_proj.weight: 0.9723
+  encoder.layers.0.mlp.gate_proj.weight: 0.9715
+  encoder.layers.0.mlp.up_proj.weight: 0.9721
+  encoder.layers.0.post_attention_layernorm.weight: 0.0001
+  encoder.layers.0.self_attn.k_proj.weight: 0.9188
+  encoder.layers.0.self_attn.o_proj.weight: 0.9627
+  encoder.layers.0.self_attn.q_proj.weight: 0.9179
+  encoder.layers.0.self_attn.v_proj.weight: 0.9622
+  encoder.layers.1.input_layernorm.weight: 0.0002
+  encoder.layers.1.mlp.down_proj.weight: 0.9722
+  encoder.layers.1.mlp.gate_proj.weight: 0.9718
+  encoder.layers.1.mlp.up_proj.weight: 0.9721
+  encoder.layers.1.post_attention_layernorm.weight: 0.0002
+  encoder.layers.1.self_attn.k_proj.weight: 0.9582
+  encoder.layers.1.self_attn.o_proj.weight: 0.9692
+  encoder.layers.1.self_attn.q_proj.weight: 0.9683
+  encoder.layers.1.self_attn.v_proj.weight: 0.9621
+  encoder.layers.10.input_layernorm.weight: 0.0002
+  encoder.layers.10.mlp.down_proj.weight: 0.9722
+  encoder.layers.10.mlp.gate_proj.weight: 0.9689
+  encoder.layers.10.mlp.up_proj.weight: 0.9721
+  encoder.layers.10.post_attention_layernorm.weight: 0.0002
+  encoder.layers.10.self_attn.k_proj.weight: 0.9593
+  encoder.layers.10.self_attn.o_proj.weight: 0.9698
+  encoder.layers.10.self_attn.q_proj.weight: 0.9681
+  encoder.layers.10.self_attn.v_proj.weight: 0.9624
+  encoder.layers.11.input_layernorm.weight: 0.0002
+  encoder.layers.11.mlp.down_proj.weight: 0.9722
+  encoder.layers.11.mlp.gate_proj.weight: 0.9693
+  encoder.layers.11.mlp.up_proj.weight: 0.9722
+  encoder.layers.11.post_attention_layernorm.weight: 0.0003
+  encoder.layers.11.self_attn.k_proj.weight: 0.9609
+  encoder.layers.11.self_attn.o_proj.weight: 0.9698
+  encoder.layers.11.self_attn.q_proj.weight: 0.9687
+  encoder.layers.11.self_attn.v_proj.weight: 0.9606

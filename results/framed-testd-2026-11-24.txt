@@ -1,0 +1,8 @@
+=== Normalization Test D: RMS frame precision, q_proj block 32 K 256, 2026-11-24 ===
+tensor: encoder.layers.0.self_attn.q_proj.weight
+weights: 12582912 in 393216 blocks of 32, K 256, RMS norm
+  RMS scale stored fp16: relative L2 0.866722
+  RMS scale stored fp32: relative L2 0.866722
+  delta: 0.000000 (fp16 frame costs 0.0000% of the error)
+  the two reconstructions differ from each other by rel L2 0.000118
+  price of fp32 scale: +2 bytes/block = +0.5000 bpw at block 32; encode 16.8 s

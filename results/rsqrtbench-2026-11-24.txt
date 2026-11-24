@@ -1,0 +1,32 @@
+nq2-rsqrtbench, AMD EPYC 9D25, gcc -O3 -march=native, 2026-11-24
+rsqrt accuracy over 1e-6..1e2 (log-spread, 65536 samples):
+  exact scalar           max rel err 0.000e+00   rms rel err 0.000e+00
+  avx2 rsqrt raw         max rel err 2.573e-04   rms rel err 7.932e-05
+  avx2 rsqrt +1N         max rel err 1.961e-07   rms rel err 4.613e-08
+  avx2 rsqrt +2N         max rel err 1.192e-07   rms rel err 4.223e-08
+  avx512 rsqrt14 raw     max rel err 5.828e-05   rms rel err 1.973e-05
+  avx512 rsqrt14 +1N     max rel err 1.662e-07   rms rel err 4.368e-08
+  avx512 rsqrt14 +2N     max rel err 1.192e-07   rms rel err 4.175e-08
+  lut256 raw             max rel err 9.695e-04   rms rel err 4.155e-04
+  lut256 +1N             max rel err 1.490e-06   rms rel err 3.762e-07
+  lut256 +2N             max rel err 1.734e-07   rms rel err 5.052e-08
+  lut1024 raw            max rel err 2.437e-04   rms rel err 1.040e-04
+  lut1024 +1N            max rel err 2.222e-07   rms rel err 5.270e-08
+  lut1024 +2N            max rel err 1.358e-07   rms rel err 4.558e-08
+
+block normalize, 256-wide rows (best of 5):
+  exact scalar              369.4 cycles/block (  1.44 cycles/element)
+  avx2 rsqrt raw            366.2 cycles/block (  1.43 cycles/element)
+  avx2 rsqrt +1N            373.8 cycles/block (  1.46 cycles/element)
+  lut256 raw                363.6 cycles/block (  1.42 cycles/element)
+  lut256 +1N                374.6 cycles/block (  1.46 cycles/element)
+  lut1024 raw               365.3 cycles/block (  1.43 cycles/element)
+  lut1024 +1N               375.4 cycles/block (  1.47 cycles/element)
+
+isolated rsqrt throughput (values recycled in L1):
+  exact scalar            15.112 ns/value
+  lut256 raw              28.805 ns/value
+  lut256 +1N              31.044 ns/value
+  lut1024 raw             29.640 ns/value
+  lut1024 +1N             32.651 ns/value
+  avx2 rsqrt raw           4.971 ns/value (sink 174734800.0)
