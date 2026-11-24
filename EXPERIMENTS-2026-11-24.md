@@ -246,12 +246,24 @@ reference recipe (guidance 3.0, score temperature 0.3, seed 42)
 produced varied, non-degenerate token IDs with prefetch telemetry
 of 94.2 percent hits. A clean 8-step determinism repeat with full
 output capture is owed as the formal record, and a 32-step recipe
-run is in flight as this file is written. Behavioral quality
-against NVIDIA's reference implementation is not yet validated:
-the model download ships no tokenizer, so the engine is token IDs
-in, token IDs out until that piece lands. That gate is stated
-plainly rather than papered over. (Round 3, priority 5, waits on
-the same gate.)
+run is in flight as this file is written.
+
+The pipeline has since been split into separate fetch and expand
+stages (the Triforce engine), instrumented with stall forensics,
+and put through a failure worth reading about: its first full run
+diverged from the recorded anchor, the divergence was bisected to
+a race in the delivery machinery, and after the fix both 1-step
+anchors reproduce exactly again, with the consumer stall per pass
+down from 70.6 seconds to about 1 second. That story, and the
+behavioral comparator built to judge packed against raw behavior
+(top-1/top-5 agreement, cosine, relative logit error, KL
+divergence per position), are in PIPELINE-2026-11-24.md.
+
+Behavioral quality against NVIDIA's reference implementation is
+not yet validated: the model download ships no tokenizer, so the
+engine is token IDs in, token IDs out until that piece lands.
+That gate is stated plainly rather than papered over. (Round 3,
+priority 5, waits on the same gate.)
 
 ## What we recommend next
 

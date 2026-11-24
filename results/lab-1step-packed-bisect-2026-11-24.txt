@@ -1,0 +1,149 @@
+=== LAB BUILD (FUSED PIPE) 1-STEP PACKED (bisect: is the fused packed path innocent?) ===
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: packed .nq2
+threads: 4 workers + 1 prefetch; derived budget: pipe 216.0 MB, KV cache 7.4 MB, embedding matrix 8.0 MB
+generated token ids: 463 78431 129796 40418 94723 16470 65356 33407 94768 121566 27725 71821 6099 4619 7043 71501 98186 110236 51519 36477 56899 89689 52412 123872 15984 42082 45739 94642 68400 109740 13798 26618
+nfe: 2 (denoiser evaluations), seed 42
+prefetch telemetry: 546 requests, 409 hits (74.9%), 137 misses
+  consumer stall on misses: 13656.5 ms total; mean ready slack on hits: 2144.3 ms
+  load path (disc + reconstruct): 147946.5 ms for 36.31 GB expanded, 245 MB/sec
+  stall forensics by ordinal (misses only; self = consumer loaded it itself):
+    ord   0 encoder.layers.0.self_attn.q_proj.weight     misses    3 self    3 wait     514.9 ms (mean   171.6) load mean   171.6 ms
+    ord   1 encoder.layers.0.self_attn.k_proj.weight     misses    1 self    0 wait      84.9 ms (mean    84.9) load mean   116.3 ms
+    ord   2 encoder.layers.0.self_attn.v_proj.weight     misses    1 self    0 wait      27.1 ms (mean    27.1) load mean    44.5 ms
+    ord   3 encoder.layers.0.self_attn.o_proj.weight     misses    1 self    0 wait     301.4 ms (mean   301.4) load mean   241.7 ms
+    ord   4 encoder.layers.0.mlp.gate_proj.weight        misses    1 self    0 wait     410.6 ms (mean   410.6) load mean   477.1 ms
+    ord   5 encoder.layers.0.mlp.up_proj.weight          misses    1 self    0 wait     208.1 ms (mean   208.1) load mean   367.7 ms
+    ord   6 encoder.layers.0.mlp.down_proj.weight        misses    1 self    0 wait     103.7 ms (mean   103.7) load mean   401.5 ms
+    ord   7 encoder.layers.1.self_attn.q_proj.weight     misses    1 self    0 wait      84.0 ms (mean    84.0) load mean   219.3 ms
+    ord   9 encoder.layers.1.self_attn.v_proj.weight     misses    1 self    0 wait       6.0 ms (mean     6.0) load mean    70.5 ms
+    ord  10 encoder.layers.1.self_attn.o_proj.weight     misses    1 self    0 wait      19.9 ms (mean    19.9) load mean   163.2 ms
+    ord  11 encoder.layers.1.mlp.gate_proj.weight        misses    1 self    0 wait     281.5 ms (mean   281.5) load mean   443.6 ms
+    ord  12 encoder.layers.1.mlp.up_proj.weight          misses    1 self    0 wait      85.4 ms (mean    85.4) load mean   455.8 ms
+    ord  13 encoder.layers.1.mlp.down_proj.weight        misses    1 self    0 wait     174.3 ms (mean   174.3) load mean   443.7 ms
+    ord  14 encoder.layers.2.self_attn.q_proj.weight     misses    1 self    0 wait      95.3 ms (mean    95.3) load mean   288.1 ms
+    ord  15 encoder.layers.2.self_attn.k_proj.weight     misses    1 self    0 wait      18.7 ms (mean    18.7) load mean   147.0 ms
+    ord  16 encoder.layers.2.self_attn.v_proj.weight     misses    1 self    0 wait       5.0 ms (mean     5.0) load mean    73.0 ms
+    ord  17 encoder.layers.2.self_attn.o_proj.weight     misses    1 self    0 wait      99.8 ms (mean    99.8) load mean   241.1 ms
+    ord  18 encoder.layers.2.mlp.gate_proj.weight        misses    1 self    0 wait     211.0 ms (mean   211.0) load mean   541.4 ms
+    ord  19 encoder.layers.2.mlp.up_proj.weight          misses    1 self    0 wait      90.0 ms (mean    90.0) load mean   290.9 ms
+    ord  20 encoder.layers.2.mlp.down_proj.weight        misses    1 self    0 wait     132.0 ms (mean   132.0) load mean   410.1 ms
+    ord  21 encoder.layers.3.self_attn.q_proj.weight     misses    1 self    0 wait      62.5 ms (mean    62.5) load mean   160.7 ms
+    ord  23 encoder.layers.3.self_attn.v_proj.weight     misses    1 self    0 wait       1.7 ms (mean     1.7) load mean    71.2 ms
+    ord  24 encoder.layers.3.self_attn.o_proj.weight     misses    1 self    0 wait     110.4 ms (mean   110.4) load mean   148.2 ms
+    ord  25 encoder.layers.3.mlp.gate_proj.weight        misses    1 self    0 wait     233.8 ms (mean   233.8) load mean   384.7 ms
+    ord  26 encoder.layers.3.mlp.up_proj.weight          misses    1 self    0 wait      74.2 ms (mean    74.2) load mean   382.6 ms
+    ord  27 encoder.layers.3.mlp.down_proj.weight        misses    1 self    0 wait     208.1 ms (mean   208.1) load mean   572.6 ms
+    ord  28 encoder.layers.4.self_attn.q_proj.weight     misses    1 self    0 wait      18.5 ms (mean    18.5) load mean   360.7 ms
+    ord  31 encoder.layers.4.self_attn.o_proj.weight     misses    1 self    0 wait      20.9 ms (mean    20.9) load mean   110.9 ms
+    ord  32 encoder.layers.4.mlp.gate_proj.weight        misses    1 self    0 wait     161.5 ms (mean   161.5) load mean   308.2 ms
+    ord  33 encoder.layers.4.mlp.up_proj.weight          misses    1 self    0 wait     114.9 ms (mean   114.9) load mean   376.6 ms
+    ord  34 encoder.layers.4.mlp.down_proj.weight        misses    1 self    0 wait     136.2 ms (mean   136.2) load mean   442.0 ms
+    ord  38 encoder.layers.5.self_attn.o_proj.weight     misses    1 self    0 wait      25.9 ms (mean    25.9) load mean   253.0 ms
+    ord  39 encoder.layers.5.mlp.gate_proj.weight        misses    1 self    0 wait     199.5 ms (mean   199.5) load mean   489.7 ms
+    ord  40 encoder.layers.5.mlp.up_proj.weight          misses    1 self    0 wait     185.7 ms (mean   185.7) load mean   504.6 ms
+    ord  41 encoder.layers.5.mlp.down_proj.weight        misses    1 self    0 wait     293.2 ms (mean   293.2) load mean   553.8 ms
+    ord  44 encoder.layers.6.self_attn.v_proj.weight     misses    1 self    0 wait       3.9 ms (mean     3.9) load mean    36.6 ms
+    ord  45 encoder.layers.6.self_attn.o_proj.weight     misses    1 self    0 wait      77.7 ms (mean    77.7) load mean   129.0 ms
+    ord  46 encoder.layers.6.mlp.gate_proj.weight        misses    1 self    0 wait      56.2 ms (mean    56.2) load mean   420.5 ms
+    ord  47 encoder.layers.6.mlp.up_proj.weight          misses    1 self    0 wait      11.4 ms (mean    11.4) load mean   452.1 ms
+    ord  48 encoder.layers.6.mlp.down_proj.weight        misses    1 self    0 wait      85.6 ms (mean    85.6) load mean   686.0 ms
+    ord  51 encoder.layers.7.self_attn.v_proj.weight     misses    1 self    0 wait       6.9 ms (mean     6.9) load mean    18.1 ms
+    ord  52 encoder.layers.7.self_attn.o_proj.weight     misses    1 self    0 wait      11.5 ms (mean    11.5) load mean   103.0 ms
+    ord  53 encoder.layers.7.mlp.gate_proj.weight        misses    1 self    0 wait     181.4 ms (mean   181.4) load mean   713.2 ms
+    ord  54 encoder.layers.7.mlp.up_proj.weight          misses    1 self    0 wait      93.5 ms (mean    93.5) load mean   402.7 ms
+    ord  55 encoder.layers.7.mlp.down_proj.weight        misses    1 self    0 wait     107.7 ms (mean   107.7) load mean   394.4 ms
+    ord  58 encoder.layers.8.self_attn.v_proj.weight     misses    1 self    0 wait      86.9 ms (mean    86.9) load mean    74.5 ms
+    ord  59 encoder.layers.8.self_attn.o_proj.weight     misses    1 self    0 wait     204.0 ms (mean   204.0) load mean   229.6 ms
+    ord  60 encoder.layers.8.mlp.gate_proj.weight        misses    1 self    0 wait     188.0 ms (mean   188.0) load mean   471.9 ms
+    ord  66 encoder.layers.9.self_attn.o_proj.weight     misses    1 self    0 wait      99.5 ms (mean    99.5) load mean   245.6 ms
+    ord  67 encoder.layers.9.mlp.gate_proj.weight        misses    1 self    0 wait     100.7 ms (mean   100.7) load mean   411.8 ms
+    ord  68 encoder.layers.9.mlp.up_proj.weight          misses    1 self    0 wait      18.0 ms (mean    18.0) load mean   494.7 ms
+    ord  69 encoder.layers.9.mlp.down_proj.weight        misses    1 self    0 wait      92.7 ms (mean    92.7) load mean   476.8 ms
+    ord  70 encoder.layers.10.self_attn.q_proj.weight    misses    1 self    0 wait      27.1 ms (mean    27.1) load mean   321.4 ms
+    ord  72 encoder.layers.10.self_attn.v_proj.weight    misses    1 self    0 wait      18.1 ms (mean    18.1) load mean    84.9 ms
+    ord  73 encoder.layers.10.self_attn.o_proj.weight    misses    1 self    0 wait      33.9 ms (mean    33.9) load mean   197.2 ms
+    ord  74 encoder.layers.10.mlp.gate_proj.weight       misses    1 self    0 wait     469.7 ms (mean   469.7) load mean   593.3 ms
+    ord  75 encoder.layers.10.mlp.up_proj.weight         misses    1 self    0 wait      28.3 ms (mean    28.3) load mean   400.6 ms
+    ord  76 encoder.layers.10.mlp.down_proj.weight       misses    1 self    0 wait      78.0 ms (mean    78.0) load mean   338.1 ms
+    ord  79 encoder.layers.11.self_attn.v_proj.weight    misses    1 self    0 wait       6.2 ms (mean     6.2) load mean    40.8 ms
+    ord  80 encoder.layers.11.self_attn.o_proj.weight    misses    1 self    0 wait     105.2 ms (mean   105.2) load mean   135.1 ms
+    ord  81 encoder.layers.11.mlp.gate_proj.weight       misses    1 self    0 wait     101.4 ms (mean   101.4) load mean   330.1 ms
+    ord  82 encoder.layers.11.mlp.up_proj.weight         misses    1 self    0 wait      95.7 ms (mean    95.7) load mean   361.1 ms
+    ord  84 encoder.layers.12.self_attn.q_proj.weight    misses    1 self    0 wait       3.3 ms (mean     3.3) load mean   274.6 ms
+    ord  86 encoder.layers.12.self_attn.v_proj.weight    misses    1 self    0 wait       4.7 ms (mean     4.7) load mean    66.5 ms
+    ord  87 encoder.layers.12.self_attn.o_proj.weight    misses    1 self    0 wait      13.2 ms (mean    13.2) load mean   123.2 ms
+    ord  88 encoder.layers.12.mlp.gate_proj.weight       misses    1 self    0 wait      11.7 ms (mean    11.7) load mean   238.1 ms
+    ord  89 encoder.layers.12.mlp.up_proj.weight         misses    1 self    0 wait      96.2 ms (mean    96.2) load mean   350.6 ms
+    ord  90 encoder.layers.12.mlp.down_proj.weight       misses    1 self    0 wait      11.4 ms (mean    11.4) load mean   393.1 ms
+    ord  93 encoder.layers.13.self_attn.v_proj.weight    misses    1 self    0 wait       5.7 ms (mean     5.7) load mean    65.9 ms
+    ord  94 encoder.layers.13.self_attn.o_proj.weight    misses    1 self    0 wait      18.4 ms (mean    18.4) load mean   146.3 ms
+    ord  95 encoder.layers.13.mlp.gate_proj.weight       misses    1 self    0 wait     115.1 ms (mean   115.1) load mean   436.5 ms
+    ord  96 encoder.layers.13.mlp.up_proj.weight         misses    1 self    0 wait     503.1 ms (mean   503.1) load mean   436.5 ms
+    ord  97 encoder.layers.13.mlp.down_proj.weight       misses    1 self    0 wait      79.2 ms (mean    79.2) load mean   490.1 ms
+    ord  98 encoder.layers.14.self_attn.q_proj.weight    misses    1 self    0 wait      21.0 ms (mean    21.0) load mean   174.4 ms
+    ord  99 encoder.layers.14.self_attn.k_proj.weight    misses    1 self    0 wait       0.7 ms (mean     0.7) load mean    75.2 ms
+    ord 100 encoder.layers.14.self_attn.v_proj.weight    misses    1 self    0 wait      10.0 ms (mean    10.0) load mean    89.6 ms
+    ord 101 encoder.layers.14.self_attn.o_proj.weight    misses    1 self    0 wait      10.8 ms (mean    10.8) load mean   216.2 ms
+    ord 102 encoder.layers.14.mlp.gate_proj.weight       misses    1 self    0 wait     393.0 ms (mean   393.0) load mean   687.5 ms
+    ord 103 encoder.layers.14.mlp.up_proj.weight         misses    1 self    0 wait       6.8 ms (mean     6.8) load mean   426.0 ms
+    ord 104 encoder.layers.14.mlp.down_proj.weight       misses    1 self    0 wait      69.4 ms (mean    69.4) load mean   480.2 ms
+    ord 105 encoder.layers.15.self_attn.q_proj.weight    misses    1 self    0 wait       7.1 ms (mean     7.1) load mean   171.5 ms
+    ord 106 encoder.layers.15.self_attn.k_proj.weight    misses    1 self    0 wait      50.5 ms (mean    50.5) load mean    90.6 ms
+    ord 108 encoder.layers.15.self_attn.o_proj.weight    misses    1 self    0 wait      18.8 ms (mean    18.8) load mean   182.8 ms
+    ord 109 encoder.layers.15.mlp.gate_proj.weight       misses    1 self    0 wait       6.2 ms (mean     6.2) load mean   291.8 ms
+    ord 111 encoder.layers.15.mlp.down_proj.weight       misses    1 self    0 wait     102.1 ms (mean   102.1) load mean   429.4 ms
+    ord 114 encoder.layers.16.self_attn.v_proj.weight    misses    1 self    0 wait      10.8 ms (mean    10.8) load mean    65.7 ms
+    ord 115 encoder.layers.16.self_attn.o_proj.weight    misses    1 self    0 wait      24.3 ms (mean    24.3) load mean   204.2 ms
+    ord 116 encoder.layers.16.mlp.gate_proj.weight       misses    1 self    0 wait     270.5 ms (mean   270.5) load mean   464.2 ms
+    ord 118 encoder.layers.16.mlp.down_proj.weight       misses    1 self    0 wait     106.4 ms (mean   106.4) load mean   430.5 ms
+    ord 119 encoder.layers.17.self_attn.q_proj.weight    misses    1 self    0 wait       3.7 ms (mean     3.7) load mean   192.9 ms
+    ord 121 encoder.layers.17.self_attn.v_proj.weight    misses    1 self    0 wait      18.0 ms (mean    18.0) load mean    50.5 ms
+    ord 122 encoder.layers.17.self_attn.o_proj.weight    misses    1 self    0 wait     116.1 ms (mean   116.1) load mean   263.0 ms
+    ord 123 encoder.layers.17.mlp.gate_proj.weight       misses    1 self    0 wait     109.2 ms (mean   109.2) load mean   500.6 ms
+    ord 124 encoder.layers.17.mlp.up_proj.weight         misses    1 self    0 wait      81.1 ms (mean    81.1) load mean   499.3 ms
+    ord 125 encoder.layers.17.mlp.down_proj.weight       misses    1 self    0 wait     290.8 ms (mean   290.8) load mean   411.3 ms
+    ord 126 encoder.layers.18.self_attn.q_proj.weight    misses    1 self    0 wait      21.6 ms (mean    21.6) load mean   178.4 ms
+    ord 128 encoder.layers.18.self_attn.v_proj.weight    misses    1 self    0 wait       2.3 ms (mean     2.3) load mean    70.3 ms
+    ord 129 encoder.layers.18.self_attn.o_proj.weight    misses    1 self    0 wait      98.3 ms (mean    98.3) load mean   256.8 ms
+    ord 130 encoder.layers.18.mlp.gate_proj.weight       misses    1 self    0 wait     407.7 ms (mean   407.7) load mean   507.6 ms
+    ord 131 encoder.layers.18.mlp.up_proj.weight         misses    1 self    0 wait     187.0 ms (mean   187.0) load mean   521.8 ms
+    ord 132 encoder.layers.18.mlp.down_proj.weight       misses    1 self    0 wait      28.8 ms (mean    28.8) load mean   596.8 ms
+    ord 136 encoder.layers.19.self_attn.o_proj.weight    misses    1 self    0 wait      79.2 ms (mean    79.2) load mean   291.2 ms
+    ord 137 encoder.layers.19.mlp.gate_proj.weight       misses    1 self    0 wait     186.1 ms (mean   186.1) load mean   532.1 ms
+    ord 138 encoder.layers.19.mlp.up_proj.weight         misses    1 self    0 wait      88.4 ms (mean    88.4) load mean   661.3 ms
+    ord 139 encoder.layers.19.mlp.down_proj.weight       misses    1 self    0 wait      91.9 ms (mean    91.9) load mean   564.9 ms
+    ord 141 encoder.layers.20.self_attn.k_proj.weight    misses    1 self    0 wait       6.0 ms (mean     6.0) load mean   103.8 ms
+    ord 142 encoder.layers.20.self_attn.v_proj.weight    misses    1 self    0 wait       9.8 ms (mean     9.8) load mean    64.7 ms
+    ord 143 encoder.layers.20.self_attn.o_proj.weight    misses    1 self    0 wait      79.6 ms (mean    79.6) load mean   120.9 ms
+    ord 144 encoder.layers.20.mlp.gate_proj.weight       misses    1 self    0 wait     205.3 ms (mean   205.3) load mean   564.5 ms
+    ord 145 encoder.layers.20.mlp.up_proj.weight         misses    1 self    0 wait      13.4 ms (mean    13.4) load mean   451.9 ms
+    ord 149 encoder.layers.21.self_attn.v_proj.weight    misses    1 self    0 wait      10.0 ms (mean    10.0) load mean   120.3 ms
+    ord 150 encoder.layers.21.self_attn.o_proj.weight    misses    1 self    0 wait      29.0 ms (mean    29.0) load mean   234.4 ms
+    ord 151 encoder.layers.21.mlp.gate_proj.weight       misses    1 self    0 wait     106.2 ms (mean   106.2) load mean   290.0 ms
+    ord 152 encoder.layers.21.mlp.up_proj.weight         misses    1 self    0 wait     203.0 ms (mean   203.0) load mean   384.6 ms
+    ord 153 encoder.layers.21.mlp.down_proj.weight       misses    1 self    0 wait      92.9 ms (mean    92.9) load mean   269.8 ms
+    ord 156 encoder.layers.22.self_attn.v_proj.weight    misses    1 self    0 wait       0.6 ms (mean     0.6) load mean    20.9 ms
+    ord 157 encoder.layers.22.self_attn.o_proj.weight    misses    1 self    0 wait      95.6 ms (mean    95.6) load mean   159.3 ms
+    ord 158 encoder.layers.22.mlp.gate_proj.weight       misses    1 self    0 wait     101.7 ms (mean   101.7) load mean   368.9 ms
+    ord 160 encoder.layers.22.mlp.down_proj.weight       misses    1 self    0 wait     176.4 ms (mean   176.4) load mean   369.2 ms
+    ord 163 encoder.layers.23.self_attn.v_proj.weight    misses    1 self    0 wait       9.2 ms (mean     9.2) load mean    51.7 ms
+    ord 164 encoder.layers.23.self_attn.o_proj.weight    misses    1 self    0 wait      31.0 ms (mean    31.0) load mean   209.0 ms
+    ord 165 encoder.layers.23.mlp.gate_proj.weight       misses    1 self    0 wait     186.6 ms (mean   186.6) load mean   664.2 ms
+    ord 166 encoder.layers.23.mlp.up_proj.weight         misses    1 self    0 wait      96.4 ms (mean    96.4) load mean   544.3 ms
+    ord 167 encoder.layers.23.mlp.down_proj.weight       misses    1 self    0 wait     280.5 ms (mean   280.5) load mean   585.4 ms
+    ord 168 encoder.layers.24.self_attn.q_proj.weight    misses    1 self    0 wait      17.0 ms (mean    17.0) load mean   228.1 ms
+    ord 170 encoder.layers.24.self_attn.v_proj.weight    misses    1 self    0 wait       0.9 ms (mean     0.9) load mean    61.7 ms
+    ord 171 encoder.layers.24.self_attn.o_proj.weight    misses    1 self    0 wait      73.9 ms (mean    73.9) load mean   181.9 ms
+    ord 172 encoder.layers.24.mlp.gate_proj.weight       misses    1 self    0 wait     272.5 ms (mean   272.5) load mean   359.7 ms
+    ord 173 encoder.layers.24.mlp.up_proj.weight         misses    1 self    0 wait     118.0 ms (mean   118.0) load mean   377.5 ms
+    ord 174 encoder.layers.24.mlp.down_proj.weight       misses    1 self    0 wait      85.9 ms (mean    85.9) load mean   501.1 ms
+    ord 176 encoder.layers.25.self_attn.k_proj.weight    misses    1 self    0 wait       3.9 ms (mean     3.9) load mean   123.5 ms
+    ord 177 encoder.layers.25.self_attn.v_proj.weight    misses    1 self    0 wait       9.5 ms (mean     9.5) load mean    63.7 ms
+    ord 178 encoder.layers.25.self_attn.o_proj.weight    misses    1 self    0 wait      83.6 ms (mean    83.6) load mean   110.0 ms
+    ord 179 encoder.layers.25.mlp.gate_proj.weight       misses    1 self    0 wait     115.2 ms (mean   115.2) load mean   478.9 ms
+    ord 181 encoder.layers.25.mlp.down_proj.weight       misses    1 self    0 wait     172.4 ms (mean   172.4) load mean   343.9 ms
+
+real	19m58.271s
+user	11m41.453s
+sys	0m2.479s

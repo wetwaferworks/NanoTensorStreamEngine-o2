@@ -37,6 +37,23 @@ numbers below are stated the way we measured them.
 - A pure C inference engine runs the model end to end from either
   the raw shards or the packed files, behind one range-read API,
   with a prefetch pipeline that expands weights in flight.
+- The pipeline has since been split in two (the Triforce build:
+  one loop stages raw sections from disc, a second reconstructs
+  weights from them), under the same rule as everything else
+  here... concurrent preparation, serialized consumption. Its
+  first full run failed the determinism gate, the failure was
+  bisected to a race in the delivery machinery, the fix was made,
+  and both 1-step anchors now reproduce exactly (all 32 token IDs,
+  raw and packed). The consumer stall per pass fell from 70.6
+  seconds to about 1 second in the process. The full story, with
+  receipts, is PIPELINE-2026-11-24.md.
+- A behavioral gate now exists for the question the anchors
+  cannot answer: not "is each path deterministic" but "how far
+  does the packed model's behavior drift from the raw model's."
+  The comparator reports top-1 and top-5 agreement, cosine
+  similarity, relative logit error, and KL divergence per
+  position, across every denoise evaluation. The comparison runs
+  are the current work.
 - A four-loop streaming design (one compute loop, one disc-lookup
   loop, two unpack loops, one serialized consumption order) streams
   the whole model at up to 168.8 million weights per second on a
@@ -52,37 +69,44 @@ numbers below are stated the way we measured them.
   plainly rather than imply otherwise.
 
 Start with EXPERIMENTS-2026-11-24.md for the measured story,
-WHAT-WE-CAN-DO.md for the capability ledger, and
+PIPELINE-2026-11-24.md for the streaming pipeline and its
+verification, WHAT-WE-CAN-DO.md for the capability ledger, and
 BASELINE-2026-11-23.md for the frozen baseline everything is
 judged against.
 
 ## Build
 
-Production tools (quantizer, runner, inference engine, audit,
-frame probe, error probe):
+One click, everything (six production tools and fifteen
+experimental ones):
 
-    build.sh          (Linux)
-    build.bat         (Windows, MSYS2/MinGW)
+    build-all.sh      (Linux)
+    build-all.bat     (Windows, MSYS2/MinGW)
 
-Research tools (the experiment harnesses cited in the experiments
-file):
+Or by tier:
 
-    build-experiments.sh
-    build-experiments.bat
+    build.sh / build.bat                       production tools
+    build-experiments.sh / .bat                experimental tools
 
-Everything is C99 with no dependencies beyond the standard library
-and libm. The one Python file, tools/nq2-gui.py, is a front end
-only and does no model work. Runtime is C, full stop.
+Everything is C99 with no dependencies beyond the standard
+library, libm, and pthreads. The one Python file,
+tools/nq2-gui.py, is a front end only and does no model work.
+Runtime is C, full stop.
+
+Prebuilt binaries for Linux and Windows (x86-64, statically
+linked) are attached to the GitHub release and included in the
+project's update packages under dist/linux64 and dist/win64.
 
 ## What's in the repo, and what isn't
 
-In: all tool sources under tools/, the toy examples under
-examples/, build scripts, the baseline and experiment documents,
-and the text receipts under results/.
+In: all tool sources under tools/ (production, research, the
+instrumented lab engine, the Triforce pipeline engine, and the
+behavioral comparator), the toy examples under examples/, build
+scripts, the baseline and experiment documents, and the text
+receipts under results/.
 
 Not in: the model itself (7.7 GB, NVIDIA's download, their
-license), the packed .nq2 artifacts (up to 75 MB each, regenerable
-with the quantizer in minutes), and compiled binaries. The baseline
+license) and the packed .nq2 artifacts (up to 75 MB each,
+regenerable with the quantizer in minutes). The baseline
 document records the hashes and checksums of the frozen pack so
 anyone can regenerate it and verify they got the same bytes.
 

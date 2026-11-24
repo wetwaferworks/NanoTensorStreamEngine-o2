@@ -2,6 +2,15 @@
 
 *The plan, written 2026-11-23 while the first real model downloads.*
 
+*Status note, 2026-11-24: the plan below was kept as written. What
+actually got built and measured lives in EXPERIMENTS-2026-11-24.md
+(the fidelity program) and PIPELINE-2026-11-24.md (the streaming
+pipeline, its race, and its fix). The short version: the streaming
+design below is built and verified against recorded anchors, the
+fidelity bottleneck turned out to be prototype coverage rather
+than rate, and product quantization is the first lever that moves
+it.*
+
 ## Where we stand
 
 Three freestanding toys prove the arithmetic closes at 0.4, 0.2, and 0.02 bits per weight, and that taught information (letters frozen into the dictionary) survives the packing intact while learned information degrades gracefully. The toys use made-up weights. The next step is real weights, a real model, and the streaming design.
