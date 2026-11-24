@@ -1,37 +1,25 @@
 @echo off
 rem NanoQuatTwo build, Windows with MinGW gcc. Run from the repo root.
-rem Builds all six tools, statically linked so no MinGW runtime
-rem DLLs are needed. Note: nq2-infer needs a POSIX-thread MinGW
-rem (winpthreads) for its thread pool; the other three build with
-rem either thread model. Prebuilt exes are in bin\win64 either way.
-gcc -O2 -std=c99 -Wall -Wextra -static -o nq2-quantize.exe tools\nq2-quantize.c
-if %errorlevel% neq 0 (
-  echo build failed: is MinGW gcc on your PATH?
-  exit /b %errorlevel%
+rem Builds everything: all 23 tools in tools\ and the Little Nemo
+rem engine with its test suites (littlenemo\bin\), statically linked
+rem so no MinGW runtime DLLs are needed.
+rem Note: the threaded tools (nq2-infer, nq2-infer-lab,
+rem nq2-infer-triforce, nq2-infer-triforce-dbg, nq2-streamtest) need
+rem a POSIX-thread MinGW (winpthreads); the rest build with either
+rem thread model. Little Nemo uses native Win32 threads and builds
+rem with any MinGW.
+setlocal
+set FLAGS=-O2 -std=c99 -Wall -Wextra -static
+for %%T in (quantize run audit frameprobe errprobe tensorstat entries hadamard pq additive framed fused rsqrtbench correct rpq dc dc-adv logitcmp) do (
+    gcc %FLAGS% -o nq2-%%T.exe tools\nq2-%%T.c -lm
+    if errorlevel 1 (echo build failed: nq2-%%T - is MinGW gcc on your PATH? & exit /b 1)
 )
-gcc -O2 -std=c99 -Wall -Wextra -static -o nq2-run.exe tools\nq2-run.c
-if %errorlevel% neq 0 (
-  echo build failed: is MinGW gcc on your PATH?
-  exit /b %errorlevel%
+for %%T in (infer infer-lab infer-triforce infer-triforce-dbg streamtest) do (
+    gcc %FLAGS% -pthread -o nq2-%%T.exe tools\nq2-%%T.c -lm
+    if errorlevel 1 (echo build failed: nq2-%%T - the threaded tools need a POSIX-thread MinGW & exit /b 1)
 )
-gcc -O2 -std=c99 -Wall -Wextra -static -o nq2-audit.exe tools\nq2-audit.c
-if %errorlevel% neq 0 (
-  echo build failed: is MinGW gcc on your PATH?
-  exit /b %errorlevel%
-)
-gcc -O2 -std=c99 -Wall -Wextra -pthread -static -o nq2-infer.exe tools\nq2-infer.c
-if %errorlevel% neq 0 (
-  echo build failed on nq2-infer: it needs a POSIX-thread MinGW
-  exit /b %errorlevel%
-)
-gcc -O2 -std=c99 -Wall -Wextra -static -o nq2-frameprobe.exe tools\nq2-frameprobe.c
-if %errorlevel% neq 0 (
-  echo build failed: is MinGW gcc on your PATH?
-  exit /b %errorlevel%
-)
-gcc -O2 -std=c99 -Wall -Wextra -static -o nq2-errprobe.exe tools\nq2-errprobe.c
-if %errorlevel% neq 0 (
-  echo build failed: is MinGW gcc on your PATH?
-  exit /b %errorlevel%
-)
-echo built nq2-quantize.exe nq2-run.exe nq2-audit.exe nq2-infer.exe nq2-frameprobe.exe nq2-errprobe.exe
+cd littlenemo
+call build.bat
+if errorlevel 1 (echo build failed: littlenemo & exit /b 1)
+cd ..
+echo built all 23 nq2 tools and Little Nemo (littlenemo\bin\)

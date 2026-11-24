@@ -23,6 +23,7 @@
 #include "attn.h"
 #include "loader.h"
 #include "mamba.h"
+#include "pool.h"
 
 #define NEMO_HIDDEN 4480
 #define NEMO_LAYERS 56
@@ -50,11 +51,23 @@ typedef struct {
      * nemo_model_reset restores it. Preparation can be concurrent;
      * state commitment must be coherent. */
     int state_valid;
+    /* Compute pool (JD's dual path, 2026-11-24): the projections are
+     * split by rows across the pool's lanes, and the next layer's
+     * weights are fetched on the pool's prep thread while the current
+     * layer computes. Lane count 1 is the serial reference: no
+     * threads, prep runs inline, and every result is bit-identical
+     * to the threaded paths by construction (per-row math). */
+    nemo_pool pool;
+    int nthreads;
 } nemo_model;
 
-/* layer_limit 0 means the full stack. Returns 0 on success. */
+/* layer_limit 0 means the full stack. Returns 0 on success.
+ * nemo_model_init is the serial reference (one lane);
+ * nemo_model_init_ex takes an explicit lane count (>= 1). */
 int nemo_model_init(nemo_model *m, const nemo_checkpoint *cp,
                     int layer_limit, int max_pos);
+int nemo_model_init_ex(nemo_model *m, const nemo_checkpoint *cp,
+                       int layer_limit, int max_pos, int nthreads);
 void nemo_model_free(nemo_model *m);
 /* Zero all recurrent state and KV caches (new conversation). */
 void nemo_model_reset(nemo_model *m);

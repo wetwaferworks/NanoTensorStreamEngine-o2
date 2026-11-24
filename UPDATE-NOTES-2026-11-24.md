@@ -125,3 +125,26 @@ same day:
   test_coherence.c, including bit-identical proof that a
   refused step changed nothing. LITTLE-NEMO.md and
   littlenemo/PROTOCOL.md carry the details.
+
+## Fourth update, 2026-11-24: dual path, Windows build, INI
+
+- Little Nemo goes dual-path: each large projection is split
+  across worker lanes and the next layer is prepared while the
+  current one computes (preparation concurrent, consumption
+  serialized). The engine queries the machine's core count at
+  startup; --mode minimum|medium|max|ultra picks the lane count
+  and --threads N overrides it. The parallel path is proven
+  bit-identical to the serial path on real weights
+  (littlenemo/tests/test_par.c), and the forward and coherence
+  suites still pass at 7/7 (RMS 0.520647) and 25/25.
+- The Windows build is fixed and verified: engine.c no longer
+  assumes POSIX (poll, getline, clock_gettime are guarded with
+  native Win32 equivalents), the build compiles under MinGW, and
+  the resulting .exe runs and prints READY on the full
+  checkpoint. The build scripts now build everything (all 23
+  tools plus Little Nemo) and stop at the first failure instead
+  of reporting success.
+- The chat GUI reads littlenemo.ini for the engine, checkpoint,
+  and tokenizer paths plus the compute mode, so it launches by
+  click with no command-line arguments; arguments still override
+  the file.

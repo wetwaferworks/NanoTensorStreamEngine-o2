@@ -10,10 +10,35 @@ running on Elfie's computer).
 
     python3 nemo_chat.py [--engine "../nemo --serve-stdio"] [--host H --port P]
 
+Configuration can also come from an INI file, so the window can be
+launched by clicking with no arguments at all. The GUI looks for
+littlenemo.ini in the current directory, beside this script, and in
+the script's parent directory (or at the path given by --config):
+
+    [paths]
+    engine     = ../bin/nemo-engine.exe
+    checkpoint = D:/models/Nemotron-Nano-9B-v2
+    tokenizer  = D:/models/Nemotron-Nano-9B-v2/tokenizer.json
+
+    [engine]
+    mode    = max          ; minimum | medium | max | ultra
+    threads = 0            ; 0 = the mode decides
+    max_new = 256
+    max_pos = 4096
+
+    [remote]
+    host =                   ; set these instead of [paths] to talk
+    port =                   ; to an engine on another machine
+
+Relative paths in the INI resolve against the INI file's own
+directory. Command line arguments override the INI.
+
 The client half (NemoClient) has no Tk dependency and is unit-testable
 headlessly; see tests/test_gui_client.py.
 """
 
+import configparser
+import os
 import subprocess
 import sys
 import threading
@@ -383,17 +408,76 @@ def run_gui(engine_cmd=None, host=None, port=None):
         except Exception as exc:
             status.configure(text=f"engine failed to start: {exc}")
     else:
-        status.configure(text="no engine configured (see --engine / --host)")
+        status.configure(text="no engine configured (see littlenemo.ini or --engine / --host)")
 
     draw_strip()
     poll()
     root.mainloop()
 
 
+def _quote(part):
+    if part and all(c not in part for c in ' \t"'):
+        return part
+    return '"' + part.replace('"', '\\"') + '"'
+
+
+def load_ini(argv):
+    """Read littlenemo.ini -> (engine_cmd, host, port), any of which
+    may be None. Search order: --config PATH, ./littlenemo.ini,
+    beside this script, the script's parent directory."""
+    path = None
+    if "--config" in argv:
+        j = argv.index("--config")
+        if j + 1 < len(argv):
+            path = argv[j + 1]
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [path, os.path.join(os.getcwd(), "littlenemo.ini"),
+                  os.path.join(here, "littlenemo.ini"),
+                  os.path.join(here, "..", "littlenemo.ini")]
+    found = None
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            found = cand
+            break
+    if not found:
+        return None, None, None
+    cfg = configparser.ConfigParser()
+    cfg.read(found, encoding="utf-8")
+    base = os.path.dirname(os.path.abspath(found))
+
+    def rel(p):
+        p = (p or "").strip()
+        if not p:
+            return ""
+        return p if os.path.isabs(p) else os.path.normpath(
+            os.path.join(base, p))
+
+    engine = rel(cfg.get("paths", "engine", fallback=""))
+    ckpt = rel(cfg.get("paths", "checkpoint", fallback=""))
+    tok = rel(cfg.get("paths", "tokenizer", fallback=""))
+    cmd = None
+    if engine and ckpt and tok:
+        parts = [_quote(engine), _quote(ckpt), _quote(tok)]
+        max_new = cfg.get("engine", "max_new", fallback="").strip()
+        if max_new:
+            parts += ["--max-new", max_new]
+        mode = cfg.get("engine", "mode", fallback="").strip()
+        if mode:
+            parts += ["--mode", mode]
+        threads = cfg.get("engine", "threads", fallback="").strip()
+        if threads and threads != "0":
+            parts += ["--threads", threads]
+        max_pos = cfg.get("engine", "max_pos", fallback="").strip()
+        if max_pos:
+            parts += ["--max-pos", max_pos]
+        cmd = " ".join(parts)
+    host = cfg.get("remote", "host", fallback="").strip() or None
+    port = cfg.get("remote", "port", fallback="").strip() or None
+    return cmd, host, port
+
+
 def main(argv):
-    engine_cmd = None
-    host = None
-    port = None
+    engine_cmd, host, port = load_ini(argv)
     i = 0
     while i < len(argv):
         if argv[i] == "--engine":
@@ -404,6 +488,8 @@ def main(argv):
             i += 2
         elif argv[i] == "--port":
             port = argv[i + 1]
+            i += 2
+        elif argv[i] == "--config":
             i += 2
         else:
             i += 1

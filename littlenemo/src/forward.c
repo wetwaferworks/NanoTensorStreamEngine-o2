@@ -8,12 +8,12 @@
 
 #include "nn.h"
 
-static const char PATTERN[NEMO_LAYERS + 1] =
+static const char LAYER_PATTERN[NEMO_LAYERS + 1] =
     "M-M-M-MM-M-M-M*-M-M-M*-M-M-M-M*-M-M-M-M*-M-MM-M-M-M-M-M-";
 
 char nemo_layer_type(int i) {
     if (i < 0 || i >= NEMO_LAYERS) return '?';
-    return PATTERN[i];
+    return LAYER_PATTERN[i];
 }
 
 #define EPS 1e-5f
@@ -33,6 +33,133 @@ static float *get_f32(const nemo_model *m, const char *name) {
 
 static void layer_name(char *buf, size_t n, int layer, const char *leaf) {
     snprintf(buf, n, "backbone.layers.%d.%s", layer, leaf);
+}
+
+/* --- Prepared layers: the dual path (JD, 2026-11-24) -----------------
+ * A layer's tensors are fetched into a workspace ahead of use: while
+ * layer n computes, the pool's prep thread fetches layer n+1, so the
+ * compute path never waits on the disk. Preparation only moves the
+ * fetch earlier; the math is untouched. With one lane the prep runs
+ * inline and the flow is exactly the old serial one. */
+typedef struct {
+    float *norm_w;
+    uint16_t *in_proj, *out_proj;  /* Mamba */
+    float *conv_w, *conv_b, *a_log, *d, *dt_bias, *gnorm_w;
+    uint16_t *up, *down;           /* MLP */
+    uint16_t *wq, *wk, *wv, *wo;   /* attention */
+    int rc;                        /* 0 once fully prepared */
+} layer_ws;
+
+static void ws_free(layer_ws *ws) {
+    free(ws->norm_w);
+    free(ws->in_proj);
+    free(ws->out_proj);
+    free(ws->conv_w);
+    free(ws->conv_b);
+    free(ws->a_log);
+    free(ws->d);
+    free(ws->dt_bias);
+    free(ws->gnorm_w);
+    free(ws->up);
+    free(ws->down);
+    free(ws->wq);
+    free(ws->wk);
+    free(ws->wv);
+    free(ws->wo);
+    memset(ws, 0, sizeof *ws);
+    ws->rc = -1;
+}
+
+static int prepare_layer(const nemo_model *m, int layer, layer_ws *ws) {
+    char name[96];
+    ws_free(ws);
+    layer_name(name, sizeof name, layer, "norm.weight");
+    ws->norm_w = get_f32(m, name);
+    if (!ws->norm_w) goto fail;
+    char t = nemo_layer_type(layer);
+    if (t == 'M') {
+        layer_name(name, sizeof name, layer, "mixer.in_proj.weight");
+        ws->in_proj = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.out_proj.weight");
+        ws->out_proj = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.conv1d.weight");
+        ws->conv_w = get_f32(m, name);
+        layer_name(name, sizeof name, layer, "mixer.conv1d.bias");
+        ws->conv_b = get_f32(m, name);
+        layer_name(name, sizeof name, layer, "mixer.A_log");
+        ws->a_log = get_f32(m, name);
+        layer_name(name, sizeof name, layer, "mixer.D");
+        ws->d = get_f32(m, name);
+        layer_name(name, sizeof name, layer, "mixer.dt_bias");
+        ws->dt_bias = get_f32(m, name);
+        layer_name(name, sizeof name, layer, "mixer.norm.weight");
+        ws->gnorm_w = get_f32(m, name);
+        if (!ws->in_proj || !ws->out_proj || !ws->conv_w || !ws->conv_b ||
+            !ws->a_log || !ws->d || !ws->dt_bias || !ws->gnorm_w)
+            goto fail;
+    } else if (t == '*') {
+        layer_name(name, sizeof name, layer, "mixer.q_proj.weight");
+        ws->wq = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.k_proj.weight");
+        ws->wk = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.v_proj.weight");
+        ws->wv = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.o_proj.weight");
+        ws->wo = get_bf16(m, name);
+        if (!ws->wq || !ws->wk || !ws->wv || !ws->wo) goto fail;
+    } else {
+        layer_name(name, sizeof name, layer, "mixer.up_proj.weight");
+        ws->up = get_bf16(m, name);
+        layer_name(name, sizeof name, layer, "mixer.down_proj.weight");
+        ws->down = get_bf16(m, name);
+        if (!ws->up || !ws->down) goto fail;
+    }
+    ws->rc = 0;
+    return 0;
+fail:
+    ws_free(ws);
+    return -1;
+}
+
+/* The prep thread's job ticket: one outstanding at a time, refilled
+ * only after the previous job has been collected. */
+typedef struct {
+    nemo_model *m;
+    int layer;
+    layer_ws *ws;
+} prep_ticket;
+
+static void prepare_job(void *ctx) {
+    prep_ticket *t = (prep_ticket *)ctx;
+    t->ws->rc = prepare_layer(t->m, t->layer, t->ws);
+}
+
+/* Row-split projection over the pool. Small projections stay serial:
+ * below the threshold the lane sync costs more than the math. */
+typedef struct {
+    const uint16_t *W;
+    const float *x;
+    float *y;
+    int in;
+} lin_ctx;
+
+static void lin_chunk(void *ctx, int begin, int end) {
+    lin_ctx *L = (lin_ctx *)ctx;
+    nemo_linear_bf16_rows(L->W, L->x, L->y, begin, end, L->in);
+}
+
+static void linear_par(nemo_model *m, const uint16_t *W, const float *x,
+                       float *y, int out, int in) {
+    if (m->nthreads <= 1 || out < 4096) {
+        nemo_linear_bf16(W, x, y, out, in);
+        return;
+    }
+    lin_ctx L;
+    L.W = W;
+    L.x = x;
+    L.y = y;
+    L.in = in;
+    nemo_pool_for(&m->pool, out, lin_chunk, &L);
 }
 
 /* --- Whole-geometry validation and step preflight -------------------
@@ -181,7 +308,14 @@ int nemo_validate_model(const nemo_checkpoint *cp, int layer_limit,
 
 int nemo_model_init(nemo_model *m, const nemo_checkpoint *cp,
                     int layer_limit, int max_pos) {
+    return nemo_model_init_ex(m, cp, layer_limit, max_pos, 1);
+}
+
+int nemo_model_init_ex(nemo_model *m, const nemo_checkpoint *cp,
+                       int layer_limit, int max_pos, int nthreads) {
     memset(m, 0, sizeof *m);
+    if (nemo_pool_init(&m->pool, nthreads) != 0) return -1;
+    m->nthreads = nemo_pool_threads(&m->pool);
     m->cp = cp;
     m->layer_limit = layer_limit > 0 ? layer_limit : NEMO_LAYERS;
     m->max_pos = max_pos;
@@ -217,6 +351,9 @@ int nemo_model_init(nemo_model *m, const nemo_checkpoint *cp,
 }
 
 void nemo_model_free(nemo_model *m) {
+    /* No step is running when the model is freed, so no prep job is
+     * outstanding; shut the pool down before the buffers go. */
+    nemo_pool_shutdown(&m->pool);
     for (int i = 0; i < NEMO_LAYERS; i++) {
         if (m->mamba[i].ssm_state) nemo_mamba_state_free(&m->mamba[i]);
         if (m->attn[i].k) nemo_attn_cache_free(&m->attn[i]);
@@ -248,93 +385,35 @@ void nemo_model_reset(nemo_model *m) {
     m->state_valid = 1;
 }
 
-/* One Mamba-2 block's mixer (input h, output y), weights fetched live. */
-static int run_mamba(nemo_model *m, int layer) {
-    char name[96];
-    layer_name(name, sizeof name, layer, "mixer.in_proj.weight");
-    uint16_t *in_proj = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.out_proj.weight");
-    uint16_t *out_proj = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.conv1d.weight");
-    float *conv_w = get_f32(m, name);
-    layer_name(name, sizeof name, layer, "mixer.conv1d.bias");
-    float *conv_b = get_f32(m, name);
-    layer_name(name, sizeof name, layer, "mixer.A_log");
-    float *a_log = get_f32(m, name);
-    layer_name(name, sizeof name, layer, "mixer.D");
-    float *d = get_f32(m, name);
-    layer_name(name, sizeof name, layer, "mixer.dt_bias");
-    float *dt_bias = get_f32(m, name);
-    layer_name(name, sizeof name, layer, "mixer.norm.weight");
-    float *norm_w = get_f32(m, name);
-    int ok = in_proj && out_proj && conv_w && conv_b && a_log && d &&
-             dt_bias && norm_w;
-    if (ok) {
-        nemo_linear_bf16(in_proj, m->h, m->proj, 22656, NEMO_HIDDEN);
-        if (nemo_mamba_decode(&m->mamba[layer], m->proj, 0, conv_w, conv_b,
-                              a_log, d, dt_bias, norm_w, 8, EPS,
-                              m->inner) != 0)
-            ok = 0;
-        else
-            nemo_linear_bf16(out_proj, m->inner, m->y, NEMO_HIDDEN, 10240);
-    }
-    free(in_proj);
-    free(out_proj);
-    free(conv_w);
-    free(conv_b);
-    free(a_log);
-    free(d);
-    free(dt_bias);
-    free(norm_w);
-    return ok ? 0 : -1;
+/* The mixers consume a prepared layer workspace; fetching happened
+ * in prepare_layer, on the prep thread where the pool has one. */
+static int run_mamba(nemo_model *m, int layer, const layer_ws *ws) {
+    linear_par(m, ws->in_proj, m->h, m->proj, 22656, NEMO_HIDDEN);
+    if (nemo_mamba_decode(&m->mamba[layer], m->proj, 0, ws->conv_w,
+                          ws->conv_b, ws->a_log, ws->d, ws->dt_bias,
+                          ws->gnorm_w, 8, EPS, m->inner) != 0)
+        return -1;
+    linear_par(m, ws->out_proj, m->inner, m->y, NEMO_HIDDEN, 10240);
+    return 0;
 }
 
-static int run_mlp(nemo_model *m, int layer) {
-    char name[96];
-    layer_name(name, sizeof name, layer, "mixer.up_proj.weight");
-    uint16_t *up = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.down_proj.weight");
-    uint16_t *down = get_bf16(m, name);
-    int ok = up && down;
-    if (ok) {
-        nemo_linear_bf16(up, m->h, m->mid, 15680, NEMO_HIDDEN);
-        for (int i = 0; i < 15680; i++) m->mid[i] = nemo_relu2(m->mid[i]);
-        nemo_linear_bf16(down, m->mid, m->y, NEMO_HIDDEN, 15680);
-    }
-    free(up);
-    free(down);
-    return ok ? 0 : -1;
+static int run_mlp(nemo_model *m, const layer_ws *ws) {
+    linear_par(m, ws->up, m->h, m->mid, 15680, NEMO_HIDDEN);
+    for (int i = 0; i < 15680; i++) m->mid[i] = nemo_relu2(m->mid[i]);
+    linear_par(m, ws->down, m->mid, m->y, NEMO_HIDDEN, 15680);
+    return 0;
 }
 
-static int run_attn(nemo_model *m, int layer) {
-    char name[96];
-    layer_name(name, sizeof name, layer, "mixer.q_proj.weight");
-    uint16_t *wq = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.k_proj.weight");
-    uint16_t *wk = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.v_proj.weight");
-    uint16_t *wv = get_bf16(m, name);
-    layer_name(name, sizeof name, layer, "mixer.o_proj.weight");
-    uint16_t *wo = get_bf16(m, name);
-    int ok = wq && wk && wv && wo;
-    if (ok) {
-        float kbuf[1024], vbuf[1024];
-        nemo_linear_bf16(wq, m->h, m->qkv, 5120, NEMO_HIDDEN);
-        nemo_linear_bf16(wk, m->h, kbuf, 1024, NEMO_HIDDEN);
-        nemo_linear_bf16(wv, m->h, vbuf, 1024, NEMO_HIDDEN);
-        if (nemo_attn_push(&m->attn[layer], kbuf, vbuf) != 0) ok = 0;
-        if (ok) {
-            if (nemo_attn_decode(&m->attn[layer], m->qkv, m->inner) != 0)
-                ok = 0;
-            else
-                nemo_linear_bf16(wo, m->inner, m->y, NEMO_HIDDEN, 5120);
-        }
-    }
-    free(wq);
-    free(wk);
-    free(wv);
-    free(wo);
-    return ok ? 0 : -1;
+static int run_attn(nemo_model *m, int layer, const layer_ws *ws) {
+    float kbuf[1024], vbuf[1024];
+    linear_par(m, ws->wq, m->h, m->qkv, 5120, NEMO_HIDDEN);
+    nemo_linear_bf16(ws->wk, m->h, kbuf, 1024, NEMO_HIDDEN);
+    nemo_linear_bf16(ws->wv, m->h, vbuf, 1024, NEMO_HIDDEN);
+    if (nemo_attn_push(&m->attn[layer], kbuf, vbuf) != 0) return -1;
+    if (nemo_attn_decode(&m->attn[layer], m->qkv, m->inner) != 0)
+        return -1;
+    linear_par(m, ws->wo, m->inner, m->y, NEMO_HIDDEN, 5120);
+    return 0;
 }
 
 int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
@@ -369,29 +448,51 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
         m->x[i] = nemo_bf16_to_f32(row[i]);
     free(row);
 
+    /* The pipeline: layer n+1 is fetched while layer n computes.
+     * Failure semantics are the pre-pipeline ones: a preparation
+     * failure at any layer is a mid-step failure (the preflight has
+     * already proven the tensors exist, so this can only be an I/O
+     * or allocation failure), the state is invalid until reset, and
+     * any outstanding prep is collected before returning. */
+    layer_ws slots[2];
+    memset(slots, 0, sizeof slots);
+    slots[0].rc = -1;
+    slots[1].rc = -1;
+    prep_ticket ticket;
+    ticket.m = m;
+    ticket.layer = 0;
+    ticket.ws = &slots[0];
+    nemo_pool_prep(&m->pool, prepare_job, &ticket);
+    int cur = 0;
     for (int layer = 0; layer < m->layer_limit; layer++) {
-        char name[96];
-        layer_name(name, sizeof name, layer, "norm.weight");
-        float *nw = get_f32(m, name);
-        if (!nw) {
-            /* Commitment has begun: earlier layers already advanced
-             * their state. The step is partially committed, so the
-             * state is invalid until reset. */
+        nemo_pool_prep_wait(&m->pool);
+        if (slots[cur].rc != 0) {
             m->state_valid = 0;
+            ws_free(&slots[0]);
+            ws_free(&slots[1]);
             return -1;
         }
-        nemo_rmsnorm(m->x, nw, m->h, NEMO_HIDDEN, EPS);
-        free(nw);
+        if (layer + 1 < m->layer_limit) {
+            ticket.layer = layer + 1;
+            ticket.ws = &slots[cur ^ 1];
+            nemo_pool_prep(&m->pool, prepare_job, &ticket);
+        }
+        nemo_rmsnorm(m->x, slots[cur].norm_w, m->h, NEMO_HIDDEN, EPS);
         char t = nemo_layer_type(layer);
         if (m->on_layer) m->on_layer(m->on_layer_user, layer, t);
-        int rc = t == 'M'   ? run_mamba(m, layer)
-                 : t == '*' ? run_attn(m, layer)
-                            : run_mlp(m, layer);
+        int rc = t == 'M'   ? run_mamba(m, layer, &slots[cur])
+                 : t == '*' ? run_attn(m, layer, &slots[cur])
+                            : run_mlp(m, &slots[cur]);
         if (rc != 0) {
+            nemo_pool_prep_wait(&m->pool);
             m->state_valid = 0;
+            ws_free(&slots[0]);
+            ws_free(&slots[1]);
             return -1;
         }
         for (int i = 0; i < NEMO_HIDDEN; i++) m->x[i] += m->y[i];
+        ws_free(&slots[cur]);
+        cur ^= 1;
     }
     memcpy(hidden_out, m->x, NEMO_HIDDEN * sizeof(float));
     return 0;
@@ -419,7 +520,7 @@ int nemo_model_step(nemo_model *m, int token, float *logits_out) {
     float normed[NEMO_HIDDEN];
     nemo_rmsnorm(hidden, nw, normed, NEMO_HIDDEN, EPS);
     free(nw);
-    nemo_linear_bf16(lm, normed, logits_out, NEMO_VOCAB, NEMO_HIDDEN);
+    linear_par(m, lm, normed, logits_out, NEMO_VOCAB, NEMO_HIDDEN);
     free(lm);
     return 0;
 }

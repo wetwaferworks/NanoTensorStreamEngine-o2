@@ -42,6 +42,10 @@ static uint64_t rng_next(void)
     rng_state = x;
     return x * 0x2545F4914F6CDD1Dull;
 }
+/* Kept for the fused-path experiments; currently unreferenced. */
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
 static double dsqrt(double x)
 {
     if (x <= 0.0) return 0.0;
@@ -135,6 +139,7 @@ static void learn_book(const float *sample, uint64_t sample_n,
                        uint32_t block, uint32_t entries, int iters,
                        float *cent)
 {
+    if (sample_n == 0) { fprintf(stderr, "learn_book: no samples\n"); exit(1); }
     for (uint32_t k = 0; k < entries; k++) {
         uint64_t src = rng_next() % sample_n;
         memcpy(cent + (size_t)k * block, sample + src * block,
@@ -182,6 +187,7 @@ static float *load_tensor2(const char **paths, int n_paths,
         uint8_t lb[8];
         if (fread(lb, 1, 8, f) != 8) { fclose(f); continue; }
         uint64_t hlen = rd64le(lb);
+        if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); continue; }
         char *hdr = (char *)malloc(hlen + 1);
         if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); continue; }
         hdr[hlen] = 0;
@@ -228,6 +234,14 @@ static float *load_tensor2(const char **paths, int n_paths,
         free(hdr);
         if (count == 0 || o1 <= o0 || nd != 2) { fclose(f); continue; }
         uint64_t nbytes = o1 - o0;
+        /* T3 hardening (CODE-REVIEW-2026-11-24): the shape-derived
+         * count and the data_offsets span must agree exactly for
+         * the declared dtype, and count * 4 must not wrap. */
+        {
+            uint64_t elem = strcmp(dtype, "F32") == 0 ? 4 : 2;
+            if (count > UINT64_MAX / sizeof(float)
+                || nbytes != count * elem) { fclose(f); continue; }
+        }
         uint8_t *raw = (uint8_t *)malloc(nbytes);
         float *out = (float *)malloc(count * sizeof(float));
         if (!raw || !out) { fclose(f); return NULL; }

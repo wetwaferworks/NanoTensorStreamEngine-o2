@@ -15,7 +15,12 @@ locally, or a TCP socket when the engine runs with --serve PORT.
 
 ## Engine to client
 
-    READY nemo-engine 2 model=<name> weights=<raw|packed> layers=<n>\n
+    READY nemo-engine 2 model=<name> weights=<raw|packed> layers=<n>
+         cores=<n> threads=<n> mode=<name>\n
+                            cores is the processor count the engine
+                            queried from the machine at startup;
+                            threads is the lane count actually in use;
+                            mode is the compute mode (below)
     THINK <text>\n          one piece of the reasoning trace (streamed)
     TOK <text>\n            one piece of the visible answer (streamed)
     LAYER <idx> <type>\n    the forward pass entered layer <idx>
@@ -38,6 +43,16 @@ locally, or a TCP socket when the engine runs with --serve PORT.
           peak_mb=<v>\n     end-of-turn summary
     DONE\n                  the turn is complete (follows STATS)
     ERROR <text>\n          something went wrong; the turn is over
+
+Compute modes: the engine splits each large projection across
+worker lanes and prepares the next layer while the current one
+computes (preparation concurrent, consumption serialized, results
+bit-identical to the single-lane path). --mode selects the lane
+count from the queried core count: minimum = 1 lane, medium = half
+the cores, max = all cores but one, ultra = every core. --threads N
+overrides the mode with an exact lane count (the READY mode then
+reads "custom"). An unknown mode is a startup error. --max-new N
+caps generated tokens per turn; --max-pos N caps the context.
 
 Startup validation: READY is printed only after the checkpoint has
 passed whole-geometry validation (every tensor the model will fetch,

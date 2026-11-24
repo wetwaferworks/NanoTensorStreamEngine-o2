@@ -9,4 +9,11 @@
  * result in fp32. No bias: Nemotron-H projections are bias-free. */
 void nemo_linear_bf16(const uint16_t *W, const float *x, float *y, int out, int in);
 
+/* The same math for rows [begin, end) only. A row's dot product is
+ * accumulated in the same order whatever range it is computed in,
+ * so splitting rows across lanes is bit-identical to the full call;
+ * nemo_linear_bf16 is exactly rows(0, out). */
+void nemo_linear_bf16_rows(const uint16_t *W, const float *x, float *y,
+                           int begin, int end, int in);
+
 #endif

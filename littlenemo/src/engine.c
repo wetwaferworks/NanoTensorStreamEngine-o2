@@ -32,6 +32,9 @@
 
 #if defined(_WIN32)
 #include <conio.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 /* getline() is POSIX; this is the same contract built on fgetc:
@@ -419,19 +422,37 @@ int main(int argc, char **argv) {
     if (argc < 3) {
         fprintf(stderr,
                 "usage: nemo-engine <checkpoint_dir> <tokenizer.json> "
-                "[--layers N] [--max-pos N] [--max-new N]\n");
+                "[--layers N] [--max-pos N] [--max-new N] "
+                "[--mode minimum|medium|max|ultra] [--threads N]\n");
         return 2;
     }
     int layers = 0, max_pos = 4096, max_new = 256;
+    const char *mode = "max";
+    int threads = 0; /* 0 = take the mode's count */
     for (int i = 3; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--layers")) layers = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--max-pos")) max_pos = atoi(argv[i + 1]);
         else if (!strcmp(argv[i], "--max-new")) max_new = atoi(argv[i + 1]);
+        else if (!strcmp(argv[i], "--mode")) mode = argv[i + 1];
+        else if (!strcmp(argv[i], "--threads")) threads = atoi(argv[i + 1]);
         else {
             fprintf(stderr, "nemo-engine: unknown option %s\n", argv[i]);
             return 2;
         }
     }
+    /* The machine sets the scale: query the cores, map the mode,
+     * and split the work across what is actually there. */
+    int cores = nemo_cores();
+    int nthreads = threads > 0 ? threads
+                                : nemo_threads_for_mode(mode, cores);
+    if (nthreads < 0) {
+        fprintf(stderr,
+                "nemo-engine: unknown mode %s (minimum, medium, max, "
+                "ultra)\n",
+                mode);
+        return 2;
+    }
+    if (nthreads < 1) nthreads = 1;
     nemo_checkpoint cp;
     if (nemo_checkpoint_open(&cp, argv[1]) != 0) {
         fprintf(stderr, "nemo-engine: cannot open checkpoint %s\n", argv[1]);
@@ -443,7 +464,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     nemo_model model;
-    if (nemo_model_init(&model, &cp, layers, max_pos) != 0) {
+    if (nemo_model_init_ex(&model, &cp, layers, max_pos, nthreads) != 0) {
         fprintf(stderr, "nemo-engine: model init failed\n");
         return 1;
     }
@@ -477,8 +498,9 @@ int main(int argc, char **argv) {
     if (e.eos_id < 0) e.eos_id = 12; /* arch study: EOS 12 */
     e.bytes_tok = bytes_per_token(&cp, model.layer_limit);
     printf("READY nemo-engine 2 model=Nemotron-Nano-9B-v2 weights=raw "
-           "layers=%d\n",
-           model.layer_limit);
+           "layers=%d cores=%d threads=%d mode=%s\n",
+           model.layer_limit, cores, model.nthreads,
+           threads > 0 ? "custom" : mode);
     fflush(stdout);
 
     char *line = NULL;
