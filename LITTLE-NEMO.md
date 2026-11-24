@@ -65,6 +65,19 @@ fixtures.
   checkpoint on this bench (the final norm and lm_head live in
   the last shard) and reports it as an error rather than
   inventing output.
+- A second outside review (ChatGPT (Gizmo), 2026-11-24) found
+  two things, both fixed the same day. First, geometry is now
+  validated whole before inference begins: every tensor the
+  steps will fetch is checked for presence, shape, and dtype
+  against the architecture, and the engine prints READY only
+  for a checkpoint that passes. Second, state commitment is
+  coherent: every step preflights its tensors before the first
+  layer's state moves, so a missing tensor is a preparation
+  failure that commits nothing, and any failure mid-commit
+  invalidates the state until reset. The coherence suite proves
+  the refused step bit-identical to never attempting it. His
+  formulation is the standing rule: preparation can be
+  concurrent; state commitment must be coherent.
 
 ## What is not done yet, said plainly
 

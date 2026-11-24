@@ -39,6 +39,17 @@ locally, or a TCP socket when the engine runs with --serve PORT.
     DONE\n                  the turn is complete (follows STATS)
     ERROR <text>\n          something went wrong; the turn is over
 
+Startup validation: READY is printed only after the checkpoint has
+passed whole-geometry validation (every tensor the model will fetch,
+present and correctly shaped and typed; see nemo_validate_model). A
+checkpoint that fails validation exits the engine with the offending
+tensor named on stderr, before READY.
+
+State coherence: a forward failure never leaves partially committed
+state behind. The engine resets the model state before the next
+PROMPT and the ERROR line says so ("...; state reset"). The next
+turn always starts a fresh conversation.
+
 Text pieces carry escapes: \\ for backslash, \n for newline, \t for tab.
 THINK, TOK, LAYER, and TICK are emitted as generation happens, never
 buffered to the end of the turn: the conversation is live at whatever

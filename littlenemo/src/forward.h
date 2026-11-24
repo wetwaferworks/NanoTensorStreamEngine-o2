@@ -18,6 +18,8 @@
 #ifndef NEMO_FORWARD_H
 #define NEMO_FORWARD_H
 
+#include <stddef.h>
+
 #include "attn.h"
 #include "loader.h"
 #include "mamba.h"
@@ -42,6 +44,12 @@ typedef struct {
      * a step (the engine's LAYER telemetry rides on it). NULL in tests. */
     void (*on_layer)(void *user, int layer, char type);
     void *on_layer_user;
+    /* State coherence (Gizmo review, 2026-11-24): 1 while no partially
+     * committed step is outstanding. A step that fails after its
+     * preflight clears this; step entry then refuses with -2 until
+     * nemo_model_reset restores it. Preparation can be concurrent;
+     * state commitment must be coherent. */
+    int state_valid;
 } nemo_model;
 
 /* layer_limit 0 means the full stack. Returns 0 on success. */
@@ -52,11 +60,30 @@ void nemo_model_free(nemo_model *m);
 void nemo_model_reset(nemo_model *m);
 
 /* Run one token through the stack (up to layer_limit), leaving the
- * pre-final-norm hidden state in hidden_out [hidden]. */
+ * pre-final-norm hidden state in hidden_out [hidden].
+ * Returns 0 on success; -1 on a preparation failure (the step's
+ * tensors were preflighted before any state moved, so nothing was
+ * committed) or on a mid-step failure (state_valid is then 0);
+ * -2 when the state is invalid from an earlier failure and a reset
+ * is required before any further step. */
 int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out);
 
-/* Full step: hidden state -> final norm -> lm_head logits [vocab]. */
+/* Full step: hidden state -> final norm -> lm_head logits [vocab].
+ * The head tensors are preflighted before the stack runs, so a
+ * missing lm_head refuses the step before the token commits.
+ * Same return conventions as nemo_model_step_hidden. */
 int nemo_model_step(nemo_model *m, int token, float *logits_out);
+
+/* Validate the whole model geometry against the checkpoint index
+ * before inference begins (Gizmo review, 2026-11-24): every tensor
+ * the steps will fetch, across layers 0..layer_limit-1 (0 = all 56)
+ * plus embeddings, and plus the final norm and lm_head when
+ * need_head is set, checked for presence, shape, and dtype class.
+ * Returns 0 when the geometry is whole; on failure returns -1 and,
+ * when bad/code are given, names the first offending tensor and the
+ * failure class: 1 missing, 2 wrong shape, 3 wrong dtype. */
+int nemo_validate_model(const nemo_checkpoint *cp, int layer_limit,
+                        int need_head, char *bad, size_t badn, int *code);
 
 /* Block type of layer i: 'M', '-', or '*', from the config pattern. */
 char nemo_layer_type(int i);

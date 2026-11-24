@@ -275,7 +275,11 @@ static void run_turn(engine *e, const char *prompt_text) {
                      ? nemo_model_step(e->model, ids[i], logits)
                      : nemo_model_step_hidden(e->model, ids[i], hidden);
         if (rc != 0) {
-            printf("ERROR forward pass failed during prompt\n");
+            /* A failed turn never leaves state behind: reset before
+             * the next prompt, and say so (PROTOCOL.md). */
+            nemo_model_reset(e->model);
+            printf("ERROR forward pass failed during prompt; state "
+                   "reset\n");
             fflush(stdout);
             free(logits);
             free(hidden);
@@ -309,7 +313,9 @@ static void run_turn(engine *e, const char *prompt_text) {
          * past the last emitted token and corrupt the next turn. */
         if (generated < e->max_new &&
             nemo_model_step(e->model, next, logits) != 0) {
-            printf("ERROR forward pass failed during generation\n");
+            nemo_model_reset(e->model);
+            printf("ERROR forward pass failed during generation; "
+                   "state reset\n");
             fflush(stdout);
             free(logits);
             free(hidden);
@@ -383,6 +389,25 @@ int main(int argc, char **argv) {
     if (nemo_model_init(&model, &cp, layers, max_pos) != 0) {
         fprintf(stderr, "nemo-engine: model init failed\n");
         return 1;
+    }
+    /* Whole-geometry validation before inference begins (Gizmo
+     * review, 2026-11-24): READY is only printed for a checkpoint
+     * whose every tensor is present, shaped, and typed as the
+     * architecture requires. */
+    {
+        char bad[128];
+        int vcode = 0;
+        if (nemo_validate_model(&cp, layers, 1, bad, sizeof bad,
+                                &vcode) != 0) {
+            fprintf(stderr,
+                    "nemo-engine: checkpoint failed validation: %s "
+                    "(%s)\n",
+                    bad,
+                    vcode == 1 ? "missing tensor"
+                    : vcode == 2 ? "wrong shape"
+                                 : "wrong dtype");
+            return 1;
+        }
     }
     model.on_layer = on_layer;
     engine e;

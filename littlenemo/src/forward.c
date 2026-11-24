@@ -35,6 +35,150 @@ static void layer_name(char *buf, size_t n, int layer, const char *leaf) {
     snprintf(buf, n, "backbone.layers.%d.%s", layer, leaf);
 }
 
+/* --- Whole-geometry validation and step preflight -------------------
+ * One walk serves both: nemo_validate_model runs it before inference
+ * begins, and every step runs it before any state moves, so a missing
+ * or malformed tensor is a preparation failure, never a half
+ * committed token (Gizmo review, 2026-11-24). Metadata only: the
+ * walk reads the checkpoint index, never tensor data. */
+#define DT_BF16 1  /* fetched as bf16: must be bf16 */
+#define DT_FLOAT 2 /* fetched widened: bf16 or f32 both load */
+
+static int check_tensor(const nemo_checkpoint *cp, const char *name,
+                        const uint64_t *shape, int ndim, int dt,
+                        char *bad, size_t badn, int *code) {
+    const nemo_tensor_info *t = nemo_find(cp, name);
+    if (!t) {
+        if (code) *code = 1;
+        if (bad) snprintf(bad, badn, "%s", name);
+        return -1;
+    }
+    if (t->ndim != ndim) {
+        if (code) *code = 2;
+        if (bad) snprintf(bad, badn, "%s", name);
+        return -1;
+    }
+    for (int i = 0; i < ndim; i++) {
+        if (t->shape[i] != shape[i]) {
+            if (code) *code = 2;
+            if (bad) snprintf(bad, badn, "%s", name);
+            return -1;
+        }
+    }
+    int dtype_ok = (dt == DT_BF16) ? t->is_bf16 : (t->is_bf16 || t->is_f32);
+    if (!dtype_ok) {
+        if (code) *code = 3;
+        if (bad) snprintf(bad, badn, "%s", name);
+        return -1;
+    }
+    return 0;
+}
+
+static int validate_set(const nemo_checkpoint *cp, int layer_limit,
+                        int need_head, char *bad, size_t badn, int *code) {
+    static const uint64_t s_emb[2] = {NEMO_VOCAB, NEMO_HIDDEN};
+    static const uint64_t s_vec[1] = {NEMO_HIDDEN};
+    static const uint64_t s_inproj[2] = {22656, NEMO_HIDDEN};
+    static const uint64_t s_outproj[2] = {NEMO_HIDDEN, 10240};
+    static const uint64_t s_convw[3] = {12288, 1, 4};
+    static const uint64_t s_convdim[1] = {12288};
+    static const uint64_t s_heads[1] = {128};
+    static const uint64_t s_gnorm[1] = {10240};
+    static const uint64_t s_up[2] = {15680, NEMO_HIDDEN};
+    static const uint64_t s_down[2] = {NEMO_HIDDEN, 15680};
+    static const uint64_t s_q[2] = {5120, NEMO_HIDDEN};
+    static const uint64_t s_kv[2] = {1024, NEMO_HIDDEN};
+    static const uint64_t s_o[2] = {NEMO_HIDDEN, 5120};
+    static const uint64_t s_head[2] = {NEMO_VOCAB, NEMO_HIDDEN};
+    char name[96];
+    if (check_tensor(cp, "backbone.embeddings.weight", s_emb, 2, DT_BF16,
+                     bad, badn, code) != 0)
+        return -1;
+    for (int layer = 0; layer < layer_limit; layer++) {
+        layer_name(name, sizeof name, layer, "norm.weight");
+        if (check_tensor(cp, name, s_vec, 1, DT_FLOAT, bad, badn, code) !=
+            0)
+            return -1;
+        char t = nemo_layer_type(layer);
+        if (t == 'M') {
+            layer_name(name, sizeof name, layer, "mixer.in_proj.weight");
+            if (check_tensor(cp, name, s_inproj, 2, DT_BF16, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.conv1d.weight");
+            if (check_tensor(cp, name, s_convw, 3, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.conv1d.bias");
+            if (check_tensor(cp, name, s_convdim, 1, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.A_log");
+            if (check_tensor(cp, name, s_heads, 1, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.D");
+            if (check_tensor(cp, name, s_heads, 1, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.dt_bias");
+            if (check_tensor(cp, name, s_heads, 1, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.norm.weight");
+            if (check_tensor(cp, name, s_gnorm, 1, DT_FLOAT, bad, badn,
+                             code) != 0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.out_proj.weight");
+            if (check_tensor(cp, name, s_outproj, 2, DT_BF16, bad, badn,
+                             code) != 0)
+                return -1;
+        } else if (t == '*') {
+            layer_name(name, sizeof name, layer, "mixer.q_proj.weight");
+            if (check_tensor(cp, name, s_q, 2, DT_BF16, bad, badn, code) !=
+                0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.k_proj.weight");
+            if (check_tensor(cp, name, s_kv, 2, DT_BF16, bad, badn, code) !=
+                0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.v_proj.weight");
+            if (check_tensor(cp, name, s_kv, 2, DT_BF16, bad, badn, code) !=
+                0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.o_proj.weight");
+            if (check_tensor(cp, name, s_o, 2, DT_BF16, bad, badn, code) !=
+                0)
+                return -1;
+        } else {
+            layer_name(name, sizeof name, layer, "mixer.up_proj.weight");
+            if (check_tensor(cp, name, s_up, 2, DT_BF16, bad, badn, code) !=
+                0)
+                return -1;
+            layer_name(name, sizeof name, layer, "mixer.down_proj.weight");
+            if (check_tensor(cp, name, s_down, 2, DT_BF16, bad, badn,
+                             code) != 0)
+                return -1;
+        }
+    }
+    if (need_head) {
+        if (check_tensor(cp, "backbone.norm_f.weight", s_vec, 1, DT_FLOAT,
+                         bad, badn, code) != 0)
+            return -1;
+        if (check_tensor(cp, "lm_head.weight", s_head, 2, DT_BF16, bad,
+                         badn, code) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+int nemo_validate_model(const nemo_checkpoint *cp, int layer_limit,
+                        int need_head, char *bad, size_t badn, int *code) {
+    if (layer_limit <= 0 || layer_limit > NEMO_LAYERS)
+        layer_limit = NEMO_LAYERS;
+    return validate_set(cp, layer_limit, need_head, bad, badn, code);
+}
+
 int nemo_model_init(nemo_model *m, const nemo_checkpoint *cp,
                     int layer_limit, int max_pos) {
     memset(m, 0, sizeof *m);
@@ -68,6 +212,7 @@ int nemo_model_init(nemo_model *m, const nemo_checkpoint *cp,
             }
         }
     }
+    m->state_valid = 1;
     return 0;
 }
 
@@ -100,6 +245,7 @@ void nemo_model_reset(nemo_model *m) {
             m->attn[i].len = 0;
         }
     }
+    m->state_valid = 1;
 }
 
 /* One Mamba-2 block's mixer (input h, output y), weights fetched live. */
@@ -193,6 +339,12 @@ static int run_attn(nemo_model *m, int layer) {
 
 int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
     if (token < 0 || token >= NEMO_VOCAB) return -1;
+    if (!m->state_valid) return -2;
+    /* Preflight: every tensor this step will fetch must be present and
+     * well formed before the first layer commits its state. A failure
+     * here is a preparation failure; the state is untouched. */
+    if (validate_set(m->cp, m->layer_limit, 0, NULL, 0, NULL) != 0)
+        return -1;
     const nemo_tensor_info *emb =
         nemo_find(m->cp, "backbone.embeddings.weight");
     if (!emb) return -1;
@@ -221,7 +373,13 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
         char name[96];
         layer_name(name, sizeof name, layer, "norm.weight");
         float *nw = get_f32(m, name);
-        if (!nw) return -1;
+        if (!nw) {
+            /* Commitment has begun: earlier layers already advanced
+             * their state. The step is partially committed, so the
+             * state is invalid until reset. */
+            m->state_valid = 0;
+            return -1;
+        }
         nemo_rmsnorm(m->x, nw, m->h, NEMO_HIDDEN, EPS);
         free(nw);
         char t = nemo_layer_type(layer);
@@ -229,7 +387,10 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
         int rc = t == 'M'   ? run_mamba(m, layer)
                  : t == '*' ? run_attn(m, layer)
                             : run_mlp(m, layer);
-        if (rc != 0) return -1;
+        if (rc != 0) {
+            m->state_valid = 0;
+            return -1;
+        }
         for (int i = 0; i < NEMO_HIDDEN; i++) m->x[i] += m->y[i];
     }
     memcpy(hidden_out, m->x, NEMO_HIDDEN * sizeof(float));
@@ -237,11 +398,20 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
 }
 
 int nemo_model_step(nemo_model *m, int token, float *logits_out) {
+    if (!m->state_valid) return -2;
+    /* The head tensors are preflighted before the stack runs, so a
+     * missing lm_head refuses the step before the token commits. */
+    if (validate_set(m->cp, m->layer_limit, 1, NULL, 0, NULL) != 0)
+        return -1;
     float hidden[NEMO_HIDDEN];
-    if (nemo_model_step_hidden(m, token, hidden) != 0) return -1;
+    int rc = nemo_model_step_hidden(m, token, hidden);
+    if (rc != 0) return rc;
     float *nw = get_f32(m, "backbone.norm_f.weight");
     uint16_t *lm = get_bf16(m, "lm_head.weight");
     if (!nw || !lm) {
+        /* The token committed coherently; only the readout failed.
+         * The state stays valid (the engine resets the conversation
+         * on a failed turn as its own policy). */
         free(nw);
         free(lm);
         return -1;

@@ -105,3 +105,23 @@ counter 0001 (Build 0001), unpublished.
   exam was still to run. It has now run: hardened anchors
   reproduce exactly (raw, packed, Triforce packed), hostile
   fixtures are refused, and the sanitizer battery is clean.
+
+## Third update, later on 2026-11-24
+
+A second outside review (ChatGPT (Gizmo), reading the repo cold)
+found two things in Little Nemo; both are fixed and pushed the
+same day:
+
+- Whole-geometry validation before inference begins:
+  nemo_validate_model checks every tensor the steps will fetch
+  for presence, shape, and dtype. The engine prints READY only
+  for a checkpoint that passes; a partial checkpoint is refused
+  up front with the offending tensor named.
+- State commitment coherence: every step preflights its tensors
+  before the first layer's state moves, so a missing tensor
+  commits nothing; any mid-commit failure invalidates the state
+  until reset; the engine resets after a failed turn and says
+  so on the protocol. New suite: littlenemo/tests/
+  test_coherence.c, including bit-identical proof that a
+  refused step changed nothing. LITTLE-NEMO.md and
+  littlenemo/PROTOCOL.md carry the details.
