@@ -148,3 +148,29 @@ same day:
   and tokenizer paths plus the compute mode, so it launches by
   click with no command-line arguments; arguments still override
   the file.
+
+## Fifth update, 2026-11-24: SIMD (AVX2), opt-in
+
+- The projection kernel gains an AVX2 twin (src/nn.c, the one
+  translation unit the build scripts compile with -mavx2 on
+  x86-64). The rest of the engine stays at the baseline
+  instruction set, the kernel is reached only through a runtime
+  CPUID check, and it runs only when asked: --simd on the engine,
+  or simd = true under [engine] in littlenemo.ini. The READY
+  line reports the active state (simd=0|1). On hardware without
+  AVX2 the engine stays on the scalar path whatever the setting
+  says.
+- The SIMD kernel sums the same products in a fixed blocked
+  order (groups of four doubles), so it is deterministic; the
+  scalar path remains the golden reference and the default. A
+  new suite (littlenemo/tests/test_simd.c) holds it to both
+  standards on real weights: deterministic across reset, and
+  faithful to scalar. First measurement: drift exactly zero at
+  fp32 precision (max abs 0.0 over the hidden state, three
+  tokens through 15 layers), 6/6 checks. The forward suite
+  still reproduces the golden hidden RMS 0.520647 exactly, so
+  the scalar path did not move under the new build.
+- The compiler does not do this on its own: a portable build
+  targets the baseline set, and silent floating-point
+  reassociation is forbidden, so the vector kernel is written
+  by hand and gated, never assumed.

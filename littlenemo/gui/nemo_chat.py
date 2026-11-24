@@ -23,6 +23,7 @@ the script's parent directory (or at the path given by --config):
     [engine]
     mode    = max          ; minimum | medium | max | ultra
     threads = 0            ; 0 = the mode decides
+    simd    = false        ; true = AVX2 projections where available
     max_new = 256
     max_pos = 4096
 
@@ -467,6 +468,11 @@ def load_ini(argv):
         threads = cfg.get("engine", "threads", fallback="").strip()
         if threads and threads != "0":
             parts += ["--threads", threads]
+        try:
+            if cfg.getboolean("engine", "simd", fallback=False):
+                parts += ["--simd"]
+        except ValueError:
+            pass
         max_pos = cfg.get("engine", "max_pos", fallback="").strip()
         if max_pos:
             parts += ["--max-pos", max_pos]

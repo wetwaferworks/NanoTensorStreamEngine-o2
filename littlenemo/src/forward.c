@@ -145,7 +145,7 @@ typedef struct {
 
 static void lin_chunk(void *ctx, int begin, int end) {
     lin_ctx *L = (lin_ctx *)ctx;
-    nemo_linear_bf16_rows(L->W, L->x, L->y, begin, end, L->in);
+    nemo_linear_bf16_rows_auto(L->W, L->x, L->y, begin, end, L->in);
 }
 
 static void linear_par(nemo_model *m, const uint16_t *W, const float *x,

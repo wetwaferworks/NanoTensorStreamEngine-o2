@@ -16,4 +16,24 @@ void nemo_linear_bf16(const uint16_t *W, const float *x, float *y, int out, int 
 void nemo_linear_bf16_rows(const uint16_t *W, const float *x, float *y,
                            int begin, int end, int in);
 
+/* SIMD twin of the rows call. Same products, accumulated in a fixed
+ * blocked order (groups of four doubles), so it is deterministic
+ * run to run and machine to machine wherever it is used, but it may
+ * differ from the scalar order in the last bits. It is never
+ * selected silently: nemo_set_simd(1) opts in (the engine's --simd
+ * flag, or simd = true in littlenemo.ini), the READY line reports
+ * the active state, and without AVX2 in the build and on the CPU
+ * the call is exactly the scalar rows call. */
+void nemo_linear_bf16_rows_simd(const uint16_t *W, const float *x, float *y,
+                                int begin, int end, int in);
+
+/* The dispatching rows call the forward pass uses: the SIMD twin
+ * when opted in and available, the scalar rows otherwise. */
+void nemo_linear_bf16_rows_auto(const uint16_t *W, const float *x, float *y,
+                                int begin, int end, int in);
+
+void nemo_set_simd(int on);
+int nemo_simd_available(void); /* an AVX2 kernel exists and the CPU has it */
+int nemo_simd_active(void);    /* opted in and available */
+
 #endif

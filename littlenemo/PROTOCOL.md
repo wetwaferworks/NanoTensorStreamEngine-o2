@@ -16,11 +16,14 @@ locally, or a TCP socket when the engine runs with --serve PORT.
 ## Engine to client
 
     READY nemo-engine 2 model=<name> weights=<raw|packed> layers=<n>
-         cores=<n> threads=<n> mode=<name>\n
+         cores=<n> threads=<n> mode=<name> simd=<0|1>\n
                             cores is the processor count the engine
                             queried from the machine at startup;
                             threads is the lane count actually in use;
-                            mode is the compute mode (below)
+                            mode is the compute mode (below); simd is
+                            1 only when the SIMD path was requested
+                            (--simd, or simd = true in littlenemo.ini)
+                            and the CPU provides AVX2
     THINK <text>\n          one piece of the reasoning trace (streamed)
     TOK <text>\n            one piece of the visible answer (streamed)
     LAYER <idx> <type>\n    the forward pass entered layer <idx>
@@ -53,6 +56,10 @@ the cores, max = all cores but one, ultra = every core. --threads N
 overrides the mode with an exact lane count (the READY mode then
 reads "custom"). An unknown mode is a startup error. --max-new N
 caps generated tokens per turn; --max-pos N caps the context.
+--simd opts into AVX2 projection kernels: same products in a
+fixed blocked accumulation order, deterministic, but possibly
+different from the scalar path in the last bits. The scalar path
+is the golden reference and stays the default.
 
 Startup validation: READY is printed only after the checkpoint has
 passed whole-geometry validation (every tensor the model will fetch,

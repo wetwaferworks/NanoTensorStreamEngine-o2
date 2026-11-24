@@ -28,6 +28,7 @@
 
 #include "forward.h"
 #include "loader.h"
+#include "nn.h"
 #include "tokenizer.h"
 
 #if defined(_WIN32)
@@ -423,23 +424,33 @@ int main(int argc, char **argv) {
         fprintf(stderr,
                 "usage: nemo-engine <checkpoint_dir> <tokenizer.json> "
                 "[--layers N] [--max-pos N] [--max-new N] "
-                "[--mode minimum|medium|max|ultra] [--threads N]\n");
+                "[--mode minimum|medium|max|ultra] [--threads N] "
+                "[--simd]\n");
         return 2;
     }
     int layers = 0, max_pos = 4096, max_new = 256;
     const char *mode = "max";
     int threads = 0; /* 0 = take the mode's count */
-    for (int i = 3; i + 1 < argc; i += 2) {
-        if (!strcmp(argv[i], "--layers")) layers = atoi(argv[i + 1]);
-        else if (!strcmp(argv[i], "--max-pos")) max_pos = atoi(argv[i + 1]);
-        else if (!strcmp(argv[i], "--max-new")) max_new = atoi(argv[i + 1]);
-        else if (!strcmp(argv[i], "--mode")) mode = argv[i + 1];
-        else if (!strcmp(argv[i], "--threads")) threads = atoi(argv[i + 1]);
+    int simd = 0;
+    for (int i = 3; i < argc; i++) {
+        if (!strcmp(argv[i], "--simd")) simd = 1;
+        else if (!strcmp(argv[i], "--no-simd")) simd = 0;
+        else if (i + 1 < argc && !strcmp(argv[i], "--layers"))
+            layers = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--max-pos"))
+            max_pos = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--max-new"))
+            max_new = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--mode"))
+            mode = argv[++i];
+        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))
+            threads = atoi(argv[++i]);
         else {
             fprintf(stderr, "nemo-engine: unknown option %s\n", argv[i]);
             return 2;
         }
     }
+    nemo_set_simd(simd);
     /* The machine sets the scale: query the cores, map the mode,
      * and split the work across what is actually there. */
     int cores = nemo_cores();
@@ -498,9 +509,9 @@ int main(int argc, char **argv) {
     if (e.eos_id < 0) e.eos_id = 12; /* arch study: EOS 12 */
     e.bytes_tok = bytes_per_token(&cp, model.layer_limit);
     printf("READY nemo-engine 2 model=Nemotron-Nano-9B-v2 weights=raw "
-           "layers=%d cores=%d threads=%d mode=%s\n",
+           "layers=%d cores=%d threads=%d mode=%s simd=%d\n",
            model.layer_limit, cores, model.nthreads,
-           threads > 0 ? "custom" : mode);
+           threads > 0 ? "custom" : mode, nemo_simd_active());
     fflush(stdout);
 
     char *line = NULL;
