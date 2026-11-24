@@ -1,5 +1,7 @@
 # Experiments, night of November 23 to 24, 2026
 
+Nano Quant Engine (NanoQuat-O2).
+
 Everything below was measured on the real model (NVIDIA Nemotron-Labs
 Sigma-3B, 3,834,051,618 weights, bf16 safetensors) on a small shared
 bench VM: about 1.5 shared cores of an AMD EPYC 9D25, AVX2 and
@@ -18,7 +20,7 @@ fidelity 0.9. Nothing below reaches 0.1 yet. This file says what
 each lever actually bought, including the ones that bought nothing.
 
 Implementation and core mathematics: Elfie (E.L.F.I.E.).
-Consultee: Gizmo.
+Consultee: ChatGPT (Gizmo).
 Executive direction: JD (David Rittenhouse).
 Bench numbers and verdicts: Elfie.
 

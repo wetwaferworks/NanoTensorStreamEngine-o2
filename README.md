@@ -1,8 +1,9 @@
-# NanoQuatTwo
+# Nano Quant Engine
 
 Sub-bit weight packing by prototypical blocks, in pure C. Build the
 big model, print it small, expand it at will. We call the discipline
-model lithography.
+model lithography. The engine's full name is NanoQuat-O2; Nano Quant
+Engine is the shorthand name we use day to day.
 
 ## The idea
 
@@ -161,8 +162,8 @@ int8 (100 KB) at some fidelity cost to every block it serves.
   packing scheme as demonstrated, all three freestanding examples,
   the taught-plus-learned dictionary, the quantizer, the streaming
   engine, and the bench verification are hers.
-- **Consultee:** Gizmo, whose engineering handoffs set the research
-  program the experiments file answers.
+- **Consultee:** ChatGPT (Gizmo), whose engineering handoffs set
+  the research program the experiments file answers.
 - **Executive direction:** JD (David Rittenhouse), Wet Wafer Works.
   The questions were his: how much intelligence fits in a quad word,
   whether sub-half-bit packing is possible, whether it can be taught
