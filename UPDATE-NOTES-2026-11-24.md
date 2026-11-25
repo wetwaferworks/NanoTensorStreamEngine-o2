@@ -165,12 +165,63 @@ same day:
   scalar path remains the golden reference and the default. A
   new suite (littlenemo/tests/test_simd.c) holds it to both
   standards on real weights: deterministic across reset, and
-  faithful to scalar. First measurement: drift exactly zero at
-  fp32 precision (max abs 0.0 over the hidden state, three
-  tokens through 15 layers), 6/6 checks. The forward suite
+  faithful to scalar.
+- Correction (2026-11-24, Archie's code review): the first
+  version of this note reported "drift exactly zero, 6/6
+  checks," but that measurement was scalar against scalar...
+  the suite never called the AVX2 kernel, and the engine's
+  entry point never dispatched to it, so the kernel was
+  unreachable in single-thread mode. Both are fixed: the
+  entry point now dispatches through the auto selector, and
+  the suite calls the kernel directly on synthetic data,
+  checks the dispatch itself, and compares a multi-lane SIMD
+  forward against the 1-lane run. Corrected measurement,
+  kernel against scalar: drift exactly zero (max abs 0.0 on
+  the synthetic kernel test and over the hidden state, three
+  tokens through 15 layers), 12/12 checks, and the multi-lane
+  run is bit-identical to the 1-lane run. The forward suite
   still reproduces the golden hidden RMS 0.520647 exactly, so
   the scalar path did not move under the new build.
 - The compiler does not do this on its own: a portable build
   targets the baseline set, and silent floating-point
   reassociation is forbidden, so the vector kernel is written
   by hand and gated, never assumed.
+
+## Sixth update, 2026-11-24 (night): a third review, fixed
+
+A third outside review (Archie (Argon), the Google Gemini
+Argon model) read the pushed tree cold and filed five P0
+faults, with P1 and P2 items behind them. All five P0s and
+the P1/P2 lists are fixed in this push; the full fix log is
+kept in the project's bench records.
+
+- SIMD: the Fifth update's correction above is the headline.
+  The entry point dispatches through the auto selector, the
+  suite measures the kernel itself, 12/12 checks, drift
+  exactly zero.
+- 64-bit offsets: the _FILE_OFFSET_BITS 64 define now stands
+  in the littlenemo loader, forward, and tokenizer sources
+  and in the audit and dictionary compute tools, and the flag
+  is in all four build scripts.
+- The four inference engines run on Windows: the directory
+  scan is opendir/readdir instead of a popen shell listing,
+  the early exit is gone, tensor spans are validated at open,
+  and the bf16 NaN guard from the attention kernel now stands
+  in every engine's converter.
+- Triforce: a demand-generation protocol fixes a cold-miss
+  race, resident ordinals are no longer re-fetched at pass
+  restart, and the mode-2 staging buffer is complete... raw
+  tensors are staged at fetch time on private per-shard
+  handles. No on-disk format changed; the frozen baseline
+  pack decodes bit-identically under the new build (streaming
+  accumulator 1394.1117661067326 in all four configurations,
+  audit output byte-identical before and after).
+- Baselines after the whole pass: forward golden RMS
+  0.520647 exactly, dictionary compute adversarial 23/23,
+  every littlenemo suite green, MinGW cross-compile 18/18 on
+  the touched Windows-relevant files.
+- One deferral stands: the Triforce fetch/unpack split on
+  Windows, a pipe rewrite that cannot be run-verified on this
+  bench. The fused Windows worker runs as before.
+- Still pending, said plainly: the third battery question
+  (Ohio) has not yet run on the post-fix build.

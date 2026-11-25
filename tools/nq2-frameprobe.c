@@ -56,6 +56,14 @@ static uint64_t rd64(const uint8_t *p)
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
 }
 
+/* Byte-wise 16-bit load: the pack's half sections are not
+ * guaranteed 2-byte aligned in the stream buffer, so they must
+ * never be read through a uint16_t pointer (Archie P0-4). */
+static uint16_t rd16(const uint8_t *p)
+{
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
 static double entropy_of(const uint64_t *counts, int n, uint64_t total)
 {
     double h = 0.0;
@@ -99,14 +107,15 @@ int main(int argc, char **argv)
         uint32_t n_books = rd32(buf + 32);
         header = 36 + (uint64_t)n_books * 8;
     }
-    if (header + 5 * n_blocks > (uint64_t)fsz) {
+    /* T5 hardening (CODE-REVIEW-2026-11-24): the size check must
+     * not be defeatable by uint64 wrap in 5 * n_blocks. */
+    if (n_blocks > (UINT64_MAX - header) / 5
+        || header + 5 * n_blocks > (uint64_t)fsz) {
         fprintf(stderr, "stream shorter than its header claims\n");
         return 1;
     }
-    const uint16_t *mins =
-        (const uint16_t *)(buf + header + n_blocks);
-    const uint16_t *scales =
-        (const uint16_t *)(buf + header + 3 * n_blocks);
+    const uint8_t *mins = buf + header + n_blocks;
+    const uint8_t *scales = buf + header + 3 * n_blocks;
 
     printf("frame probe: %s\n", argv[1]);
     printf("blocks: %llu of %u weights; stream %ld bytes\n",
@@ -122,7 +131,7 @@ int main(int argc, char **argv)
     const char *names[2] = { "min", "scale" };
     double delta_h0[2] = { 0.0, 0.0 };
     for (int s = 0; s < 2; s++) {
-        const uint16_t *sec = s ? scales : mins;
+        const uint8_t *sec = s ? scales : mins;
         uint64_t *code_hist = (uint64_t *)calloc(65536, sizeof(uint64_t));
         uint64_t *byte_hist = (uint64_t *)calloc(256, sizeof(uint64_t));
         /* code deltas range over [-65535, 65535] */
@@ -134,13 +143,13 @@ int main(int argc, char **argv)
         uint64_t distinct = 0, zero_d = 0;
         double sum_abs_d = 0.0;
         for (uint64_t i = 0; i < n_blocks; i++) {
-            uint16_t c = sec[i];
+            uint16_t c = rd16(sec + 2 * i);
             if (code_hist[c] == 0) distinct++;
             code_hist[c]++;
             byte_hist[c & 0xff]++;
             byte_hist[(c >> 8) & 0xff]++;
             if (i > 0) {
-                int d = (int)c - (int)sec[i - 1];
+                int d = (int)c - (int)rd16(sec + 2 * (i - 1));
                 delt_hist[d + 65535]++;
                 if (d == 0) zero_d++;
                 sum_abs_d += d < 0 ? -d : d;
@@ -168,11 +177,11 @@ int main(int argc, char **argv)
     {
         uint64_t *hist = (uint64_t *)calloc(4096, sizeof(uint64_t));
         if (!hist) { fprintf(stderr, "out of memory\n"); return 1; }
-        double prev = log2((double)half_to_float(scales[0]));
+        double prev = log2((double)half_to_float(rd16(scales)));
         double sq_err = 0.0;
         uint64_t clipped = 0;
         for (uint64_t i = 1; i < n_blocks; i++) {
-            double cur = log2((double)half_to_float(scales[i]));
+            double cur = log2((double)half_to_float(rd16(scales + 2 * i)));
             double dl = cur - prev;
             prev = cur;
             long sym = lrint(dl * 64.0);

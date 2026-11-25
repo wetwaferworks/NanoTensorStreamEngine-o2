@@ -5,7 +5,7 @@
 set -e
 mkdir -p bin obj
 CC=${CC:-cc}
-FLAGS="-O2 -std=c99 -Wall -Wextra -D_POSIX_C_SOURCE=200809L"
+FLAGS="-O2 -std=c99 -Wall -Wextra -D_POSIX_C_SOURCE=200809L -D_FILE_OFFSET_BITS=64"
 # nn.c alone gets AVX2 codegen on x86-64. Its kernels are reached
 # only through a runtime CPUID check and only when the engine is
 # told --simd, so the binary still runs on older hardware, which

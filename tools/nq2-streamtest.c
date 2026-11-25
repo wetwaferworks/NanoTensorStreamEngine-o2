@@ -92,6 +92,7 @@ static int shard_scan(const char *path)
     uint8_t lb[8];
     if (fread(lb, 1, 8, f) != 8) { fclose(f); return -1; }
     uint64_t hlen = rd64(lb);
+    if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); return -1; }
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); return -1; }
     hdr[hlen] = 0;
@@ -187,8 +188,10 @@ static void read_tensor_raw(int ord, uint8_t **idx_out, uint16_t **fr_out)
 {
     const TDir *t = g_demand[ord];
     uint64_t nb = t->nblocks, b0 = t->block0;
-    uint8_t *idx = (uint8_t *)malloc(nb);
-    uint16_t *fr = (uint16_t *)malloc(nb * 4);
+    /* calloc, not malloc (CODE-REVIEW-2026-11-24, T8): the short
+     * read path below relies on unread bytes being zero. */
+    uint8_t *idx = (uint8_t *)calloc(nb, 1);
+    uint16_t *fr = (uint16_t *)calloc(nb, 4);
     fseeko(g_stream, (off_t)(g_header + b0), SEEK_SET);
     if (fread(idx, 1, nb, g_stream) != nb) { /* handled by caller via zeros */ }
     fseeko(g_stream, (off_t)(g_header + g_nb_total + 2 * b0), SEEK_SET);
@@ -397,6 +400,7 @@ int main(int argc, char **argv)
             snprintf(name, sizeof(name), "encoder.layers.%d.%s", l, slots[s]);
             const TDir *t = dir_find(name);
             if (!t || t->nblocks == 0) { fprintf(stderr, "missing %s\n", name); return 1; }
+            if (g_nord >= MAX_ORD) { fprintf(stderr, "demand exceeds %d ordinals\n", MAX_ORD); return 1; }
             g_demand[g_nord++] = t;
         }
     }

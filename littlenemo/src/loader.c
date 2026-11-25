@@ -1,4 +1,5 @@
 /* loader.c - see loader.h. */
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too (Archie P0-2) */
 #define _POSIX_C_SOURCE 200809L /* strdup, fseeko under strict C99 */
 #include "loader.h"
 

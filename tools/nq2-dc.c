@@ -28,6 +28,7 @@
  * tools/nq2-dc.c -lm
  */
 
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too (Archie P0-2) */
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
@@ -71,6 +72,14 @@ static uint32_t rd32(const uint8_t *p)
 static uint64_t rd64(const uint8_t *p)
 {
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
+}
+
+/* Byte-wise 16-bit load: the pack's half sections are not
+ * guaranteed 2-byte aligned in the stream buffer, so they must
+ * never be read through a uint16_t pointer (Archie P0-4). */
+static uint16_t rd16(const uint8_t *p)
+{
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
 static uint64_t rng_state = 42;
@@ -396,8 +405,8 @@ int main(int argc, char **argv)
         return 1;
     }
     const uint8_t *idx_sec = stream + 32;
-    const uint16_t *mn_sec = (const uint16_t *)(stream + 32 + n_blocks);
-    const uint16_t *sc_sec = (const uint16_t *)(stream + 32 + 3 * n_blocks);
+    const uint8_t *mn_sec = stream + 32 + n_blocks;
+    const uint8_t *sc_sec = stream + 32 + 3 * n_blocks;
     FILE *bf = fopen(argv[2], "rb");
     if (!bf) { fprintf(stderr, "cannot open %s\n", argv[2]); return 1; }
     fseek(bf, 0, SEEK_END); long bsz = ftell(bf); fseek(bf, 0, SEEK_SET);
@@ -442,8 +451,8 @@ int main(int argc, char **argv)
         uint64_t h = 1469598103934665603ull;
         float wbuf[4096];
         for (uint64_t b = 0; b < n_blocks; b++) {
-            float m2 = half_to_float(mn_sec[b]);
-            float s2 = half_to_float(sc_sec[b]);
+            float m2 = half_to_float(rd16(mn_sec + 2 * b));
+            float s2 = half_to_float(rd16(sc_sec + 2 * b));
             const float *proto = book + (size_t)idx_sec[b] * block;
             for (uint32_t i = 0; i < block; i++)
                 wbuf[i] = m2 + s2 * proto[i];
@@ -465,7 +474,7 @@ int main(int argc, char **argv)
     }
 
     /* walk to the target tensor */
-    TensorInfo target = { 0 }; Shard tsh; int found = 0, tsh_idx = -1;
+    TensorInfo target = { 0 }; Shard tsh = { 0 }; int found = 0, tsh_idx = -1;
     uint64_t cursor = 0, target_block0 = 0;
     for (int s = 0; s < n_shards; s++) {
         Shard sh;
@@ -524,8 +533,8 @@ int main(int argc, char **argv)
         double d2 = 0, r2 = 0;
         const uint8_t *tidx = idx_sec + target_block0;
         for (uint64_t b = 0; b < nb; b++) {
-            float m2 = half_to_float(mn_sec[target_block0 + b]);
-            float s2 = half_to_float(sc_sec[target_block0 + b]);
+            float m2 = half_to_float(rd16(mn_sec + 2 * (target_block0 + b)));
+            float s2 = half_to_float(rd16(sc_sec + 2 * (target_block0 + b)));
             const float *proto = book + (size_t)tidx[b] * block;
             for (uint32_t i = 0; i < block; i++) {
                 double w = (double)m2 + (double)s2 * proto[i];
@@ -540,8 +549,8 @@ int main(int argc, char **argv)
     const uint8_t *idx = idx_sec + target_block0;
     float *mn = (float *)malloc(nb * 4), *sc = (float *)malloc(nb * 4);
     for (uint64_t b = 0; b < nb; b++) {
-        mn[b] = half_to_float(mn_sec[target_block0 + b]);
-        sc[b] = half_to_float(sc_sec[target_block0 + b]);
+        mn[b] = half_to_float(rd16(mn_sec + 2 * (target_block0 + b)));
+        sc[b] = half_to_float(rd16(sc_sec + 2 * (target_block0 + b)));
     }
     float *x = (float *)malloc(N * 4);
     rng_state = 42;

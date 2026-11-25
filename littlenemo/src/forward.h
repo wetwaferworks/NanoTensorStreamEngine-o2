@@ -34,6 +34,11 @@ typedef struct {
     int layer_limit; /* 0 = all 56; a smaller value runs a truncated
                         stack (plumbing tests only, not a model output) */
     int max_pos;
+    /* Tokens committed so far this conversation (Archie P1-3):
+     * checked in the step preflight so a full context refuses
+     * BEFORE any layer mutates state, not inside the first
+     * attention layer after the Mamba layers have committed. */
+    int n_pos;
     nemo_mamba_state mamba[NEMO_LAYERS]; /* live only on M layers */
     nemo_attn_cache attn[NEMO_LAYERS];   /* live only on * layers */
     float *x, *h, *y;                    /* [hidden] streams */

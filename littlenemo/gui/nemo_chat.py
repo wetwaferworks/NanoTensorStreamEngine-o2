@@ -285,7 +285,8 @@ def run_gui(engine_cmd=None, host=None, port=None):
     def fmt_readout():
         lyr = state["layer"]
         cur = (f"layer {lyr}/{len(LAYER_TYPES) - 1} ({LAYER_TYPES[lyr]})"
-               if lyr is not None else "layer -")
+               if lyr is not None and 0 <= lyr < len(LAYER_TYPES)
+               else "layer -")
         nxt = state["next"]
         nxt_s = (f"next {nxt} ({LAYER_TYPES[nxt]})"
                  if nxt is not None and 0 <= nxt < len(LAYER_TYPES) else "next -")
@@ -442,7 +443,8 @@ def load_ini(argv):
             break
     if not found:
         return None, None, None
-    cfg = configparser.ConfigParser()
+    cfg = configparser.ConfigParser(
+        inline_comment_prefixes=(";", "#"))
     cfg.read(found, encoding="utf-8")
     base = os.path.dirname(os.path.abspath(found))
 

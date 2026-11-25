@@ -133,6 +133,13 @@ int main(int argc, char **argv)
     uint32_t entries = rd_u32(sf);
     uint64_t total_weights = rd_u64(sf);
     uint64_t n_blocks = rd_u64(sf);
+    /* T2 hardening (CODE-REVIEW-2026-11-24): validate the pack
+     * geometry before any division or allocation trusts it. */
+    if (block == 0 || block > 4096 || entries == 0 || entries > 256) {
+        fprintf(stderr, "%s: unsupported pack geometry "
+                "(block %u, entries %u)\n", stream_path, block, entries);
+        return 1;
+    }
     uint32_t n_books = 1;
     uint64_t *seg_blocks = NULL;   /* v2 only: blocks per tensor */
     if (version == 2) {

@@ -43,6 +43,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <dirent.h> /* opendir/readdir directory scan (Archie P0-3) */
 
 #ifdef _WIN32
 #include <windows.h>
@@ -364,7 +365,16 @@ static TEnt *dir_find(const char *name)
 
 #define MAX_SHARDS 8
 static FILE *g_shards[MAX_SHARDS];
+static char *g_shard_paths[MAX_SHARDS];
 static int g_nshards = 0;
+
+static char *dup_str(const char *s)
+{
+    size_t n = strlen(s) + 1;
+    char *p = (char *)malloc(n);
+    if (p) memcpy(p, s, n);
+    return p;
+}
 
 static int js_string_end(const char *s, long n, long pos)
 {
@@ -382,16 +392,32 @@ static int shard_open_raw(const char *path, int shard_idx)
 {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
+    /* File size, for the data_offsets span check below. */
+    uint64_t fsize;
+#ifdef _WIN32
+    if (_fseeki64(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    { long long s = _ftelli64(f); if (s < 0) { fclose(f); return -1; } fsize = (uint64_t)s; }
+    if (_fseeki64(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+#else
+    if (fseeko(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    { off_t s = ftello(f); if (s < 0) { fclose(f); return -1; } fsize = (uint64_t)s; }
+    if (fseeko(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+#endif
     uint8_t lenbuf[8];
     if (fread(lenbuf, 1, 8, f) != 8) { fclose(f); return -1; }
     uint64_t hlen = 0;
     for (int i = 0; i < 8; i++) hlen |= (uint64_t)lenbuf[i] << (8 * i);
+    if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); return -1; }
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr) { fclose(f); return -1; }
     if (fread(hdr, 1, hlen, f) != hlen) { free(hdr); fclose(f); return -1; }
     hdr[hlen] = '\0';
     uint64_t data_start = 8 + hlen;
     g_shards[shard_idx] = f;
+    /* Retain the path so the pipe can open its own private
+     * handle per shard at pipe_init (the fetcher must never
+     * share a seek position with the main thread's reads). */
+    g_shard_paths[shard_idx] = dup_str(path);
 
     long n = (long)hlen, pos = 0;
     while (pos < n) {
@@ -474,6 +500,26 @@ static int shard_open_raw(const char *path, int shard_idx)
             const char *lb = strchr(df, '[');
             if (lb) {
                 uint64_t begin = strtoull(lb + 1, NULL, 10);
+                const char *comma = strchr(lb, ',');
+                uint64_t end = comma ? strtoull(comma + 1, NULL, 10) : 0;
+                uint64_t esz = t->dtype == DT_F32 ? 4 : 2;
+                /* Span validation (Archie P0-4): only begin was
+                 * read before, unchecked. The span must be
+                 * ordered, lie inside the shard file, and (when
+                 * both shape and dtype were parsed) match the
+                 * shape-derived element count exactly. */
+                if (end < begin || end > fsize
+                    || data_start + end > fsize
+                    || (dt && (long)(dt - obj) < olen && t->count > 0
+                        && end - begin != t->count * esz)) {
+                    fprintf(stderr, "reject: tensor %s has "
+                            "data_offsets [%llu, %llu) inconsistent "
+                            "with the shard or its shape\n", key,
+                            (unsigned long long)begin,
+                            (unsigned long long)end);
+                    free(hdr);
+                    return -1;
+                }
                 t->byte_off = data_start + begin;
             }
         }
@@ -492,6 +538,24 @@ static int seek_to(FILE *f, uint64_t off)
 #endif
 }
 
+/* Convert raw source bytes of a tensor to fp32. This is the
+ * one conversion every raw read path uses (direct reads and
+ * the pipe's staged reads alike), so the two can never drift
+ * apart arithmetically. */
+static void raw_convert(const TEnt *t, const uint8_t *raw,
+                        uint64_t nelems, float *out)
+{
+    if (t->dtype == DT_BF16) {
+        const uint16_t *h = (const uint16_t *)raw;
+        for (uint64_t i = 0; i < nelems; i++) out[i] = bf16_to_float(h[i]);
+    } else if (t->dtype == DT_F16) {
+        const uint16_t *h = (const uint16_t *)raw;
+        for (uint64_t i = 0; i < nelems; i++) out[i] = f16_to_float(h[i]);
+    } else {
+        memcpy(out, raw, nelems * 4);
+    }
+}
+
 /* Read elements [elem0, elem0+nelems) of a raw tensor as fp32. */
 static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
@@ -505,15 +569,7 @@ static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
         free(raw);
         return -1;
     }
-    if (t->dtype == DT_BF16) {
-        const uint16_t *h = (const uint16_t *)raw;
-        for (uint64_t i = 0; i < nelems; i++) out[i] = bf16_to_float(h[i]);
-    } else if (t->dtype == DT_F16) {
-        const uint16_t *h = (const uint16_t *)raw;
-        for (uint64_t i = 0; i < nelems; i++) out[i] = f16_to_float(h[i]);
-    } else {
-        memcpy(out, raw, nelems * 4);
-    }
+    raw_convert(t, raw, nelems, out);
     free(raw);
     return 0;
 }
@@ -616,19 +672,34 @@ fail:
     return -1;
 }
 
-/* ---- Triforce split: fetch and expand halves of the packed
+/* ---- Triforce split: fetch and expand halves of the pipe
  * read (JD's three-role pipeline, 2026-11-24). The fetch half
- * performs only the three section reads, into caller-owned
- * staging; the expand half is packed_read_range's
- * reconstruction loop with its arithmetic unchanged. The fetch
- * half takes its own FILE* so pipe fetches never interleave
+ * performs only disc reads, into caller-owned staging: the
+ * three packed section reads, and (since the mode-2 staging
+ * buffer landed, Archie P1-1) the raw source bytes of any
+ * raw-served tensor or tensor tail. The expand half is
+ * reconstruction only, with its arithmetic unchanged. The
+ * fetch half takes its own FILE* handles (one for the packed
+ * stream, one per shard) so pipe fetches never interleave
  * seek/read pairs with the main thread's head and embed reads
- * on the shared stream handle. ---- */
+ * on the shared handles. ---- */
 typedef struct {
     uint8_t *idx;      /* nb bytes */
     uint8_t *fr;       /* 4*nb bytes: minima, then scales */
     uint64_t b0, nb;
-    int mode;          /* 0 empty, 1 staged, 2 fused load done */
+    /* Raw staging (Archie P1-1, completed 2026-11-24 night):
+     * the source bytes of the raw-served part of the tensor,
+     * read at fetch time on the fetcher's private shard handle.
+     * raw_elem0 is the first element the staged bytes belong
+     * to (nonzero only when a packed prefix is also staged in
+     * idx/fr); raw_nelems is their element count. */
+    uint8_t *raw;
+    uint64_t raw_elem0, raw_nelems;
+    /* 0 empty, 1 packed sections staged, 2 raw bytes staged
+     * (packed prefix too when raw_elem0 > 0), 3 legacy fused:
+     * expand reads through the shared handles, used only when
+     * a private handle could not be opened. */
+    int mode;
     double fetch_ms;
 } Stage;
 
@@ -756,6 +827,15 @@ static int packed_open(const char *stream_path, const char *book_path)
     g_pk_entries = pk_rd_u32(g_pk_stream);
     (void)pk_rd_u64(g_pk_stream);           /* total weights */
     g_pk_nblocks = pk_rd_u64(g_pk_stream);
+    /* T2 hardening (CODE-REVIEW-2026-11-24): validate the pack
+     * geometry before any division or allocation trusts it. */
+    if (g_pk_block == 0 || g_pk_block > 4096 || g_pk_entries == 0
+        || g_pk_entries > 256) {
+        fprintf(stderr, "packed stream header has unsupported "
+                "geometry (block %u, entries %u)\n",
+                g_pk_block, g_pk_entries);
+        return -1;
+    }
     uint32_t n_books = 1;
     uint64_t *seg = NULL;
     if (g_pk_version == 2) {
@@ -931,7 +1011,24 @@ typedef struct {
     int fetched_upto;       /* highest ordinal staged this pass */
     int epoch;              /* bumped at each pass restart */
     int fetch_busy, unpack_busy;
+    /* Demand generation (Archie P1-1): the consumer stamps each
+     * posted demand; a worker stamps demand_seen when it next
+     * evaluates its wait condition. The consumer may only fall
+     * back to loading an ordinal itself once a worker has had
+     * the chance to claim that demand... before this, the busy
+     * flags were checked while the consumer still held the lock
+     * it had broadcast under, so on a cold miss the workers
+     * could never win the race and the consumer always
+     * self-loaded. */
+    long demand_posted, demand_seen;
     FILE *pk_priv;          /* fetch thread's own stream handle */
+    /* Fetch thread's own handle per shard, for staging raw
+     * tensor bytes at fetch time. pipe_fetch executions are
+     * mutually exclusive across threads (the busy flags), so a
+     * private handle per shard is enough; what it removes is
+     * any interleaving with the main thread's head and embed
+     * reads on the shared g_shards handles. */
+    FILE *shard_priv[MAX_SHARDS];
 } Pipe;
 
 static Pipe g_pipe;
@@ -970,11 +1067,39 @@ static void pipe_load(int slot, int ord)
     g_pipe.load_bytes_last = t->count * sizeof(float);
 }
 
-/* Fetch half of a pipe load: disc only. A fully packed tensor
- * is staged as raw sections through the fetch thread's private
- * stream handle; anything else (raw mode, or a tensor with an
- * unpacked tail) is loaded fused straight into the slot, the
- * pre-split behavior, and marked mode 2. */
+/* Read the raw source bytes of elements [elem0, elem0+nelems)
+ * of a tensor into the stage's raw buffer, on the fetcher's
+ * private handle for the tensor's shard. The expand half then
+ * converts from memory and does no disc I/O at all. */
+static int raw_stage_range(const TEnt *t, uint64_t elem0,
+                           uint64_t nelems, Stage *s)
+{
+    int esz = t->dtype == DT_F32 ? 4 : 2;
+    FILE *f = g_pipe.shard_priv[t->shard];
+    if (!f) return -1;
+    if (seek_to(f, t->byte_off + elem0 * (uint64_t)esz) != 0
+            || fread(s->raw, esz, nelems, f) != nelems)
+        return -1;
+    return 0;
+}
+
+/* Fetch half of a pipe load: disc only, into the slot's stage,
+ * never into buf[slot] (the fetcher may run slots-1 ordinals
+ * ahead of consumption, and buf[slot] is then still the
+ * consumer's live buffer for an earlier ordinal: reading
+ * straight into it overwrote tensors mid-compute, the
+ * 2026-11-24 anchor failure). Three shapes:
+ *   mode 1: fully packed tensor, sections staged through the
+ *           private stream handle (the original split).
+ *   mode 2: raw bytes staged through the private shard handle
+ *           (Archie P1-1, completed 2026-11-24 night). When a
+ *           packed prefix exists (a tensor the pack covers
+ *           only in part), its sections are staged too and the
+ *           raw bytes cover the tail from raw_elem0 on.
+ *   mode 3: legacy fused fallback, only when a private handle
+ *           could not be opened; expand reads through the
+ *           shared handles, as mode 2 did before the staging
+ *           buffer existed. */
 static void pipe_fetch(int slot, int ord)
 {
     const TEnt *t = ord_ent(ord);
@@ -985,29 +1110,45 @@ static void pipe_fetch(int slot, int ord)
     Stage *s = &g_pipe.st[slot];
     double t0 = pipe_now();
     s->mode = 0;
-    if (g_use_packed && g_pipe.pk_priv
-            && t->nblocks * g_pk_block >= t->count) {
+    s->raw_elem0 = 0;
+    s->raw_nelems = 0;
+    uint64_t packed_elems = (g_use_packed && g_pk_block)
+        ? t->nblocks * g_pk_block : 0;
+    if (packed_elems >= t->count && g_pipe.pk_priv) {
         if (packed_fetch_range(g_pipe.pk_priv, t, 0, t->count, s) != 0) {
             fprintf(stderr, "pipe: fetch failed for %s\n", t->name);
             exit(1);
         }
-    } else {
-        /* Mode 2: NOT loaded here. The original code read the
-         * tensor straight into buf[slot] at fetch time, but the
-         * fetcher may run slots-1 ordinals ahead of consumption,
-         * and buf[slot] is then still the consumer's live buffer
-         * for an earlier ordinal: the fetch overwrote tensors
-         * mid-compute (the 2026-11-24 anchor failure). The fused
-         * load now happens in pipe_expand, under the demand
-         * discipline, where the slot is legitimately this
-         * ordinal's turn. */
+        s->mode = 1;
+    } else if ((!packed_elems || g_pipe.pk_priv)
+               && g_pipe.shard_priv[t->shard]) {
+        if (packed_elems > 0
+                && packed_fetch_range(g_pipe.pk_priv, t, 0,
+                                      packed_elems, s) != 0) {
+            fprintf(stderr, "pipe: fetch failed for %s\n", t->name);
+            exit(1);
+        }
+        s->raw_elem0 = packed_elems;
+        s->raw_nelems = t->count - packed_elems;
+        if (s->raw_nelems > 0
+                && raw_stage_range(t, s->raw_elem0, s->raw_nelems,
+                                   s) != 0) {
+            fprintf(stderr, "pipe: fetch failed for %s\n", t->name);
+            exit(1);
+        }
         s->mode = 2;
+    } else {
+        s->mode = 3;
     }
     s->fetch_ms = (pipe_now() - t0) * 1000.0;
 }
 
-/* Unpack half: reconstruction only, from staged sections into
- * the slot. A mode-2 stage is already final in the buffer. */
+/* Unpack half: reconstruction only, from the stage into the
+ * slot. Modes 1 and 2 do no disc I/O here at all: mode 1
+ * expands the staged packed sections, mode 2 converts the
+ * staged raw bytes (plus the staged packed prefix when
+ * raw_elem0 > 0). Mode 3 is the legacy fused fallback and
+ * still reads through the shared handles. */
 static void pipe_expand(int slot, int ord)
 {
     const TEnt *t = ord_ent(ord);
@@ -1019,6 +1160,16 @@ static void pipe_expand(int slot, int ord)
             exit(1);
         }
     } else if (s->mode == 2) {
+        if (s->raw_elem0 > 0
+                && packed_expand_range(t, 0, s->raw_elem0, s,
+                                       g_pipe.buf[slot]) != 0) {
+            fprintf(stderr, "pipe: expand failed for %s\n", t->name);
+            exit(1);
+        }
+        if (s->raw_nelems > 0)
+            raw_convert(t, s->raw, s->raw_nelems,
+                        g_pipe.buf[slot] + s->raw_elem0);
+    } else if (s->mode == 3) {
         if (src_read_range(t, 0, t->count, g_pipe.buf[slot]) != 0) {
             fprintf(stderr, "pipe: read failed for %s\n", t->name);
             exit(1);
@@ -1081,11 +1232,21 @@ static void *fetch_worker(void *unused)
         for (;;) {
             if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
             c = g_pipe.fetched_upto + 1;
+            if (c <= g_pipe.max_ord && g_pipe.have[pslot(c)] == c) {
+                /* Already resident from an earlier pass: mark it
+                 * staged without re-reading it from disc (Archie
+                 * P1-1; with slots > max_ord the fetcher used to
+                 * re-read the whole model on every pass). */
+                g_pipe.st_owner[pslot(c)] = c;
+                g_pipe.fetched_upto = c;
+                continue;
+            }
             if (c <= g_pipe.max_ord && c <= g_pipe.want_u + g_fetch_ahead
                     && !g_pipe.fetch_busy
                     && (g_pipe.st_owner[pslot(c)] == -1
                         || g_pipe.have[pslot(c)] == g_pipe.st_owner[pslot(c)]))
                 break;
+            g_pipe.demand_seen = g_pipe.demand_posted;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         }
         g_pipe.fetch_busy = 1;
@@ -1114,8 +1275,10 @@ static void *unpack_worker(void *unused)
                && !(g_pipe.want_u >= 0 && g_pipe.want_u <= g_pipe.max_ord
                     && g_pipe.st_owner[pslot(g_pipe.want_u)] == g_pipe.want_u
                     && g_pipe.have[pslot(g_pipe.want_u)] != g_pipe.want_u
-                    && !g_pipe.unpack_busy))
+                    && !g_pipe.unpack_busy)) {
+            g_pipe.demand_seen = g_pipe.demand_posted;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
+        }
         if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
         int ord = g_pipe.want_u;
         g_pipe.unpack_busy = 1;
@@ -1186,16 +1349,21 @@ static void pipe_init(int layers)
     g_pipe.stat_bytes = 0;
     g_pipe.stat_hits = g_pipe.stat_miss = 0;
     /* Triforce staging: raw packed sections for one whole
-     * tensor per slot, sized from the largest tensor. */
+     * tensor per slot, sized from the largest tensor, plus the
+     * raw staging buffer (source bytes of one whole tensor;
+     * 4 bytes per element covers the widest source dtype). */
     {
         uint64_t nb_max = g_pk_block
             ? (uint64_t)max_elems / g_pk_block + 1 : 1;
         for (int s = 0; s < g_pipe.slots; s++) {
             g_pipe.st[s].idx = (uint8_t *)malloc(nb_max);
             g_pipe.st[s].fr = (uint8_t *)malloc(nb_max * 4);
+            g_pipe.st[s].raw = (uint8_t *)malloc(
+                (uint64_t)max_elems * 4);
             g_pipe.st[s].mode = 0;
             g_pipe.st_owner[s] = -1;
-            if (!g_pipe.st[s].idx || !g_pipe.st[s].fr) {
+            if (!g_pipe.st[s].idx || !g_pipe.st[s].fr
+                    || !g_pipe.st[s].raw) {
                 fprintf(stderr, "pipe: out of memory\n");
                 exit(1);
             }
@@ -1205,6 +1373,17 @@ static void pipe_init(int layers)
         g_pipe.pk_priv = fopen(g_pk_stream_path, "rb");
         if (g_pipe.pk_priv)
             setvbuf(g_pipe.pk_priv, NULL, _IOFBF, 1 << 18);
+    }
+    /* The fetcher's private handle per shard, for raw staging.
+     * A handle that fails to open stays NULL and pipe_fetch
+     * falls back to mode 3 for that shard's tensors. */
+    for (int i = 0; i < g_nshards && i < MAX_SHARDS; i++) {
+        g_pipe.shard_priv[i] = NULL;
+        if (g_shard_paths[i]) {
+            g_pipe.shard_priv[i] = fopen(g_shard_paths[i], "rb");
+            if (g_pipe.shard_priv[i])
+                setvbuf(g_pipe.shard_priv[i], NULL, _IOFBF, 1 << 18);
+        }
     }
 #ifdef _WIN32
     InitializeCriticalSection(&g_pipe.lock);
@@ -1285,11 +1464,17 @@ static const float *pipe_get(int ord)
     }
     if (!was_ready) {
         /* Demand ord from the triforce: the unpacker takes it,
-         * the fetcher is already staging it or one past it. */
+         * the fetcher is already staging it or one past it. The
+         * wait runs until a worker has evaluated THIS demand
+         * (demand_seen) or is busy on the pipeline, not merely
+         * until the flags happen to read idle under the lock the
+         * broadcast was made under (Archie P1-1). */
         g_pipe.want_u = ord;
+        long my_demand = ++g_pipe.demand_posted;
         pthread_cond_broadcast(&g_pipe.cv);
         while (g_pipe.have[pslot(ord)] != ord
-               && (g_pipe.fetch_busy || g_pipe.unpack_busy))
+               && (g_pipe.fetch_busy || g_pipe.unpack_busy
+                   || g_pipe.demand_seen < my_demand))
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         if (g_pipe.have[pslot(ord)] != ord) {
             /* Both stages idle and ord still not ready: the
@@ -1512,6 +1697,7 @@ static uint16_t f32_to_bf16(float f)
      * plain truncation biased every cached key and value down */
     uint32_t bits;
     memcpy(&bits, &f, 4);
+    if ((bits & 0x7fffffffu) > 0x7f800000u) return 0x7fc0u; /* NaN -> bf16 quiet NaN; without this the rounding add carries into the sign bit and erases the NaN (Archie P0-5, guard from littlenemo/src/attn.c) */
     bits += 0x7FFFu + ((bits >> 16) & 1u);
     return (uint16_t)(bits >> 16);
 }
@@ -1960,27 +2146,22 @@ int main(int argc, char **argv)
     {
         char names[16][512];
         int nn = 0;
-        char cmd[4096];
-        snprintf(cmd, sizeof(cmd), "ls \"%s\" 2>/dev/null", dir);
-#ifdef _WIN32
-        (void)cmd;
-        fprintf(stderr, "on Windows, pass the model dir of a Linux "
-                "checkout for now\n");
-        return 1;
-#else
-        FILE *ls = popen(cmd, "r");
-        if (!ls) { fprintf(stderr, "cannot list %s\n", dir); return 1; }
-        char line[512];
-        while (fgets(line, sizeof(line), ls) && nn < MAX_SHARDS) {
-            size_t L = strlen(line);
-            while (L && (line[L - 1] == '\n' || line[L - 1] == '\r')) line[--L] = '\0';
-            if (L > 12 && strcmp(line + L - 12, ".safetensors") == 0) {
-                snprintf(names[nn], 512, "%s", line);
+        /* opendir/readdir, not popen("ls ...") (Archie P0-3): no
+         * shell in the path, so --dir cannot inject commands, and
+         * the same code runs on Windows (MinGW carries dirent.h),
+         * which also retires the old _WIN32 early exit that refused
+         * to run there. loader.c scans its directory the same way. */
+        DIR *dd = opendir(dir);
+        if (!dd) { fprintf(stderr, "cannot list %s\n", dir); return 1; }
+        struct dirent *de;
+        while ((de = readdir(dd)) != NULL && nn < MAX_SHARDS) {
+            size_t L = strlen(de->d_name);
+            if (L > 12 && strcmp(de->d_name + L - 12, ".safetensors") == 0) {
+                snprintf(names[nn], 512, "%s", de->d_name);
                 nn++;
             }
         }
-        pclose(ls);
-#endif
+        closedir(dd);
         qsort(names, nn, 512, cmp_str);
         if (nn == 0) { fprintf(stderr, "no safetensors in %s\n", dir); return 1; }
         for (int s = 0; s < nn; s++) {

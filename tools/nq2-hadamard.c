@@ -161,6 +161,7 @@ static void learn_book(const float *sample, uint64_t sample_n,
                        uint32_t block, uint32_t entries, int iters,
                        float *cent)
 {
+    if (sample_n == 0) { fprintf(stderr, "learn_book: no samples\n"); exit(1); }
     for (uint32_t k = 0; k < entries; k++) {
         uint64_t src = rng_next() % sample_n;
         memcpy(cent + (size_t)k * block, sample + src * block,
@@ -208,6 +209,7 @@ static float *load_tensor(const char **paths, int n_paths,
         uint8_t lb[8];
         if (fread(lb, 1, 8, f) != 8) { fclose(f); continue; }
         uint64_t hlen = rd64le(lb);
+        if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); continue; }
         char *hdr = (char *)malloc(hlen + 1);
         if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); continue; }
         hdr[hlen] = 0;
@@ -249,6 +251,14 @@ static float *load_tensor(const char **paths, int n_paths,
         free(hdr);
         if (count == 0 || o1 <= o0) { fclose(f); continue; }
         uint64_t nbytes = o1 - o0;
+        /* T3 hardening (CODE-REVIEW-2026-11-24): the shape-derived
+         * count and the data_offsets span must agree exactly for
+         * the declared dtype, and count * 4 must not wrap. */
+        {
+            uint64_t elem = strcmp(dtype, "F32") == 0 ? 4 : 2;
+            if (count > UINT64_MAX / sizeof(float)
+                || nbytes != count * elem) { fclose(f); continue; }
+        }
         uint8_t *raw = (uint8_t *)malloc(nbytes);
         float *out = (float *)malloc(count * sizeof(float));
         if (!raw || !out) { fclose(f); return NULL; }
@@ -474,8 +484,9 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: nq2-hadamard [--tensor NAME] [--seed N] shard...\n");
         return 1;
     }
-    if ((block & (block - 1)) != 0) {
-        fprintf(stderr, "block must be a power of two for FWHT\n");
+    if (block == 0 || (block & (block - 1)) != 0 || entries == 0) {
+        fprintf(stderr, "block must be a nonzero power of two for "
+                "FWHT and entries at least 1\n");
         return 1;
     }
     uint64_t count = 0;

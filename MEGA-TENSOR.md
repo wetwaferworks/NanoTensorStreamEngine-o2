@@ -79,4 +79,8 @@ design; it is being built on local hardware now.
 
 Architecture: JD (David Rittenhouse), who also named it.
 Implementation: Elfie (E.L.F.I.E.). Research program consultee:
-ChatGPT (Gizmo).
+ChatGPT (Gizmo). Reviewer: Archie (Argon), the Google Gemini
+Argon model, the Bit Master and the Bit Masker, whose
+2026-11-24 review hardened the pipeline engine (the
+demand-protocol race, pass-restart re-fetch, and the mode-2
+staging buffer).

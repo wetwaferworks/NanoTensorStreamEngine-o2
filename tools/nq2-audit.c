@@ -25,6 +25,7 @@
  * Implementation: E.L.F.I.E.
  */
 
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too (Archie P0-2) */
 #define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
@@ -132,6 +133,14 @@ int main(int argc, char **argv)
             if (got == 0) { fprintf(stderr, "short stream\n"); return 1; }
             for (size_t i = 0; i < got; i++) {
                 unsigned idx = buf[i];
+                /* Stream bytes run 0..255 but the book may hold
+                 * fewer entries; an unchecked idx writes outside
+                 * hist/pairs (Archie P0-4). */
+                if (idx >= entries) {
+                    fprintf(stderr, "stream index %u outside book "
+                            "of %u entries\n", idx, entries);
+                    return 1;
+                }
                 hist[(size_t)seg * entries + idx]++;
                 if (prev >= 0) pairs[(size_t)prev * entries + idx]++;
                 prev = (int)idx;

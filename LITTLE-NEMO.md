@@ -78,12 +78,34 @@ fixtures.
   the refused step bit-identical to never attempting it. His
   formulation is the standing rule: preparation can be
   concurrent; state commitment must be coherent.
+- A third outside review (Archie (Argon), 2026-11-24) caught
+  what the earlier rounds and our own suites had missed in this
+  engine. The shipped SIMD verification was scalar against
+  scalar: the suite never called the AVX2 kernel, and the
+  engine's entry point never dispatched to it, so the kernel
+  was unreachable in single-thread mode. Both are fixed. The
+  suite now calls the kernel directly on synthetic data,
+  checks the dispatch itself, and compares a multi-lane SIMD
+  forward against the 1-lane run: 12/12 checks, kernel drift
+  against scalar exactly zero, multi-lane bit-identical, and
+  the forward suite still reproduces the golden RMS 0.520647.
+  The same review completed the 64-bit offset work (the define
+  now stands in the loader, forward, and tokenizer sources and
+  in all four build scripts) and hardened the tokenizer's ID
+  validation and pair maps. In the sibling pipeline engine the
+  same night, the Triforce mode-2 staging buffer was completed
+  with no change to any on-disk format, and the frozen
+  baseline pack decodes bit-identically under the new build.
 
 ## What is not done yet, said plainly
 
-- The full 56-layer run and end-to-end generation wait on the
-  complete checkpoint download, in flight now. Nothing about
-  generation quality is claimed until the model actually talks.
+- The full checkpoint is downloaded and validated, and the
+  engine prints READY on it. A three-question battery (the
+  capitals of France, Japan, and Ohio, asked in a raw
+  question/answer scaffold) stands at two passed, France and
+  Japan. The third question has not yet run on the post-review
+  build, and nothing broader about generation quality is
+  claimed until it and the behavioral battery below have run.
 - Chat-template wrapping arrives with tokenizer_config.json;
   prompts are currently encoded as-is.
 - The NanoQuant packed weight source plugs into the same fetch
@@ -110,4 +132,8 @@ headlessly, 11/11 checks against a mock engine.
 Implementation: Elfie (E.L.F.I.E.). Direction and the
 interaction design: JD (David Rittenhouse). The CUDA and
 local-hardware lane belongs to Cortana; the harness integration
-(PCHIE) is Elfie and JD's work.
+(PCHIE) is Elfie and JD's work. Reviewer of the 2026-11-24
+pass: Archie (Argon), the Google Gemini Argon model, the Bit
+Master and the Bit Masker, whose review caught five P0 faults
+across this engine and its benchmates, including the false
+SIMD verification above.

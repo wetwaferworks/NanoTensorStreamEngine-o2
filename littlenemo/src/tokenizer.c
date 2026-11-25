@@ -1,4 +1,5 @@
 /* tokenizer.c - see tokenizer.h. */
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too (Archie P0-2) */
 #include "tokenizer.h"
 
 #include <stdint.h>
@@ -140,6 +141,7 @@ typedef struct {
     int *vals;
     unsigned char *taken;
     int cap;
+    int used;
 } pmap;
 
 static int pmap_init(pmap *m, int cap) {
@@ -162,13 +164,19 @@ static void pmap_free(pmap *m) {
     free(m->taken);
 }
 
-static void pmap_put(pmap *m, int a, int b, int rank) {
+static int pmap_put(pmap *m, int a, int b, int rank) {
+    /* Load-factor guard, mirroring smap_put (Archie P1-2): with
+     * no occupancy bound, a full table makes the probe loop
+     * below spin forever on a hostile tokenizer.json. */
+    if (m->used * 2 >= m->cap) return -1;
     uint64_t key = ((uint64_t)(uint32_t)a << 32) | (uint32_t)b;
     uint64_t h = (key * 0x9e3779b97f4a7c15ull) % (uint64_t)m->cap;
     while (m->taken[h]) h = (h + 1) % (uint64_t)m->cap;
     m->taken[h] = 1;
     m->keys[h] = key;
     m->vals[h] = rank;
+    m->used++;
+    return 0;
 }
 
 static int pmap_get(const pmap *m, int a, int b) {
@@ -223,6 +231,27 @@ static char *read_file(const char *path, size_t *len_out) {
     return buf;
 }
 
+/* A token id from the file is trusted only if it is a JSON
+ * number, integral, and within [0, NEMO_MAX_TOKEN_ID]: a negative
+ * or oversized id would index id_str out of bounds or force a
+ * hostile allocation (Archie P1-2). */
+#define NEMO_MAX_TOKEN_ID (1 << 22)
+static int json_id(const nemo_json *j, int *out) {
+    if (!j || j->type != NEMO_JSON_NUM) return -1;
+    if (j->num < 0.0 || j->num > (double)NEMO_MAX_TOKEN_ID) return -1;
+    if (j->num != (double)(int)j->num) return -1;
+    *out = (int)j->num;
+    return 0;
+}
+
+/* Smallest power-of-two table capacity that holds n entries at
+ * the maps' half-load discipline. */
+static int map_cap_for(int n) {
+    int cap = 1 << 10;
+    while (cap < 2 * n && cap < (1 << 22)) cap <<= 1;
+    return cap;
+}
+
 nemo_tokenizer *nemo_tokenizer_load(const char *path) {
     build_mapping();
     size_t len = 0;
@@ -244,22 +273,28 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
 
     int max_id = -1;
     for (int i = 0; i < vocab->count; i++) {
-        int id = (int)vocab->items[i]->num;
+        int id;
+        if (json_id(vocab->items[i], &id) != 0) goto fail;
         if (id > max_id) max_id = id;
     }
     int n_added = (added && added->type == NEMO_JSON_ARR) ? added->count : 0;
     for (int i = 0; i < n_added; i++) {
         const nemo_json *idj = nemo_json_get(added->items[i], "id");
-        if (idj && (int)idj->num > max_id) max_id = (int)idj->num;
+        int id;
+        if (idj && json_id(idj, &id) == 0 && id > max_id) max_id = id;
     }
+    if (max_id < 0) goto fail; /* a tokenizer with no vocab at all */
     tk->n_ids = max_id + 1;
     tk->id_str = (char **)calloc((size_t)tk->n_ids, sizeof(char *));
     tk->is_special = (char *)calloc((size_t)tk->n_ids, 1);
     if (!tk->id_str || !tk->is_special) goto fail;
-    if (smap_init(&tk->vocab, 1 << 19) != 0) goto fail;
+    if (smap_init(&tk->vocab, map_cap_for(vocab->count + n_added)) != 0)
+        goto fail;
     for (int i = 0; i < vocab->count; i++) {
         const char *s = vocab->keys[i];
-        int id = (int)vocab->items[i]->num;
+        int id;
+        if (json_id(vocab->items[i], &id) != 0) goto fail;
+        free(tk->id_str[id]); /* duplicate id: last wins, no leak */
         tk->id_str[id] = (char *)malloc(strlen(s) + 1);
         if (!tk->id_str[id]) goto fail;
         strcpy(tk->id_str[id], s);
@@ -269,8 +304,9 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
         const nemo_json *a = added->items[i];
         const nemo_json *idj = nemo_json_get(a, "id");
         const nemo_json *content = nemo_json_get(a, "content");
-        if (!idj || !content || content->type != NEMO_JSON_STR) continue;
-        int id = (int)idj->num;
+        int id;
+        if (!idj || json_id(idj, &id) != 0
+            || !content || content->type != NEMO_JSON_STR) continue;
         if (!tk->id_str[id]) {
             tk->id_str[id] = (char *)malloc(strlen(content->str) + 1);
             if (!tk->id_str[id]) goto fail;
@@ -280,7 +316,8 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
         if (smap_put(&tk->vocab, content->str, id) != 0) goto fail;
     }
     if (merges && merges->type == NEMO_JSON_ARR) {
-        if (pmap_init(&tk->merges, 1 << 19) != 0) goto fail;
+        if (pmap_init(&tk->merges, map_cap_for(merges->count)) != 0)
+            goto fail;
         for (int r = 0; r < merges->count; r++) {
             const nemo_json *mj = merges->items[r];
             const char *a = NULL, *b = NULL;
@@ -305,8 +342,10 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
             }
             int ia = smap_get(&tk->vocab, a);
             int ib = smap_get(&tk->vocab, b);
-            if (ia >= 0 && ib >= 0) pmap_put(&tk->merges, ia, ib, r);
+            int bad = ia >= 0 && ib >= 0
+                      && pmap_put(&tk->merges, ia, ib, r) != 0;
             free(left);
+            if (bad) goto fail;
         }
     }
     nemo_json_free(root);

@@ -107,8 +107,8 @@ int nemo_pool_init(nemo_pool *p, int nthreads) {
 degrade:
     /* A pool that cannot spawn runs serial rather than not at all;
      * nemo_pool_threads then reports the honest lane count. Any
-     * threads that did start are shut down first (NULL handle slots
-     * are no-ops for the join). */
+     * threads that did start are shut down first (shutdown skips
+     * the NULL handle slots of threads that never started). */
     if (p->workers) p->spawned = 1;
     nemo_pool_shutdown(p);
     p->nthreads = 1;
@@ -126,11 +126,19 @@ void nemo_pool_shutdown(nemo_pool *p) {
     WakeAllConditionVariable(&p->cv_prep);
     LeaveCriticalSection(&p->mu);
     for (int i = 0; i < p->nthreads - 1; i++) {
-        WaitForSingleObject(p->workers[i], INFINITE);
-        CloseHandle(p->workers[i]);
+        /* Slots of threads that never started stay NULL (the
+         * degrade path lands here): CloseHandle(NULL) raises
+         * EXCEPTION_INVALID_HANDLE under a debugger, so the
+         * join/close must be guarded, not assumed (Archie P2-5). */
+        if (p->workers[i]) {
+            WaitForSingleObject(p->workers[i], INFINITE);
+            CloseHandle(p->workers[i]);
+        }
     }
-    WaitForSingleObject(p->prep_thread, INFINITE);
-    CloseHandle(p->prep_thread);
+    if (p->prep_thread) {
+        WaitForSingleObject(p->prep_thread, INFINITE);
+        CloseHandle(p->prep_thread);
+    }
     free(p->workers);
     free(p->worker_args);
     DeleteCriticalSection(&p->mu);

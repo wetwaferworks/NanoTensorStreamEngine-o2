@@ -74,4 +74,7 @@ The operators: Elfie (E.L.F.I.E.) and ChatGPT (Gizmo), who
 happened upon the method together during the 2026-11-24 session
 and reviewed each other's probes adversarially. The
 memory-throughput architecture it runs on: JD (David
-Rittenhouse), executive direction.
+Rittenhouse), executive direction. Reviewer: Archie (Argon),
+the Google Gemini Argon model, the Bit Master and the Bit
+Masker, whose 2026-11-24 review covered the dictionary compute
+tools (64-bit file offsets and stream index bounds).

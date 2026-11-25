@@ -24,6 +24,7 @@ static void check(const char *name, double got, double want, double tol) {
 static uint16_t f32_to_bf16(float f) {
     /* round-to-nearest-even, the standard f32 -> bf16 conversion */
     union { float f; uint32_t u; } v = { f };
+    if ((v.u & 0x7fffffffu) > 0x7f800000u) return 0x7fc0u; /* NaN -> bf16 quiet NaN (Archie P0-5, guard from littlenemo/src/attn.c) */
     v.u += 0x7FFFu + ((v.u >> 16) & 1u);
     return (uint16_t)(v.u >> 16);
 }

@@ -18,7 +18,12 @@ void nemo_linear_bf16_rows(const uint16_t *W, const float *x, float *y,
 
 void nemo_linear_bf16(const uint16_t *W, const float *x, float *y, int out, int in) {
     if (out <= 0) return;
-    nemo_linear_bf16_rows(W, x, y, 0, out, in);
+    /* Dispatch through the auto rows call so the opt-in AVX2 kernel
+     * is reachable from every projection, including single-thread
+     * runs and sub-4096 outputs (Archie review P0-1, 2026-11-24:
+     * this entry point previously called the scalar rows directly,
+     * which silently bypassed the kernel on those paths). */
+    nemo_linear_bf16_rows_auto(W, x, y, 0, out, in);
 }
 
 /* ---- SIMD (AVX2) twin, opt-in only. See nn.h for the contract.

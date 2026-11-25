@@ -1,4 +1,5 @@
 /* forward.c - see forward.h and littlenemo/BLOCK-MATH-SPEC.md. */
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too (Archie P0-2) */
 #include "forward.h"
 
 #include <math.h>
@@ -382,6 +383,7 @@ void nemo_model_reset(nemo_model *m) {
             m->attn[i].len = 0;
         }
     }
+    m->n_pos = 0;
     m->state_valid = 1;
 }
 
@@ -424,6 +426,12 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
      * here is a preparation failure; the state is untouched. */
     if (validate_set(m->cp, m->layer_limit, 0, NULL, 0, NULL) != 0)
         return -1;
+    /* Context bound, also preflight (Archie P1-3): without it, a
+     * full KV cache fails the step inside the first attention
+     * layer, after the earlier layers have already mutated their
+     * state, and the half-committed step invalidates the whole
+     * conversation. Refused here, nothing has moved. */
+    if (m->n_pos >= m->max_pos) return -1;
     const nemo_tensor_info *emb =
         nemo_find(m->cp, "backbone.embeddings.weight");
     if (!emb) return -1;
@@ -495,6 +503,7 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out) {
         cur ^= 1;
     }
     memcpy(hidden_out, m->x, NEMO_HIDDEN * sizeof(float));
+    m->n_pos++;
     return 0;
 }
 

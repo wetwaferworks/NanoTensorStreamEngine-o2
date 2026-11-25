@@ -55,7 +55,8 @@ static float f16_to_f32(uint16_t h)
 /* ---------- minimal safetensors reader (one tensor at a time) ------ */
 
 typedef struct {
-    char *name;
+    char name[512];         /* owned copy: the parser's key buffer
+                             * is a stack local (Archie P2-4) */
     int dtype;              /* 0 = F32, 1 = BF16, 2 = F16 */
     uint64_t count;
     uint64_t begin, end;    /* absolute file offsets of the data */
@@ -69,6 +70,7 @@ static int find_tensor(const char *path, const char *want,
     uint8_t lb[8];
     if (fread(lb, 1, 8, f) != 8) { fclose(f); return -1; }
     uint64_t hlen = rd64(lb);
+    if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); return -1; }
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); return -1; }
     hdr[hlen] = 0;
@@ -137,7 +139,7 @@ static int find_tensor(const char *path, const char *want,
         uint64_t rel_b = strtoull(obuf, NULL, 10);
         const char *comma = strchr(obuf, ',');
         uint64_t rel_e = comma ? strtoull(comma + 1, NULL, 10) : 0;
-        out->name = key;
+        memcpy(out->name, key, klen + 1);
         out->dtype = dtype;
         out->count = count;
         out->begin = 8 + hlen + rel_b;
@@ -247,14 +249,18 @@ static void analyze(const char *path, const char *name,
            (unsigned long long)done);
     double range_sum = 0;
     for (uint64_t i = 0; i < done; i++) range_sum += ranges[i];
-    printf("   block range / RMS: mean %.2f  p50 %.2f  p99 %.2f  max %.2f\n",
-           range_sum / done / rms,
-           ranges[done / 2] / rms, ranges[(done * 99) / 100] / rms,
-           ranges[done - 1] / rms);
-    printf("   top-1 element share of block energy (after min shift): "
-           "p50 %.3f  p90 %.3f  p99 %.3f\n",
-           topshares[done / 2], topshares[(done * 90) / 100],
-           topshares[(done * 99) / 100]);
+    if (done == 0) {
+        printf("   no complete blocks read (truncated tensor?)\n");
+    } else {
+        printf("   block range / RMS: mean %.2f  p50 %.2f  p99 %.2f  max %.2f\n",
+               range_sum / done / rms,
+               ranges[done / 2] / rms, ranges[(done * 99) / 100] / rms,
+               ranges[done - 1] / rms);
+        printf("   top-1 element share of block energy (after min shift): "
+               "p50 %.3f  p90 %.3f  p99 %.3f\n",
+               topshares[done / 2], topshares[(done * 90) / 100],
+               topshares[(done * 99) / 100]);
+    }
     printf("   outlier-dominated blocks (top-1 share > 50%%): %.1f%%\n",
            100.0 * dom_blocks / done);
 

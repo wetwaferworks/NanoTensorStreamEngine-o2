@@ -69,6 +69,30 @@ numbers below are stated the way we measured them.
   (header-length and span guards at every trust boundary,
   hostile-fixture refusals, ASan/LSan clean) then re-ran the
   anchor battery: every recorded anchor still reproduces exactly.
+- A third outside review (Archie (Argon), 2026-11-24) read the
+  pushed tree cold and found five P0 faults the internal passes
+  had missed. All five are fixed, and the P1 and P2 items behind
+  them with them. The headline: the SIMD verification that had
+  shipped was scalar against scalar... the suite never called
+  the AVX2 kernel and the engine never dispatched to it. The
+  entry point now dispatches through the auto selector and the
+  suite measures the kernel directly: 12/12 checks, drift
+  exactly zero against scalar, the multi-lane run bit-identical
+  to the 1-lane run. The 64-bit file offset define now stands
+  in every source that seeks and in all four build scripts.
+  The four inference engines run on Windows (directory scans
+  use opendir instead of a shell listing, tensor spans are
+  validated at open), and the bf16 NaN guard stands in every
+  engine's converter. The Triforce pipeline's mode-2 staging
+  buffer is complete: raw tensors are staged at fetch time on
+  private per-shard handles, with no change to any on-disk
+  format... the frozen baseline pack decodes bit-identically
+  under the new build, and no recorded baseline moved (forward
+  RMS 0.520647 exactly, dictionary compute adversarial 23/23,
+  streaming accumulator 1394.1117661067326 in all four
+  configurations). One item remains deferred: the Triforce
+  fetch/unpack split on Windows. The full fix log is kept in
+  the project's bench records.
 - Dictionary compute: a packed model never has to be unpacked to
   be used. Per-segment prototype tables turn the matrix multiply
   into lookups, measured about 16 to 28 times faster than
@@ -101,16 +125,16 @@ baseline everything is judged against.
 
 ## Build
 
-One click, everything (six production tools and fifteen
-experimental ones):
+One click, everything (all 23 tools plus the Little Nemo
+engine):
 
     build-all.sh      (Linux)
     build-all.bat     (Windows, MSYS2/MinGW)
 
-Or by tier:
+build-all just runs the full build. Or by tier:
 
-    build.sh / build.bat                       production tools
-    build-experiments.sh / .bat                experimental tools
+    build.sh / build.bat                       the full build (23 tools + Little Nemo)
+    build-experiments.sh / .bat                the research subset only
 
 Everything is C99 with no dependencies beyond the standard
 library, libm, and pthreads. The one Python file,
@@ -142,6 +166,11 @@ Three toy programs, each one self-contained, each one implementing
 everything it needs (output, sine, memory, random) in its own file.
 No libc, no libm, no imports. We do not import libraries; we write
 our own.
+
+Note: the examples are freestanding Linux x86-64 programs (raw
+syscalls, no libc). They build and run on Linux x86-64 only...
+they are the one part of the repo that is not portable to Windows
+or other architectures.
 
 | File | Rate | Block | Per quad word | What it does |
 |---|---|---|---|---|
@@ -219,6 +248,11 @@ int8 (100 KB) at some fidelity cost to every block it serves.
   whether sub-half-bit packing is possible, whether it can be taught
   to read, and the four-loop streaming architecture the engine now
   runs on.
+- **Reviewer:** Archie (Argon), the Google Gemini Argon model,
+  the Bit Master and the Bit Masker.
+  Her comprehensive review of 2026-11-24 caught five P0 faults,
+  including a false SIMD verification that had shipped in the update
+  notes; her fixes land under her name.
 
 ## License
 

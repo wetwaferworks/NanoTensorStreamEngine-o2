@@ -50,6 +50,21 @@ static int seek_to(FILE *f, uint64_t off)
 #endif
 }
 
+/* Current size of an open file, 64-bit clean, or 0 on failure.
+ * Leaves the file positioned at the end; callers seek back. */
+static uint64_t file_size(FILE *f)
+{
+#ifdef _WIN32
+    if (_fseeki64(f, 0, SEEK_END) != 0) return 0;
+    long long s = _ftelli64(f);
+    return s < 0 ? 0 : (uint64_t)s;
+#else
+    if (fseeko(f, 0, SEEK_END) != 0) return 0;
+    off_t s = ftello(f);
+    return s < 0 ? 0 : (uint64_t)s;
+#endif
+}
+
 /* ---------------- small utilities ---------------- */
 
 static uint64_t rng_state = 0x2545F4914F6CDD1Dull;
@@ -168,11 +183,17 @@ static int shard_open(Shard *sh, const char *path)
     if (fread(lenbuf, 1, 8, sh->file) != 8) return -1;
     uint64_t hlen = 0;
     for (int i = 0; i < 8; i++) hlen |= (uint64_t)lenbuf[i] << (8 * i);
+    if (hlen == 0 || hlen > (1ull << 28)) return -1;
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr) return -1;
     if (fread(hdr, 1, hlen, sh->file) != hlen) { free(hdr); return -1; }
     hdr[hlen] = '\0';
     sh->data_start = 8 + hlen;
+    uint64_t fsize = file_size(sh->file);
+    if (fsize == 0 || seek_to(sh->file, sh->data_start) != 0) {
+        free(hdr);
+        return -1;
+    }
 
     int cap = 64;
     sh->tensors = (TensorInfo *)malloc(sizeof(TensorInfo) * cap);
@@ -238,6 +259,23 @@ static int shard_open(Shard *sh, const char *path)
                 t->begin = br ? strtoull(br + 1, NULL, 10) : 0;
                 const char *comma = br ? strchr(br, ',') : NULL;
                 t->end = comma ? strtoull(comma + 1, NULL, 10) : 0;
+                /* Span validation (Archie P0-4): end < begin would
+                 * underflow the count below, and a span running
+                 * past the end of the file would read out of the
+                 * shard. This tool parses no shape, so the count
+                 * comes from the span; the file is the authority
+                 * the span is checked against. */
+                if (t->end < t->begin || t->end > fsize
+                    || sh->data_start + t->end > fsize) {
+                    fprintf(stderr, "reject: tensor %s has "
+                            "data_offsets [%llu, %llu) outside a "
+                            "%llu-byte shard\n", key,
+                            (unsigned long long)t->begin,
+                            (unsigned long long)t->end,
+                            (unsigned long long)fsize);
+                    free(hdr);
+                    return -1;
+                }
                 uint64_t esz = t->dtype == DT_F32 ? 4 : 2;
                 t->count = (t->end - t->begin) / esz;
                 sh->n_tensors++;
@@ -857,6 +895,11 @@ int main(int argc, char **argv)
     }
 
     /* Pass 1: sample normalized blocks from across the scope. */
+    if (sample_cap == 0 || tensor_sample_cap == 0) {
+        fprintf(stderr, "--sample-blocks and --tensor-sample-blocks "
+                "must be at least 1\n");
+        return 1;
+    }
     if (sample_cap > g_total_blocks) sample_cap = g_total_blocks;
     SampleCtx sctx;
     memset(&sctx, 0, sizeof(sctx));

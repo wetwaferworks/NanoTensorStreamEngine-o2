@@ -20,6 +20,10 @@
 #define _POSIX_C_SOURCE 200809L
 #if !defined(_WIN32)
 #include <poll.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #endif
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +41,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <psapi.h> /* GetProcessMemoryInfo for peak_kb (Archie P1-3) */
 
 /* getline() is POSIX; this is the same contract built on fgetc:
  * returns the byte count (newline included), or -1 at EOF when
@@ -82,6 +87,14 @@ static double now_ms(void) {
 }
 
 static long peak_kb(void) {
+#if defined(_WIN32)
+    /* /proc/self/status does not exist on Windows (Archie P1-3);
+     * the PSAPI peak working set is the same quantity. */
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc))
+        return (long)(pmc.PeakWorkingSetSize / 1024);
+    return 0;
+#else
     FILE *f = fopen("/proc/self/status", "r");
     if (!f) return 0;
     char line[256];
@@ -91,6 +104,7 @@ static long peak_kb(void) {
     }
     fclose(f);
     return kb;
+#endif
 }
 
 /* ---- protocol text escaping ---- */
@@ -198,14 +212,33 @@ static void split_flush(splitter *sp, int final) {
 
 static void split_feed(splitter *sp, const char *bytes) {
     size_t n = strlen(bytes);
-    if (sp->len + n >= sizeof sp->buf) split_flush(sp, 1);
-    if (n >= sizeof sp->buf) { /* pathological single token: emit raw */
-        emit_escaped(sp->thinking ? "THINK" : "TOK", bytes, n);
-        return;
+    /* Copy in chunks that always fit (Archie P1-3): a final flush
+     * can leave up to 3 bytes of a split UTF-8 codepoint in the
+     * buffer, so testing the fit once, before flushing, still
+     * lets len + n overrun the buffer when n is within a few
+     * bytes of its size. The fit is therefore re-tested after
+     * every flush, and oversized input is fed through in pieces;
+     * the splitter's delimiter hold-back keeps a delimiter split
+     * across pieces intact. */
+    while (n > 0) {
+        if (sp->len + n >= sizeof sp->buf) split_flush(sp, 1);
+        size_t room = sizeof sp->buf - sp->len;
+        if (room == 0) {
+            /* The buffer holds only bytes a final flush cannot
+             * emit (a partial codepoint): emit them raw rather
+             * than spin. */
+            emit_escaped(sp->thinking ? "THINK" : "TOK", sp->buf,
+                         sp->len);
+            sp->len = 0;
+            room = sizeof sp->buf;
+        }
+        size_t take = n < room ? n : room;
+        memcpy(sp->buf + sp->len, bytes, take);
+        sp->len += take;
+        bytes += take;
+        n -= take;
+        split_flush(sp, 0);
     }
-    memcpy(sp->buf + sp->len, bytes, n);
-    sp->len += n;
-    split_flush(sp, 0);
 }
 
 /* ---- weight bytes per token (for the gbs estimate) ---- */
@@ -425,16 +458,20 @@ int main(int argc, char **argv) {
                 "usage: nemo-engine <checkpoint_dir> <tokenizer.json> "
                 "[--layers N] [--max-pos N] [--max-new N] "
                 "[--mode minimum|medium|max|ultra] [--threads N] "
-                "[--simd]\n");
+                "[--simd] [--serve PORT | --serve-stdio]\n");
         return 2;
     }
     int layers = 0, max_pos = 4096, max_new = 256;
     const char *mode = "max";
     int threads = 0; /* 0 = take the mode's count */
     int simd = 0;
+    int serve_port = 0;
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--simd")) simd = 1;
         else if (!strcmp(argv[i], "--no-simd")) simd = 0;
+        else if (!strcmp(argv[i], "--serve-stdio")) serve_port = -1;
+        else if (i + 1 < argc && !strcmp(argv[i], "--serve"))
+            serve_port = atoi(argv[++i]);
         else if (i + 1 < argc && !strcmp(argv[i], "--layers"))
             layers = atoi(argv[++i]);
         else if (i + 1 < argc && !strcmp(argv[i], "--max-pos"))
@@ -464,6 +501,58 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (nthreads < 1) nthreads = 1;
+    /* Transports (PROTOCOL.md; Archie P1-3: both flags were
+     * documented but rejected as unknown). --serve-stdio names
+     * the default transport explicitly. --serve PORT accepts one
+     * TCP client and speaks the same protocol over the socket:
+     * stdin/stdout are rebound to the connection before READY is
+     * printed, so every line, the STOP poll included, rides the
+     * socket exactly as it rides a pipe. POSIX only for now; the
+     * Windows input shims (PeekNamedPipe/_kbhit) cannot poll a
+     * socket, so Windows says so instead of pretending. */
+    if (serve_port > 0) {
+#if defined(_WIN32)
+        fprintf(stderr,
+                "nemo-engine: --serve is not supported on Windows "
+                "yet; use --serve-stdio with a local client\n");
+        return 2;
+#else
+        int ls = socket(AF_INET, SOCK_STREAM, 0);
+        if (ls < 0) {
+            fprintf(stderr, "nemo-engine: socket failed\n");
+            return 1;
+        }
+        int one = 1;
+        setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof addr);
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons((uint16_t)serve_port);
+        if (bind(ls, (struct sockaddr *)&addr, sizeof addr) != 0 ||
+            listen(ls, 1) != 0) {
+            fprintf(stderr, "nemo-engine: cannot listen on port %d\n",
+                    serve_port);
+            close(ls);
+            return 1;
+        }
+        fprintf(stderr, "nemo-engine: listening on port %d\n",
+                serve_port);
+        int conn = accept(ls, NULL, NULL);
+        if (conn < 0) {
+            fprintf(stderr, "nemo-engine: accept failed\n");
+            close(ls);
+            return 1;
+        }
+        if (dup2(conn, 0) < 0 || dup2(conn, 1) < 0) {
+            fprintf(stderr, "nemo-engine: cannot bind stdio to the "
+                            "socket\n");
+            return 1;
+        }
+        close(ls);
+        if (conn > 1) close(conn);
+#endif
+    }
     nemo_checkpoint cp;
     if (nemo_checkpoint_open(&cp, argv[1]) != 0) {
         fprintf(stderr, "nemo-engine: cannot open checkpoint %s\n", argv[1]);

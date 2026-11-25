@@ -220,6 +220,7 @@ static float *load_tensor(const char **paths, int n_paths,
         uint8_t lb[8];
         if (fread(lb, 1, 8, f) != 8) { fclose(f); continue; }
         uint64_t hlen = rd64le(lb);
+        if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); continue; }
         char *hdr = (char *)malloc(hlen + 1);
         if (!hdr || fread(hdr, 1, hlen, f) != hlen) { fclose(f); continue; }
         hdr[hlen] = 0;
@@ -260,6 +261,14 @@ static float *load_tensor(const char **paths, int n_paths,
         free(hdr);
         if (count == 0 || o1 <= o0) { fclose(f); continue; }
         uint64_t nbytes = o1 - o0;
+        /* T3 hardening (CODE-REVIEW-2026-11-24): the shape-derived
+         * count and the data_offsets span must agree exactly for
+         * the declared dtype, and count * 4 must not wrap. */
+        {
+            uint64_t elem = strcmp(dtype, "F32") == 0 ? 4 : 2;
+            if (count > UINT64_MAX / sizeof(float)
+                || nbytes != count * elem) { fclose(f); continue; }
+        }
         uint8_t *raw = (uint8_t *)malloc(nbytes);
         float *out = (float *)malloc(count * sizeof(float));
         if (!raw || !out) { fclose(f); return NULL; }

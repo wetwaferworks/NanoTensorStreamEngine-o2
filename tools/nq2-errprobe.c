@@ -78,6 +78,14 @@ static uint64_t rd64(const uint8_t *p)
     return (uint64_t)rd32(p) | ((uint64_t)rd32(p + 4) << 32);
 }
 
+/* Byte-wise 16-bit load: the pack's half sections are not
+ * guaranteed 2-byte aligned in the stream buffer, so they must
+ * never be read through a uint16_t pointer (Archie P0-4). */
+static uint16_t rd16(const uint8_t *p)
+{
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
 /* ---------------- safetensors (header walk only) ------------ */
 
 enum { DT_BF16, DT_F16, DT_F32 };
@@ -104,6 +112,7 @@ static int shard_open(Shard *sh, const char *path)
     if (fread(lenbuf, 1, 8, sh->file) != 8) return -1;
     uint64_t hlen = 0;
     for (int i = 0; i < 8; i++) hlen |= (uint64_t)lenbuf[i] << (8 * i);
+    if (hlen == 0 || hlen > (1ull << 28)) return -1;
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr) return -1;
     if (fread(hdr, 1, hlen, sh->file) != hlen) { free(hdr); return -1; }
@@ -283,18 +292,27 @@ int main(int argc, char **argv)
     uint32_t entries = rd32(stream + 12);
     uint64_t n_blocks = rd64(stream + 24);
     uint64_t header = 32;
-    const uint64_t *seg_table = NULL;
+    const uint8_t *seg_table = NULL;
     uint32_t n_books = 1;
     if (version == 2) {
         n_books = rd32(stream + 32);
-        seg_table = (const uint64_t *)(stream + 36);
+        /* Byte pointer, read via rd64: stream + 36 is only
+         * 4-byte aligned (Archie P0-4). */
+        seg_table = stream + 36;
         header = 36 + (uint64_t)n_books * 8;
     }
+    /* T5 hardening (CODE-REVIEW-2026-11-24): validate the pack
+     * geometry before the section pointers are computed. */
+    if (block == 0 || block > 4096 || entries == 0 || entries > 256
+        || n_blocks > (UINT64_MAX - header) / 5
+        || header + 5 * n_blocks > (uint64_t)ssz) {
+        fprintf(stderr, "reject: unsupported or inconsistent pack "
+                "geometry (block %u, entries %u)\n", block, entries);
+        return 1;
+    }
     const uint8_t *idx_sec = stream + header;
-    const uint16_t *mn_sec = (const uint16_t *)(stream + header
-                                                + n_blocks);
-    const uint16_t *sc_sec = (const uint16_t *)(stream + header
-                                                + 3 * n_blocks);
+    const uint8_t *mn_sec = stream + header + n_blocks;
+    const uint8_t *sc_sec = stream + header + 3 * n_blocks;
 
     /* book into memory */
     FILE *bf = fopen(argv[2], "rb");
@@ -311,6 +329,19 @@ int main(int argc, char **argv)
     if (bsz < 12 || memcmp(bookf, "NQ2B", 4) != 0) {
         fprintf(stderr, "not an .nq2book\n");
         return 1;
+    }
+    /* The book must actually hold n_books * entries * block
+     * floats past its header (Archie P0-4). */
+    {
+        uint64_t book_off = version == 2 ? 20 : 12;
+        uint64_t need = book_off
+            + (uint64_t)n_books * entries * block * 4;
+        if ((uint64_t)bsz < need) {
+            fprintf(stderr, "reject: book is %ld bytes, pack "
+                    "geometry needs %llu\n", bsz,
+                    (unsigned long long)need);
+            return 1;
+        }
     }
     const float *books = (const float *)(bookf + (version == 2
                                                    ? 20 : 12));
@@ -344,10 +375,17 @@ int main(int argc, char **argv)
                 fallback_weights += t->count;
                 continue;
             }
-            if (version == 2 && seg_table[book_idx] != nb) {
-                fprintf(stderr, "segment table mismatch at %s\n",
-                        t->name);
-                return 1;
+            if (version == 2) {
+                if (book_idx >= n_books) {
+                    fprintf(stderr, "more tensor segments than "
+                            "books in the stream\n");
+                    return 1;
+                }
+                if (rd64(seg_table + 8 * (uint64_t)book_idx) != nb) {
+                    fprintf(stderr, "segment table mismatch at %s\n",
+                            t->name);
+                    return 1;
+                }
             }
             const float *book = books
                 + (size_t)(version == 2 ? book_idx : 0)
@@ -363,8 +401,17 @@ int main(int argc, char **argv)
                 }
                 for (uint64_t b = 0; b < want; b++) {
                     uint64_t at = cursor + base + b;
-                    float mn = half_to_float(mn_sec[at]);
-                    float sc = half_to_float(sc_sec[at]);
+                    /* A stream index outside the book would read
+                     * a neighbouring book's prototypes, or past
+                     * the allocation (Archie P0-4). */
+                    if (idx_sec[at] >= entries) {
+                        fprintf(stderr, "reject: stream index %u "
+                                "outside book of %u entries\n",
+                                idx_sec[at], entries);
+                        return 1;
+                    }
+                    float mn = half_to_float(rd16(mn_sec + 2 * at));
+                    float sc = half_to_float(rd16(sc_sec + 2 * at));
                     const float *proto = book
                         + (size_t)idx_sec[at] * block;
                     const float *rw = raw + b * block;

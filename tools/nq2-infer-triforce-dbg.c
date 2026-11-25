@@ -1,4 +1,12 @@
-/* nq2-infer.c ... NanoQuatTwo inference engine.
+/* FROZEN DIAGNOSTIC SNAPSHOT (2026-11-24): this file preserves
+ * the pipeline exactly as it stood when the Triforce anchor
+ * failure was bisected, including BOTH defects that caused it
+ * (fetch-time mode-2 reads into live slot buffers, and no
+ * pass-restart epoch). It is evidence, not a build base. Do not
+ * copy code from this file; the fixed implementation is
+ * tools/nq2-infer-triforce.c. (CODE-REVIEW-2026-11-24, T7.)
+ *
+ * nq2-infer.c ... NanoQuatTwo inference engine.
  *
  * Implemented by Elfie (E.L.F.I.E.): the engine and this code.
  * Direction and executive planning by JD.
@@ -43,6 +51,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <dirent.h> /* opendir/readdir directory scan (Archie P0-3) */
 
 #ifdef _WIN32
 #include <windows.h>
@@ -382,10 +391,22 @@ static int shard_open_raw(const char *path, int shard_idx)
 {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
+    /* File size, for the data_offsets span check below. */
+    uint64_t fsize;
+#ifdef _WIN32
+    if (_fseeki64(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    { long long s = _ftelli64(f); if (s < 0) { fclose(f); return -1; } fsize = (uint64_t)s; }
+    if (_fseeki64(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+#else
+    if (fseeko(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    { off_t s = ftello(f); if (s < 0) { fclose(f); return -1; } fsize = (uint64_t)s; }
+    if (fseeko(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+#endif
     uint8_t lenbuf[8];
     if (fread(lenbuf, 1, 8, f) != 8) { fclose(f); return -1; }
     uint64_t hlen = 0;
     for (int i = 0; i < 8; i++) hlen |= (uint64_t)lenbuf[i] << (8 * i);
+    if (hlen == 0 || hlen > (1ull << 28)) { fclose(f); return -1; }
     char *hdr = (char *)malloc(hlen + 1);
     if (!hdr) { fclose(f); return -1; }
     if (fread(hdr, 1, hlen, f) != hlen) { free(hdr); fclose(f); return -1; }
@@ -474,6 +495,26 @@ static int shard_open_raw(const char *path, int shard_idx)
             const char *lb = strchr(df, '[');
             if (lb) {
                 uint64_t begin = strtoull(lb + 1, NULL, 10);
+                const char *comma = strchr(lb, ',');
+                uint64_t end = comma ? strtoull(comma + 1, NULL, 10) : 0;
+                uint64_t esz = t->dtype == DT_F32 ? 4 : 2;
+                /* Span validation (Archie P0-4): only begin was
+                 * read before, unchecked. The span must be
+                 * ordered, lie inside the shard file, and (when
+                 * both shape and dtype were parsed) match the
+                 * shape-derived element count exactly. */
+                if (end < begin || end > fsize
+                    || data_start + end > fsize
+                    || (dt && (long)(dt - obj) < olen && t->count > 0
+                        && end - begin != t->count * esz)) {
+                    fprintf(stderr, "reject: tensor %s has "
+                            "data_offsets [%llu, %llu) inconsistent "
+                            "with the shard or its shape\n", key,
+                            (unsigned long long)begin,
+                            (unsigned long long)end);
+                    free(hdr);
+                    return -1;
+                }
                 t->byte_off = data_start + begin;
             }
         }
@@ -1456,6 +1497,7 @@ static uint16_t f32_to_bf16(float f)
      * plain truncation biased every cached key and value down */
     uint32_t bits;
     memcpy(&bits, &f, 4);
+    if ((bits & 0x7fffffffu) > 0x7f800000u) return 0x7fc0u; /* NaN -> bf16 quiet NaN; without this the rounding add carries into the sign bit and erases the NaN (Archie P0-5, guard from littlenemo/src/attn.c) */
     bits += 0x7FFFu + ((bits >> 16) & 1u);
     return (uint16_t)(bits >> 16);
 }
@@ -1901,27 +1943,22 @@ int main(int argc, char **argv)
     {
         char names[16][512];
         int nn = 0;
-        char cmd[4096];
-        snprintf(cmd, sizeof(cmd), "ls \"%s\" 2>/dev/null", dir);
-#ifdef _WIN32
-        (void)cmd;
-        fprintf(stderr, "on Windows, pass the model dir of a Linux "
-                "checkout for now\n");
-        return 1;
-#else
-        FILE *ls = popen(cmd, "r");
-        if (!ls) { fprintf(stderr, "cannot list %s\n", dir); return 1; }
-        char line[512];
-        while (fgets(line, sizeof(line), ls) && nn < MAX_SHARDS) {
-            size_t L = strlen(line);
-            while (L && (line[L - 1] == '\n' || line[L - 1] == '\r')) line[--L] = '\0';
-            if (L > 12 && strcmp(line + L - 12, ".safetensors") == 0) {
-                snprintf(names[nn], 512, "%s", line);
+        /* opendir/readdir, not popen("ls ...") (Archie P0-3): no
+         * shell in the path, so --dir cannot inject commands, and
+         * the same code runs on Windows (MinGW carries dirent.h),
+         * which also retires the old _WIN32 early exit that refused
+         * to run there. loader.c scans its directory the same way. */
+        DIR *dd = opendir(dir);
+        if (!dd) { fprintf(stderr, "cannot list %s\n", dir); return 1; }
+        struct dirent *de;
+        while ((de = readdir(dd)) != NULL && nn < MAX_SHARDS) {
+            size_t L = strlen(de->d_name);
+            if (L > 12 && strcmp(de->d_name + L - 12, ".safetensors") == 0) {
+                snprintf(names[nn], 512, "%s", de->d_name);
                 nn++;
             }
         }
-        pclose(ls);
-#endif
+        closedir(dd);
         qsort(names, nn, 512, cmp_str);
         if (nn == 0) { fprintf(stderr, "no safetensors in %s\n", dir); return 1; }
         for (int s = 0; s < nn; s++) {
