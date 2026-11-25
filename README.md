@@ -1,4 +1,4 @@
-# Nano Quant Engine
+# Nano Tensor Steam Engine
 
 Sub-bit weight packing by prototypical blocks, in pure C. Build the
 big model, print it small, expand it at will. We call the discipline
