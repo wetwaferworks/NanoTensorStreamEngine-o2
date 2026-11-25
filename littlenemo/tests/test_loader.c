@@ -13,7 +13,9 @@
 
 static int fails = 0;
 static void check(const char *name, double got, double want, double tol) {
-    if (fabs(got - want) > tol) {
+    /* !(<=) rather than (>): a NaN got must FAIL, not slip past
+     * the comparison (Codex Astra review M-R3, 2026-11-25). */
+    if (!(fabs(got - want) <= tol)) {
         printf("FAIL %-28s got %.7f want %.7f\n", name, got, want);
         fails++;
     } else {

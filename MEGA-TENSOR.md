@@ -55,6 +55,16 @@ way: its first determinism failure was bisected to a race in this
 delivery machinery, fixed, and both 1-step anchors now reproduce
 exactly. The full story is PIPELINE-2026-11-24.md.
 
+**The Tensor Handshake.** The pipe publishes a layer counter: the
+consumer's committed ordinal, on the existing ordinal machinery.
+Fetch-ahead targets are that counter plus the configured
+distance, so prefetch presses N+2, N+3, N+4 by count rather than
+by guess. The counter coordinates preparation only and never
+gates consumption. Per-thread tick counters (phase boundaries
+commit only when every thread's count agrees) and parallel
+expansion lanes are designed and staged; neither lands without a
+bit-identical proof at every lane count.
+
 Measured load-path figures, same throttled bench:
 
 - dedicated streaming runner: 922.7 MB/s expanded;

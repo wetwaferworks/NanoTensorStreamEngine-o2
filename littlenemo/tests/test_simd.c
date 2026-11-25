@@ -17,7 +17,10 @@
  * The scalar path remains the golden reference; SIMD is a speed
  * mode, never a silent replacement.
  *
- *     test_simd <checkpoint-dir> [layers]
+ *     test_simd [checkpoint-dir] [layers]
+ * With no checkpoint argument, only the availability check and
+ * the synthetic kernel checks (standard 3) run, so the kernel
+ * stays verifiable on machines without the checkpoint present.
  */
 #include <math.h>
 #include <stdio.h>
@@ -27,7 +30,19 @@
 #include "../src/forward.h"
 #include "../src/nn.h"
 
+/* Kernel entry counter from nn_simd.c (M-R2 observation hook;
+ * production dispatch never reads it). */
+extern unsigned long nemo_simd_kernel_calls(void);
+
 static int checks = 0, failures = 0;
+
+/* Drift reducer (M-R3): a NaN difference must fail the drift
+ * check, not vanish from it... d > maxd is false for NaN, so
+ * the old reducer reported a NaN hidden state as zero drift. */
+static double drift_max(double cur, double d) {
+    if (isnan(d)) return 1e30;
+    return d > cur ? d : cur;
+}
 
 static void expect_true(const char *name, int cond) {
     checks++;
@@ -67,10 +82,9 @@ static void synthetic_kernel_test(void) {
     nemo_linear_bf16_rows(W, x, y_scalar, 0, TOUT, TIN);
     nemo_linear_bf16_rows_simd(W, x, y_simd, 0, TOUT, TIN);
     double maxd = 0.0;
-    for (int o = 0; o < TOUT; o++) {
-        double d = fabs((double)y_scalar[o] - (double)y_simd[o]);
-        if (d > maxd) maxd = d;
-    }
+    for (int o = 0; o < TOUT; o++)
+        maxd = drift_max(maxd,
+                         fabs((double)y_scalar[o] - (double)y_simd[o]));
     printf("     synthetic kernel drift: max abs %.3e\n", maxd);
     expect_true("synthetic rows_simd matches rows (< 1e-9)", maxd < 1e-9);
 
@@ -79,10 +93,9 @@ static void synthetic_kernel_test(void) {
     nemo_linear_bf16_rows(W, x, y_sub_s, 5, 20, TIN);
     nemo_linear_bf16_rows_simd(W, x, y_sub_v, 5, 20, TIN);
     maxd = 0.0;
-    for (int o = 5; o < 20; o++) {
-        double d = fabs((double)y_sub_s[o] - (double)y_sub_v[o]);
-        if (d > maxd) maxd = d;
-    }
+    for (int o = 5; o < 20; o++)
+        maxd = drift_max(maxd,
+                         fabs((double)y_sub_s[o] - (double)y_sub_v[o]));
     expect_true("synthetic rows_simd sub-range matches (< 1e-9)",
                 maxd < 1e-9);
 
@@ -98,17 +111,45 @@ static void synthetic_kernel_test(void) {
     expect_true("nemo_linear_bf16 on == direct rows_simd",
                 memcmp(y_full_on, y_simd, sizeof y_simd) == 0);
     nemo_set_simd(0);
+
+    /* The dispatch observation (Codex Astra review M-R2,
+     * 2026-11-25): the memcmp checks above cannot by
+     * themselves prove dispatch, because the kernel is
+     * bit-exact against the scalar path by design... an entry
+     * point that silently always selected scalar would pass
+     * every output comparison in this suite. The kernel counts
+     * its own entries (nn_simd.c); the count must stay put
+     * while SIMD is off and advance when it is on. This is a
+     * test-only observation; production dispatch is unchanged. */
+    {
+        unsigned long before = nemo_simd_kernel_calls();
+        nemo_set_simd(0);
+        nemo_linear_bf16(W, x, y_full_off, TOUT, TIN);
+        expect_true("dispatch observation: kernel idle while off",
+                    nemo_simd_kernel_calls() == before);
+        nemo_set_simd(1);
+        nemo_linear_bf16(W, x, y_full_on, TOUT, TIN);
+        expect_true("dispatch observation: kernel entered while on",
+                    nemo_simd_kernel_calls() > before);
+        nemo_set_simd(0);
+    }
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) {
-        printf("usage: test_simd <checkpoint-dir> [layers]\n");
-        return 1;
-    }
-    int layers = argc > 2 ? atoi(argv[2]) : 15;
+    /* The availability check and the synthetic kernel checks run
+     * first, with or without a checkpoint: the kernel must stay
+     * verifiable on any machine, CI included, without the 17 GB
+     * checkpoint present (Archie Round 2 P2-A, mirroring the
+     * synthetic part of test_loader.c). */
     expect_true("AVX2 kernel available on this machine",
                 nemo_simd_available() == 1);
     synthetic_kernel_test();
+    if (argc < 2) {
+        printf("RESULT: %d/%d checks passed (synthetic only)\n",
+               checks - failures, checks);
+        return failures ? 1 : 0;
+    }
+    int layers = argc > 2 ? atoi(argv[2]) : 15;
     nemo_checkpoint cp;
     if (nemo_checkpoint_open(&cp, argv[1]) != 0) {
         printf("FAIL checkpoint open\n");
@@ -133,7 +174,7 @@ int main(int argc, char **argv) {
     double maxd = 0.0, sumsq = 0.0;
     for (int i = 0; i < NEMO_HIDDEN; i++) {
         double d = fabs((double)ha[i] - (double)hb[i]);
-        if (d > maxd) maxd = d;
+        maxd = drift_max(maxd, d);
         sumsq += d * d;
     }
     printf("     drift vs scalar: max abs %.3e, RMS %.3e\n", maxd,

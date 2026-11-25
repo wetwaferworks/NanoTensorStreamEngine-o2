@@ -130,8 +130,18 @@ class NemoClient:
         self._lock = threading.Lock()
 
     def connect_process(self, cmd):
+        # Structured argument list, never a shell: configured
+        # paths from the INI file must not be able to smuggle
+        # shell metacharacters into the command that runs
+        # (Codex Astra review M-I2, 2026-11-25). A string is
+        # still accepted for the explicit --engine CLI override
+        # and is split with shlex, not executed by a shell.
+        if isinstance(cmd, str):
+            import shlex
+
+            cmd = shlex.split(cmd)
         self._proc = subprocess.Popen(
-            cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            cmd, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1,
         )
         self._w = self._proc.stdin
@@ -141,6 +151,11 @@ class NemoClient:
         import socket
 
         self._sock = socket.create_connection((host, port), timeout=10)
+        # The 10 s timeout was for connection establishment
+        # only; left in place it governed every read and killed
+        # healthy idle connections (Codex Astra review M-I1,
+        # 2026-11-25). Reads now block until data or close.
+        self._sock.settimeout(None)
         f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
         self._w = f
         self._start_reader(f)
@@ -417,15 +432,10 @@ def run_gui(engine_cmd=None, host=None, port=None):
     root.mainloop()
 
 
-def _quote(part):
-    if part and all(c not in part for c in ' \t"'):
-        return part
-    return '"' + part.replace('"', '\\"') + '"'
-
-
 def load_ini(argv):
     """Read littlenemo.ini -> (engine_cmd, host, port), any of which
-    may be None. Search order: --config PATH, ./littlenemo.ini,
+    may be None. engine_cmd is an argument LIST (see connect_process).
+    Search order: --config PATH, ./littlenemo.ini,
     beside this script, the script's parent directory."""
     path = None
     if "--config" in argv:
@@ -460,7 +470,7 @@ def load_ini(argv):
     tok = rel(cfg.get("paths", "tokenizer", fallback=""))
     cmd = None
     if engine and ckpt and tok:
-        parts = [_quote(engine), _quote(ckpt), _quote(tok)]
+        parts = [engine, ckpt, tok]
         max_new = cfg.get("engine", "max_new", fallback="").strip()
         if max_new:
             parts += ["--max-new", max_new]
@@ -478,7 +488,7 @@ def load_ini(argv):
         max_pos = cfg.get("engine", "max_pos", fallback="").strip()
         if max_pos:
             parts += ["--max-pos", max_pos]
-        cmd = " ".join(parts)
+        cmd = parts
     host = cfg.get("remote", "host", fallback="").strip() or None
     port = cfg.get("remote", "port", fallback="").strip() or None
     return cmd, host, port

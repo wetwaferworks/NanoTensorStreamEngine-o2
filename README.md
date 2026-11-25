@@ -63,7 +63,13 @@ numbers below are stated the way we measured them.
 - The pack format itself is now proven two ways: an independent
   probe re-expands all 3.83 billion weights from the shipped pack
   and the stream hashes to 7bd9557531df1ab7, identical to the
-  production runner's recorded checksum. Two separately written
+  production runner's recorded checksum. (Terminology: that
+  value is the house digest, an FNV-1a 64 variant seeded with
+  the shortened basis 1469598103934665603 used consistently
+  across this project's tools and baselines. The runner now
+  prints the standard-basis FNV-1a 64 alongside it for
+  interoperability; the house digest remains the baseline
+  anchor.) Two separately written
   decoders produce the same byte stream, so the format contract
   is verified, not assumed. A hardening pass over all 21 tools
   (header-length and span guards at every trust boundary,
@@ -93,6 +99,19 @@ numbers below are stated the way we measured them.
   configurations). One item remains deferred: the Triforce
   fetch/unpack split on Windows. The full fix log is kept in
   the project's bench records.
+- A second full review cycle is complete. Archie (Argon) verified
+  her fifteen Round 1 findings fixed and filed five Round 2 polish
+  items; Codex (Astra 6.2) reviewed the same commit independently
+  and filed twenty-seven findings, all sustained on triage and
+  twenty-five fixed (canonical shard ordering with pack-to-directory
+  binding, a tokenizer that implements the checkpoint's
+  pre-tokenizer, zero blocks packing at scale 0, loud failures for
+  truncated streams and rejected writes, an AVX2 kernel isolated
+  from the scalar fallback). One item is held for a re-decision and
+  the frozen pack's audit is flagged in the update notes. The
+  Triforce prefetch geometry is configurable (command line,
+  environment, or device-derived defaults) and the Tensor
+  Handshake layer counter has landed. All baselines unmoved.
 - Dictionary compute: a packed model never has to be unpacked to
   be used. Per-segment prototype tables turn the matrix multiply
   into lookups, measured about 16 to 28 times faster than
@@ -128,8 +147,14 @@ baseline everything is judged against.
 One click, everything (all 23 tools plus the Little Nemo
 engine):
 
-    build-all.sh      (Linux)
+    sh build-all.sh   (Linux)
     build-all.bat     (Windows, MSYS2/MinGW)
+
+Invoke the Linux script through `sh` as shown: a fresh
+checkout may not carry the execute bit (some transports do
+not preserve file modes), and `sh build-all.sh` works either
+way. The equivalent with the bit restored is
+`chmod +x build-all.sh build.sh && ./build-all.sh`.
 
 build-all just runs the full build. Or by tier:
 
@@ -253,6 +278,11 @@ int8 (100 KB) at some fidelity cost to every block it serves.
   Her comprehensive review of 2026-11-24 caught five P0 faults,
   including a false SIMD verification that had shipped in the update
   notes; her fixes land under her name.
+- **Reviewer:** Codex (Astra 6.2), for the independent review of
+  2026-11-25: twenty-seven findings (ten high, seventeen medium),
+  all sustained, covering pack ordering and binding, tokenizer
+  fidelity, verification honesty, and the scalar fallback's
+  instruction set.
 
 ## License
 

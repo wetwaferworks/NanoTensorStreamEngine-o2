@@ -225,3 +225,61 @@ kept in the project's bench records.
   bench. The fused Windows worker runs as before.
 - Still pending, said plainly: the third battery question
   (Ohio) has not yet run on the post-fix build.
+
+## Seventh update, 2026-11-25: two more reviewers, twenty-seven more findings
+
+Archie reviewed the Sixth update's commit and verified all fifteen
+of her Round 1 findings fixed, with zero P0 or P1 issues remaining;
+her Round 2 report adds five P2 polish items, all fixed in this
+pass (the SIMD synthetic test now runs without the checkpoint
+present, the Windows builds are warning-clean, and three small
+guards were closed in tensorstat, the tokenizer, and the --serve
+parser).
+
+Codex (Astra 6.2) then reviewed the same commit independently and
+filed ten high-priority and seventeen medium findings, several
+demonstrated experimentally. Elfie's triage sustained all
+twenty-seven. Twenty-five are fixed here, including the three that
+mattered most: the quantizer now packs shards in the canonical
+order the readers use and every engine binds a pack to its
+directory before trusting it, so a pack can no longer silently
+describe the wrong tensors; Little Nemo's tokenizer now implements
+the checkpoint's own pre-tokenizer split and ignore_merges lookup
+(verified token-for-token against the reference tokenizer on a
+seventy-case battery; the two-space prompt that used to encode as
+[1256, 1097] now encodes as [1032, 1261]); and zero blocks pack at
+scale 0 instead of acquiring weights from a shared book. The
+stream verifier now refuses a truncated pack instead of checksumming
+its prefix, the quantizer refuses to report success when a write
+fails, and the AVX2 kernel lives in its own translation unit so
+the scalar fallback contains no AVX instructions. One finding is
+held for JD's re-decision rather than fixed (the streamtest's
+documented zero-fill on short reads), and one follow-through is
+flagged rather than done: the frozen Sigma pack was written before
+the zero-block fix, and whether to audit and re-strike it is JD's
+call.
+
+The digest printed by the tools is now labeled honestly: it is a
+house digest using a shortened FNV-1a offset basis, shared
+consistently by four tools and by every published baseline. It has
+not been re-based; nq2-run prints the standard-basis FNV-1a
+alongside it (on the frozen pack: house 7bd9557531df1ab7,
+standard 97bc43e8aef7ea05).
+
+Prefetch is now configuration, not constants. The Triforce pipe
+takes its slot count, fetch-ahead, and block prefetch distance
+from the command line, the environment (NQ2_PIPE_SLOTS,
+NQ2_FETCH_AHEAD, NQ2_PREFETCH_DIST), or defaults derived from the
+device, and prints each value with its source. Depth was proven a
+performance knob only: the Sigma token and the streamtest
+accumulator are identical at every depth tested. The first slice
+of the Tensor Handshake (JD's name for the counter-synchronized
+prefetch design) has landed: the pipe publishes the consumer's
+committed layer counter and aims fetch-ahead from it. Per-thread
+tick counters and parallel expansion lanes are designed and
+staged, deliberately not landed unproven.
+
+Baselines, all unmoved: forward hidden RMS 0.520647 (7/7);
+dc-adv 23/23 with its anchors unchanged; streamtest accumulator
+1394.1117661067326 at unpackers 0/1/2/3; Sigma raw token 75768 in
+all three engines; loader fingerprint unchanged.

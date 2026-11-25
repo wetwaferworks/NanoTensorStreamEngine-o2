@@ -11,8 +11,11 @@
  * share of the total squared error.
  *
  * The walk order replicates the quantizer's packing order
- * (shards in argument order, tensors in header order), so the
- * block cursor lands on the same segments the quantizer wrote.
+ * (shards in canonical sorted-filename order, tensors in
+ * header order), so the block cursor lands on the same
+ * segments the quantizer wrote. Shard arguments are sorted
+ * into that order below, matching the quantizer and the
+ * inference engines (Codex Astra review H1, 2026-11-25).
  *
  * Usage: nq2-errprobe model.nq2 model.nq2book shard.safetensors
  *        [more shards...]
@@ -22,6 +25,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +39,15 @@ static int seek_to(FILE *f, uint64_t off)
     return _fseeki64(f, (long long)off, SEEK_SET);
 #else
     return fseeko(f, (off_t)off, SEEK_SET);
+#endif
+}
+
+static int seek_end(FILE *f)
+{
+#ifdef _WIN32
+    return _fseeki64(f, 0, SEEK_END);
+#else
+    return fseeko(f, 0, SEEK_END);
 #endif
 }
 
@@ -241,6 +254,24 @@ typedef struct {
     double err2, ref2;
 } Row;
 
+/* Canonical shard order: by filename (the part after the last
+ * '/'), ties broken by the full path. The same rule the
+ * quantizer now writes packs in and the inference engines
+ * scan directories in (Codex Astra review H1, 2026-11-25). */
+static const char *base_name(const char *p)
+{
+    const char *s = strrchr(p, '/');
+    return s ? s + 1 : p;
+}
+
+static int cmp_shard_arg(const void *a, const void *b)
+{
+    const char *pa = *(const char *const *)a;
+    const char *pb = *(const char *const *)b;
+    int c = strcmp(base_name(pa), base_name(pb));
+    return c ? c : strcmp(pa, pb);
+}
+
 static int by_err2(const void *a, const void *b)
 {
     double d = ((const Row *)b)->err2 - ((const Row *)a)->err2;
@@ -271,12 +302,26 @@ int main(int argc, char **argv)
                 "model.nq2book shard.safetensors [more shards...]\n");
         return 1;
     }
-    /* stream into memory */
+    /* Canonical shard order (see the header comment): sort the
+     * shard arguments by filename so the walk binds segments to
+     * tensors exactly as the quantizer wrote them, whatever
+     * order they were passed in. */
+    qsort(argv + 3, (size_t)(argc - 3), sizeof(char *),
+          cmp_shard_arg);
+    /* stream into memory (sizes held in off_t end to end: a
+     * stream above 2 GiB must not narrow through long on
+     * Windows; Codex Astra review M-P7, 2026-11-25) */
     FILE *sf = fopen(argv[1], "rb");
     if (!sf) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
-    fseek(sf, 0, SEEK_END);
-    long ssz = ftell(sf);
-    fseek(sf, 0, SEEK_SET);
+    if (seek_end(sf) != 0) {
+        fprintf(stderr, "cannot seek %s\n", argv[1]);
+        return 1;
+    }
+    off_t ssz = ftello(sf);
+    if (ssz < 0 || seek_to(sf, 0) != 0) {
+        fprintf(stderr, "cannot size %s\n", argv[1]);
+        return 1;
+    }
     uint8_t *stream = (uint8_t *)malloc((size_t)ssz);
     if (!stream || fread(stream, 1, (size_t)ssz, sf) != (size_t)ssz) {
         fprintf(stderr, "cannot read stream\n");
@@ -317,9 +362,15 @@ int main(int argc, char **argv)
     /* book into memory */
     FILE *bf = fopen(argv[2], "rb");
     if (!bf) { fprintf(stderr, "cannot open %s\n", argv[2]); return 1; }
-    fseek(bf, 0, SEEK_END);
-    long bsz = ftell(bf);
-    fseek(bf, 0, SEEK_SET);
+    if (seek_end(bf) != 0) {
+        fprintf(stderr, "cannot seek %s\n", argv[2]);
+        return 1;
+    }
+    off_t bsz = ftello(bf);
+    if (bsz < 0 || seek_to(bf, 0) != 0) {
+        fprintf(stderr, "cannot size %s\n", argv[2]);
+        return 1;
+    }
     uint8_t *bookf = (uint8_t *)malloc((size_t)bsz);
     if (!bookf || fread(bookf, 1, (size_t)bsz, bf) != (size_t)bsz) {
         fprintf(stderr, "cannot read book\n");
@@ -337,14 +388,62 @@ int main(int argc, char **argv)
         uint64_t need = book_off
             + (uint64_t)n_books * entries * block * 4;
         if ((uint64_t)bsz < need) {
-            fprintf(stderr, "reject: book is %ld bytes, pack "
-                    "geometry needs %llu\n", bsz,
+            fprintf(stderr, "reject: book is %lld bytes, pack "
+                    "geometry needs %llu\n", (long long)bsz,
                     (unsigned long long)need);
             return 1;
         }
     }
     const float *books = (const float *)(bookf + (version == 2
                                                    ? 20 : 12));
+
+    /* Validate the complete scope BEFORE scoring anything
+     * (Codex Astra review H10, 2026-11-25): walk the shards in
+     * canonical order, sum the per-tensor block counts, and for
+     * v2 compare every segment-table entry, including the
+     * zero-length ones the scoring walk used to skip (M-P1).
+     * A budgeted pack that legitimately covers fewer blocks
+     * than the source shards fails here, instead of the scoring
+     * walk reading packed sections sized from the raw tensors
+     * and discovering the mismatch only at the end. */
+    {
+        uint64_t want_cursor = 0;
+        uint32_t want_book = 0;
+        for (int s = 3; s < argc; s++) {
+            Shard sh;
+            if (shard_open(&sh, argv[s]) != 0) return 1;
+            for (int ti = 0; ti < sh.n_tensors; ti++) {
+                uint64_t nb = sh.tensors[ti].count / block;
+                if (version == 2) {
+                    if (want_book >= n_books
+                        || rd64(seg_table
+                                + 8 * (uint64_t)want_book) != nb) {
+                        fprintf(stderr, "segment table mismatch "
+                                "at %s (scope pre-check)\n",
+                                sh.tensors[ti].name);
+                        fclose(sh.file);
+                        return 1;
+                    }
+                    want_book++;
+                }
+                want_cursor += nb;
+            }
+            fclose(sh.file);
+        }
+        if (version == 2 && want_book != n_books) {
+            fprintf(stderr, "pack holds %u segments, the shards "
+                    "hold %u tensors (scope mismatch)\n",
+                    n_books, want_book);
+            return 1;
+        }
+        if (want_cursor != n_blocks) {
+            fprintf(stderr, "walk would consume %llu blocks, "
+                    "stream holds %llu (scope mismatch)\n",
+                    (unsigned long long)want_cursor,
+                    (unsigned long long)n_blocks);
+            return 1;
+        }
+    }
 
     Row *rows = NULL;
     int n_rows = 0, cap_rows = 0;
@@ -373,7 +472,17 @@ int main(int argc, char **argv)
             r->ref2 = 0.0;
             if (nb == 0) {
                 fallback_weights += t->count;
+                /* A sub-block tensor still owns a v2 segment
+                 * table entry (zero) and a book: consume both so
+                 * the next tensor compares against its own
+                 * entry (Codex Astra review M-P1, 2026-11-25). */
+                if (version == 2) book_idx++;
                 continue;
+            }
+            if (cursor + nb > n_blocks) {
+                fprintf(stderr, "tensor %s overruns the packed "
+                        "stream (scope mismatch)\n", t->name);
+                return 1;
             }
             if (version == 2) {
                 if (book_idx >= n_books) {

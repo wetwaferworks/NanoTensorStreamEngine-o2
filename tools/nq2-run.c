@@ -274,7 +274,16 @@ int main(int argc, char **argv)
     uint64_t mn_pos = header_bytes + n_blocks;
     uint64_t sc_pos = header_bytes + 3 * n_blocks;
 
-    uint64_t hash = 1469598103934665603ull;   /* FNV-1a 64 */
+    /* Two digests over the expanded weights. The house digest
+     * keeps the shortened offset basis this project has used
+     * since its first baselines (1469598103934665603, one digit
+     * short of the standard FNV-1a basis ...6037): every
+     * published house hash was computed with it, so it is kept
+     * and labeled as what it is. The standard-basis FNV-1a 64
+     * digest is computed alongside for interoperability
+     * (Codex Astra review M-P5, 2026-11-25). */
+    uint64_t hash = 1469598103934665603ull;        /* house basis */
+    uint64_t hash_std = 14695981039346656037ull;   /* FNV-1a 64 */
     uint64_t done = 0;
     uint32_t seg = 0;
     uint64_t seg_left = version == 2 ? seg_blocks[0] : n_blocks;
@@ -328,18 +337,27 @@ int main(int argc, char **argv)
         for (size_t i = 0; i < nbytes; i++) {
             hash ^= bytes[i];
             hash *= 1099511628211ull;
+            hash_std ^= bytes[i];
+            hash_std *= 1099511628211ull;
         }
         t_hash += now_sec() - t0; t0 = now_sec();
         done += want;
     }
     double dt = t_expand + t_hash;
     fclose(sf);
-    if (done != n_blocks)
-        fprintf(stderr, "warning: stream truncated, expanded %llu "
-                "of %llu blocks; checksum covers the partial "
-                "expansion only\n",
+    if (done != n_blocks) {
+        /* An incomplete expansion is a failure, not a result:
+         * exit nonzero and publish no checksum for the partial
+         * prefix (Codex Astra review H5, 2026-11-25). */
+        fprintf(stderr, "error: stream truncated, expanded %llu "
+                "of %llu blocks; refusing to publish a checksum "
+                "for an incomplete stream\n",
                 (unsigned long long)done,
                 (unsigned long long)n_blocks);
+        free(idx_buf); free(mn_buf); free(sc_buf); free(win);
+        free(book);
+        return 1;
+    }
 
     size_t window_bytes = (size_t)win_blocks * block * sizeof(float);
     size_t peak = book_bytes + window_bytes +
@@ -348,8 +366,12 @@ int main(int argc, char **argv)
            (unsigned long long)done, (unsigned long long)win_blocks);
     printf("peak resident: %zu bytes (book + window + stream buffers)\n",
            peak);
-    printf("expanded checksum (FNV-1a 64): %016llx\n",
+    printf("expanded checksum (house digest, shortened-basis "
+           "FNV-1a 64): %016llx\n",
            (unsigned long long)hash);
+    printf("expanded checksum (FNV-1a 64, standard basis): "
+           "%016llx\n",
+           (unsigned long long)hash_std);
     if (dt > 0)
         printf("expansion rate: %.1f M weights/sec (%.1f MB/sec expanded)\n",
                total_weights / dt / 1e6,

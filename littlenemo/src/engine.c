@@ -385,6 +385,11 @@ static void run_turn(engine *e, const char *prompt_text) {
     int generated = 0;
     double gen_ms = 0.0;
     int stopped = 0;
+    /* Whether the last emitted token has been stepped into the
+     * model state, and which token it was (Codex Astra review
+     * H7, 2026-11-25). */
+    int last_committed = 1;
+    int last_token = -1;
     if (n == 0) { /* empty prompt: nothing to condition on */
         printf("ERROR empty prompt\n");
         fflush(stdout);
@@ -397,14 +402,22 @@ static void run_turn(engine *e, const char *prompt_text) {
         int next = argmax(logits);
         if (next == e->eos_id) break;
         generated++;
+        last_token = next;
+        last_committed = 0;
         char *piece = nemo_tokenizer_decode(e->tk, &next, 1, 1);
         if (piece) {
             split_feed(&sp, piece);
             free(piece);
         }
-        /* Step the chosen token to produce the next logits, unless
-         * the turn is done: an extra step would advance the state
-         * past the last emitted token and corrupt the next turn. */
+        /* Step the chosen token to produce the next logits. At
+         * the cap there is no next token to produce, so the
+         * step is deferred to the hidden-only commit after the
+         * loop: the emitted token must still enter the state,
+         * or the next turn is conditioned as if this turn's
+         * last token had never been said, while the transcript
+         * shows it. (The earlier rationale here was inverted:
+         * stepping an emitted token is precisely how the state
+         * comes to include it.) */
         if (generated < e->max_new &&
             nemo_model_step(e->model, next, logits) != 0) {
             nemo_model_reset(e->model);
@@ -415,6 +428,7 @@ static void run_turn(engine *e, const char *prompt_text) {
             free(hidden);
             return;
         }
+        if (generated < e->max_new) last_committed = 1;
         double ms = now_ms() - t0;
         gen_ms += ms;
         printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d "
@@ -435,6 +449,22 @@ static void run_turn(engine *e, const char *prompt_text) {
         }
     }
     (void)stopped;
+    /* Commit the final emitted token (H7): at the cap it was
+     * never stepped, so step it now with the hidden-only step,
+     * which advances KV/SSM state and position without needing
+     * logits nobody will read. The transcript and the model
+     * state then agree about what was said. */
+    if (!last_committed && last_token >= 0) {
+        if (nemo_model_step_hidden(e->model, last_token, hidden) != 0) {
+            nemo_model_reset(e->model);
+            printf("ERROR forward pass failed committing the "
+                   "final token; state reset\n");
+            fflush(stdout);
+            free(logits);
+            free(hidden);
+            return;
+        }
+    }
     split_flush(&sp, 1);
     double total_ms = now_ms() - turn_t0;
     printf("STATS tokens=%d ms=%.0f tps=%.3f ms_per_tok=%.1f "
@@ -470,8 +500,20 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--simd")) simd = 1;
         else if (!strcmp(argv[i], "--no-simd")) simd = 0;
         else if (!strcmp(argv[i], "--serve-stdio")) serve_port = -1;
-        else if (i + 1 < argc && !strcmp(argv[i], "--serve"))
+        else if (i + 1 < argc && !strcmp(argv[i], "--serve")) {
             serve_port = atoi(argv[++i]);
+            /* Validate at parse time: an out-of-range port would
+             * otherwise fall through to stdio silently (<= 0) or
+             * truncate in the (uint16_t) cast below (Archie
+             * Round 2 P2-E). */
+            if (serve_port < 1 || serve_port > 65535) {
+                fprintf(stderr,
+                        "nemo-engine: --serve port %d out of range "
+                        "(1-65535)\n",
+                        serve_port);
+                return 2;
+            }
+        }
         else if (i + 1 < argc && !strcmp(argv[i], "--layers"))
             layers = atoi(argv[++i]);
         else if (i + 1 < argc && !strcmp(argv[i], "--max-pos"))

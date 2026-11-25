@@ -40,7 +40,8 @@ Linux and under Wine.
     bin\win64\nq2-run.exe model-pack\sigma-full-b256-v2run.nq2 model-pack\sigma-full-b256-v2run.nq2book
 
 Expected:
-- expanded checksum (FNV-1a 64): 7bd9557531df1ab7
+- expanded checksum (house digest, shortened-basis FNV-1a 64): 7bd9557531df1ab7
+- expanded checksum (FNV-1a 64, standard basis): 97bc43e8aef7ea05
 - peak resident: 4476940 bytes
 - compression: 0.1563 bits per weight (stream)
 

@@ -260,9 +260,12 @@ static void analyze(const char *path, const char *name,
                "p50 %.3f  p90 %.3f  p99 %.3f\n",
                topshares[done / 2], topshares[(done * 90) / 100],
                topshares[(done * 99) / 100]);
+        /* Inside the else: this percentage divides by done, so
+         * it must not run on the done == 0 path above (Archie
+         * Round 2 P2-C). */
+        printf("   outlier-dominated blocks (top-1 share > 50%%): %.1f%%\n",
+               100.0 * dom_blocks / done);
     }
-    printf("   outlier-dominated blocks (top-1 share > 50%%): %.1f%%\n",
-           100.0 * dom_blocks / done);
 
     if (row && n % row == 0) {
         uint64_t nr = n / row;

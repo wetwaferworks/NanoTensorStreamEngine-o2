@@ -66,6 +66,25 @@ static int cpu_count(void)
 #endif
 }
 
+/* Physical RAM in bytes, or 0 when the platform will not say.
+ * Used only to derive the default pipeline depth (prefetch
+ * adaptability item, 2026-11-25): a device property, read
+ * once at startup, never a results input. */
+static uint64_t device_ram_bytes(void)
+{
+#ifdef _WIN32
+    MEMORYSTATUSEX ms;
+    ms.dwLength = sizeof ms;
+    if (GlobalMemoryStatusEx(&ms)) return (uint64_t)ms.ullTotalPhys;
+    return 0;
+#else
+    long pages = sysconf(_SC_PHYS_PAGES);
+    long pgsz = sysconf(_SC_PAGESIZE);
+    if (pages > 0 && pgsz > 0) return (uint64_t)pages * (uint64_t)pgsz;
+    return 0;
+#endif
+}
+
 typedef void (*work_fn)(void *ctx, int worker, int nworkers);
 
 typedef struct {
@@ -79,6 +98,8 @@ typedef struct {
     pthread_cond_t work_cv, done_cv;
 #endif
     int nworkers;
+    int started;        /* threads actually launched (M-I5):
+                         * shutdown joins exactly these */
     work_fn fn;
     void *ctx;
     int pending;        /* workers that still owe a completion */
@@ -141,23 +162,48 @@ static void pool_init(int nworkers)
 {
     if (nworkers < 1) nworkers = 1;
     g_pool.nworkers = nworkers;
+    /* Launch failures shrink the pool to the workers that
+     * actually started (Codex Astra review M-I5, 2026-11-25):
+     * launches are sequential, so the started set is always the
+     * contiguous prefix [0, started) and dispatch partitions
+     * stay exact. pool_run waits for g_pool.nworkers
+     * completions, so recording the requested count after a
+     * failed launch would hang the first projection forever.
+     * Zero started workers leaves nworkers at 1, which pool_run
+     * serves serially on the caller. */
+    int started = 0;
 #ifdef _WIN32
     InitializeCriticalSection(&g_pool.lock);
     InitializeConditionVariable(&g_pool.work_cv);
     InitializeConditionVariable(&g_pool.done_cv);
     g_pool.threads = (HANDLE *)malloc(sizeof(HANDLE) * nworkers);
-    for (int i = 0; i < nworkers; i++)
+    for (int i = 0; i < nworkers; i++) {
         g_pool.threads[i] = CreateThread(NULL, 0, pool_worker,
                                          (LPVOID)(intptr_t)i, 0, NULL);
+        if (!g_pool.threads[i]) break;
+        started++;
+    }
 #else
     pthread_mutex_init(&g_pool.lock, NULL);
     pthread_cond_init(&g_pool.work_cv, NULL);
     pthread_cond_init(&g_pool.done_cv, NULL);
     g_pool.threads = (pthread_t *)malloc(sizeof(pthread_t) * nworkers);
-    for (int i = 0; i < nworkers; i++)
-        pthread_create(&g_pool.threads[i], NULL, pool_worker,
-                       (void *)(intptr_t)i);
+    for (int i = 0; i < nworkers; i++) {
+        if (pthread_create(&g_pool.threads[i], NULL, pool_worker,
+                           (void *)(intptr_t)i) != 0)
+            break;
+        started++;
+    }
 #endif
+    if (started < nworkers) {
+        fprintf(stderr, "pool: %d of %d workers started; "
+                "continuing with the smaller pool\n",
+                started, nworkers);
+        g_pool.started = started;
+        g_pool.nworkers = started > 0 ? started : 1;
+    } else {
+        g_pool.started = started;
+    }
 }
 
 /* Run fn(ctx, worker, nworkers) on every worker and wait. */
@@ -194,7 +240,7 @@ static void pool_shutdown(void)
     g_pool.stop = 1;
     WakeAllConditionVariable(&g_pool.work_cv);
     LeaveCriticalSection(&g_pool.lock);
-    for (int i = 0; i < g_pool.nworkers; i++) {
+    for (int i = 0; i < g_pool.started; i++) {
         WaitForSingleObject(g_pool.threads[i], INFINITE);
         CloseHandle(g_pool.threads[i]);
     }
@@ -203,7 +249,7 @@ static void pool_shutdown(void)
     g_pool.stop = 1;
     pthread_cond_broadcast(&g_pool.work_cv);
     pthread_mutex_unlock(&g_pool.lock);
-    for (int i = 0; i < g_pool.nworkers; i++)
+    for (int i = 0; i < g_pool.started; i++)
         pthread_join(g_pool.threads[i], NULL);
 #endif
 }
@@ -466,9 +512,14 @@ static int shard_open_raw(const char *path, int shard_idx)
             else if (strcmp(dts, "F16") == 0) t->dtype = DT_F16;
             else if (strcmp(dts, "F32") == 0) t->dtype = DT_F32;
             else {
-                fprintf(stderr, "warning: tensor %s dtype '%s' "
-                        "unrecognized, assuming F32\n", key, dts);
-                t->dtype = DT_F32;
+                /* Unsupported dtypes are rejected, never
+                 * reinterpreted as F32 (Codex Astra review
+                 * M-P4, 2026-11-25; the packer does the same). */
+                fprintf(stderr, "reject: tensor %s has "
+                        "unsupported dtype '%s' (only BF16, "
+                        "F16, F32 load)\n", key, dts);
+                free(hdr);
+                return -1;
             }
         }
         const char *sh = strstr(obj, "\"shape\"");
@@ -579,6 +630,10 @@ static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
 static FILE *g_pk_stream = NULL;
 static float *g_pk_book = NULL;         /* all books, fp32 */
 static uint32_t g_pk_block = 0, g_pk_entries = 0, g_pk_version = 0;
+/* Block-level prefetch distance for the expansion loops
+ * below (runtime tunable, default 2; configured with the
+ * rest of the pipe geometry further down). */
+static int g_prefetch_dist = 2; /* --prefetch-dist N (>= 0) */
 static uint64_t g_pk_header = 0;        /* stream header bytes */
 static uint64_t g_pk_nblocks = 0;
 
@@ -633,13 +688,18 @@ static int packed_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
             if (idx[b] >= g_pk_entries) goto fail;
             /* Book lookup optimization (streamtest variant 1,
              * measured +21 percent in the harness): pull the
-             * prototype row two blocks ahead toward cache while
-             * the current row streams out, so the lookup never
-             * waits on memory. */
-            if (b + 2 < nb) {
+             * prototype row g_prefetch_dist blocks ahead toward
+             * cache while the current row streams out, so the
+             * lookup never waits on memory. The distance is a
+             * runtime tunable (prefetch adaptability, 2026-11-25;
+             * default 2, the original hard-coded value). It is a
+             * cache hint only and cannot change results. */
+            if (b + (uint64_t)g_prefetch_dist < nb) {
 #if defined(__GNUC__) || defined(__clang__)
-                __builtin_prefetch(book + (size_t)idx[b + 2] * block,
-                                   0, 1);
+                __builtin_prefetch(
+                    book + (size_t)idx[b + (uint64_t)g_prefetch_dist]
+                               * block,
+                    0, 1);
 #endif
             }
             float mn = pk_half(fr + b * 2);
@@ -703,6 +763,11 @@ typedef struct {
     double fetch_ms;
 } Stage;
 
+#ifndef _WIN32
+/* The split fetch/expand halves serve only the POSIX triforce
+ * workers; the Windows build keeps the fused single worker
+ * (pipe_load) and never calls them, so they are guarded out
+ * there instead of warning as unused (Archie Round 2 P2-B). */
 static int packed_fetch_range(FILE *stream, const TEnt *t,
                               uint64_t elem0, uint64_t nelems, Stage *s)
 {
@@ -737,10 +802,12 @@ static int packed_expand_range(const TEnt *t, uint64_t elem0,
             book = g_pk_book + (size_t)(t - g_dir) * g_pk_entries * block;
         for (uint64_t b = 0; b < nb; b++) {
             if (idx[b] >= g_pk_entries) { free(tmp); return -1; }
-            if (b + 2 < nb) {
+            if (b + (uint64_t)g_prefetch_dist < nb) {
 #if defined(__GNUC__) || defined(__clang__)
-                __builtin_prefetch(book + (size_t)idx[b + 2] * block,
-                                   0, 1);
+                __builtin_prefetch(
+                    book + (size_t)idx[b + (uint64_t)g_prefetch_dist]
+                               * block,
+                    0, 1);
 #endif
             }
             float mn = pk_half(fr + b * 2);
@@ -766,6 +833,7 @@ static int packed_expand_range(const TEnt *t, uint64_t elem0,
     free(tmp);
     return 0;
 }
+#endif /* !_WIN32 */
 
 static const char *g_pk_stream_path = NULL;
 
@@ -775,9 +843,30 @@ static int g_forensics = 0;   /* lab build: --forensics */
  * runtime, never hard-coded): how many tensors the pipe may
  * hold in flight, and how far the fetcher may run ahead of the
  * unpack demand. Defaults reproduce the original two-slot,
- * one-ahead pipe exactly. */
+ * one-ahead pipe exactly.
+ *
+ * Prefetch adaptability (2026-11-25): every knob has three
+ * configuration layers, strongest last... the built-in or
+ * device-derived default, the environment (NQ2_PIPE_SLOTS,
+ * NQ2_FETCH_AHEAD, NQ2_PREFETCH_DIST), and the command line
+ * (--pipe-slots, --fetch-ahead, --prefetch-dist), which always
+ * wins. The *_src strings record which layer each value came
+ * from so the startup line can say so. The block-level
+ * prefetch distance inside the expansion loops is the third
+ * knob: how far ahead of the block being expanded the book
+ * prototype row is pulled toward cache. Depth in all three
+ * knobs is a performance property only; consumption order and
+ * results are invariant under them (proven in the fix log's
+ * regression matrix). */
 static int g_pipe_slots = 2;    /* --pipe-slots N (>= 2) */
 static int g_fetch_ahead = 1;   /* --fetch-ahead N (>= 1) */
+/* (g_prefetch_dist is defined with the pack globals above:
+ * the expansion loops sit earlier in the file than this
+ * configuration block.) */
+static const char *g_slots_src = "default";
+static const char *g_fetch_src = "default";
+static const char *g_dist_src = "default";
+static int g_slots_explicit = 0; /* cli/env: no device derivation */
 static const char *g_logits_dump = NULL;  /* lab: --logits-dump */
 static int g_logits_dumped = 0;
 /* Round 4 P1: --logits-dump-all appends one LOG1 block per
@@ -911,6 +1000,21 @@ static int packed_open(const char *stream_path, const char *book_path)
             return -1;
         }
         for (int i = 0; i < g_ndir; i++) {
+            /* The segment table must agree with the directory,
+             * tensor by tensor: a pack serialized in a different
+             * tensor order (or for a different directory) fails
+             * loudly here instead of binding stream segments to
+             * the wrong weights by position (Codex Astra
+             * review H1, 2026-11-25). */
+            if (seg[i] != g_dir[i].count / g_pk_block) {
+                fprintf(stderr, "packed segment %d holds %llu "
+                        "blocks but tensor %s has %llu (pack and "
+                        "directory do not match)\n", i,
+                        (unsigned long long)seg[i], g_dir[i].name,
+                        (unsigned long long)(g_dir[i].count
+                                             / g_pk_block));
+                return -1;
+            }
             g_dir[i].block0 = cursor;
             g_dir[i].nblocks = seg[i];
             cursor += seg[i];
@@ -920,6 +1024,14 @@ static int packed_open(const char *stream_path, const char *book_path)
             g_dir[i].block0 = cursor;
             g_dir[i].nblocks = g_dir[i].count / g_pk_block;
             cursor += g_dir[i].nblocks;
+        }
+        if (cursor != g_pk_nblocks) {
+            fprintf(stderr, "packed stream holds %llu blocks "
+                    "but the directory tensors cover %llu "
+                    "(pack and directory do not match)\n",
+                    (unsigned long long)g_pk_nblocks,
+                    (unsigned long long)cursor);
+            return -1;
         }
     }
     /* Round 4 P0, read-integrity audit gap B: the per-tensor
@@ -995,6 +1107,17 @@ typedef struct {
     double stat_stall_s, stat_slack_s, stat_load_ms;
     uint64_t stat_bytes;
     long stat_hits, stat_miss;
+    /* The Tensor Handshake layer counter (JD, 2026-11-25): the
+     * consumer's committed position in the ordinal sequence,
+     * published for the fetch/expand side and the stats line.
+     * Written only by the consumer inside pipe_get, read by
+     * pipe_report on the same thread; it coordinates
+     * preparation and never gates consumption, so it cannot
+     * change results. The per-thread tick counters that
+     * complete the Tensor Handshake design are staged (see the
+     * fix log): phase boundaries in the eval loop are where
+     * they belong, and they were not bolted on mid-pass. */
+    int layer_counter;
     /* Stall forensics (lab build only): per-ordinal accumulation
      * so every miss is attributable to a layer, a slot, and a
      * cause (waited on the worker, or the consumer gave up and
@@ -1032,6 +1155,10 @@ typedef struct {
 } Pipe;
 
 static Pipe g_pipe;
+/* Total bytes of per-slot staging buffers pipe_init actually
+ * allocated (packed idx + fraction bytes + raw bytes), so the
+ * startup budget accounts for them (M-I6). */
+static size_t g_pipe_staging_bytes = 0;
 
 /* Slot of an ordinal under the runtime slot count. */
 static int pslot(int ord) { return ord % g_pipe.slots; }
@@ -1067,6 +1194,10 @@ static void pipe_load(int slot, int ord)
     g_pipe.load_bytes_last = t->count * sizeof(float);
 }
 
+#ifndef _WIN32
+/* The staging helper and the split pipe halves below are
+ * POSIX-only, like the packed halves above (Archie Round 2
+ * P2-B). */
 /* Read the raw source bytes of elements [elem0, elem0+nelems)
  * of a tensor into the stage's raw buffer, on the fetcher's
  * private handle for the tensor's shard. The expand half then
@@ -1179,6 +1310,7 @@ static void pipe_expand(int slot, int ord)
     g_pipe.load_bytes_last = t->count * sizeof(float);
     s->mode = 0;
 }
+#endif /* !_WIN32 */
 
 /* Called under the lock wherever an ordinal is marked ready. */
 static void pipe_mark_ready(int ord)
@@ -1302,9 +1434,33 @@ static void pipe_init(int layers)
         const TEnt *t = ord_ent(o);
         if (t && t->count > max_elems) max_elems = t->count;
     }
-    if (g_pipe_slots < 2 || g_fetch_ahead < 1) {
-        fprintf(stderr, "pipe: --pipe-slots must be >= 2 and "
-                "--fetch-ahead >= 1\n");
+    if (!g_slots_explicit) {
+        /* Device-derived slot default (prefetch adaptability,
+         * 2026-11-25): as many slots as the device can feed,
+         * no more. The fetcher, the expander, the consumer and
+         * the compute pool share the machine, so cores/2 is the
+         * useful ceiling; memory bounds it too, at a quarter
+         * of physical RAM against the per-slot cost (the float
+         * buffer plus its staging twin). Clamped to [2, 8]:
+         * the pipe needs two slots to overlap at all, and past
+         * eight the working set outruns any cache benefit. On
+         * the bench (4 cores, 8 GB, 108 MB slot cost) this
+         * yields exactly 2, the historical default, so an
+         * unconfigured run is unchanged there. */
+        long by_cores = cpu_count() / 2;
+        uint64_t ram = device_ram_bytes();
+        uint64_t slot_cost = (uint64_t)max_elems * 2 * sizeof(float);
+        long by_ram = (ram && slot_cost)
+            ? (long)(ram / 4 / slot_cost) : 2;
+        long d = by_cores < by_ram ? by_cores : by_ram;
+        if (d < 2) d = 2;
+        if (d > 8) d = 8;
+        g_pipe_slots = (int)d;
+        g_slots_src = "device";
+    }
+    if (g_pipe_slots < 2 || g_fetch_ahead < 1 || g_prefetch_dist < 0) {
+        fprintf(stderr, "pipe: --pipe-slots must be >= 2, "
+                "--fetch-ahead >= 1 and --prefetch-dist >= 0\n");
         exit(1);
     }
     g_pipe.slots = g_pipe_slots;
@@ -1326,8 +1482,11 @@ static void pipe_init(int layers)
         g_pipe.have[s] = -1;
         g_pipe.st_owner[s] = -1;
     }
-    printf("pipe: %d slots, fetch-ahead %d (runtime configured)\n",
-           g_pipe.slots, g_fetch_ahead);
+    printf("pipe: %d slots (%s), fetch-ahead %d (%s), "
+           "prefetch distance %d (%s)\n",
+           g_pipe.slots, g_slots_src, g_fetch_ahead, g_fetch_src,
+           g_prefetch_dist, g_dist_src);
+    g_pipe.layer_counter = -1;
     g_pipe.want = -1;
     g_pipe.want_u = -1;
     g_pipe.fetched_upto = -1;
@@ -1351,22 +1510,40 @@ static void pipe_init(int layers)
     /* Triforce staging: raw packed sections for one whole
      * tensor per slot, sized from the largest tensor, plus the
      * raw staging buffer (source bytes of one whole tensor;
-     * 4 bytes per element covers the widest source dtype). */
+     * 4 bytes per element covers the widest source dtype).
+     * The raw buffer belongs to the split fetch/expand path,
+     * which is POSIX-only: the Windows worker runs the fused
+     * loader and never touches it, so it is not allocated
+     * there (Codex Astra review M-I6, 2026-11-25; at Sigma's
+     * largest projection that was 108 MiB per slot of dead
+     * allocation). g_pipe_staging_bytes totals what was
+     * actually allocated so the printed budget can say so. */
     {
         uint64_t nb_max = g_pk_block
             ? (uint64_t)max_elems / g_pk_block + 1 : 1;
         for (int s = 0; s < g_pipe.slots; s++) {
             g_pipe.st[s].idx = (uint8_t *)malloc(nb_max);
             g_pipe.st[s].fr = (uint8_t *)malloc(nb_max * 4);
+#ifdef _WIN32
+            g_pipe.st[s].raw = NULL;
+#else
             g_pipe.st[s].raw = (uint8_t *)malloc(
                 (uint64_t)max_elems * 4);
+#endif
             g_pipe.st[s].mode = 0;
             g_pipe.st_owner[s] = -1;
             if (!g_pipe.st[s].idx || !g_pipe.st[s].fr
-                    || !g_pipe.st[s].raw) {
+#ifndef _WIN32
+                    || !g_pipe.st[s].raw
+#endif
+                    ) {
                 fprintf(stderr, "pipe: out of memory\n");
                 exit(1);
             }
+            g_pipe_staging_bytes += (size_t)nb_max * 5;
+#ifndef _WIN32
+            g_pipe_staging_bytes += (size_t)max_elems * 4;
+#endif
         }
     }
     if (g_pk_stream_path) {
@@ -1520,6 +1697,10 @@ static const float *pipe_get(int ord)
     }
     pthread_mutex_unlock(&g_pipe.lock);
 #endif
+    /* Tensor Handshake: publish the committed position. The
+     * consumer is the only writer; fetch-ahead targets are
+     * this counter plus the configured distance. */
+    g_pipe.layer_counter = ord;
     return g_pipe.buf[pslot(ord)];
 }
 
@@ -1532,6 +1713,9 @@ static void pipe_report(void)
            total, g_pipe.stat_hits,
            100.0 * (double)g_pipe.stat_hits / (double)total,
            g_pipe.stat_miss);
+    printf("  tensor handshake: layer counter %d of %d "
+           "(consumer's committed ordinal)\n",
+           g_pipe.layer_counter, g_pipe.max_ord);
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,
@@ -1615,6 +1799,28 @@ static float *load_small(const char *name)
         exit(1);
     }
     return buf;
+}
+
+/* load_small with an architecture conformance check (Codex
+ * Astra review H4, 2026-11-25): the tensor's own span check
+ * cannot catch a tensor whose declared count is smaller than
+ * the extent its consumer reads (the layer-norm copy reads
+ * M_H floats whatever the norm tensor declares). A checkpoint
+ * whose shapes disagree with the derived architecture fails
+ * loudly here, before any workspace is allocated or worker
+ * started, instead of over-reading the allocation. */
+static float *load_small_req(const char *name, uint64_t need)
+{
+    TEnt *t = dir_find(name);
+    if (!t) { fprintf(stderr, "missing tensor %s\n", name); exit(1); }
+    if (t->count < need) {
+        fprintf(stderr, "tensor %s holds %llu elements, the "
+                "architecture requires %llu\n", name,
+                (unsigned long long)t->count,
+                (unsigned long long)need);
+        exit(1);
+    }
+    return load_small(name);
 }
 
 /* YaRN rotary tables, following the reference exactly:
@@ -2087,6 +2293,24 @@ static int cmp_str(const void *a, const void *b)
     return strcmp((const char *)a, (const char *)b);
 }
 
+/* One environment layer of the pipe configuration: read an
+ * integer variable strictly (the whole value must be the
+ * number), or fail loudly. Returns 1 when the variable was
+ * set. The command line is parsed after this and wins. */
+static int pipe_env_int(const char *name, int *out)
+{
+    const char *v = getenv(name);
+    if (!v || !*v) return 0;
+    char *end = NULL;
+    long n = strtol(v, &end, 10);
+    if (end == v || *end != '\0') {
+        fprintf(stderr, "pipe: %s '%s' is not a number\n", name, v);
+        exit(1);
+    }
+    *out = (int)n;
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     const char *dir = NULL;
@@ -2097,6 +2321,16 @@ int main(int argc, char **argv)
     double guidance = 3.0, score_temp = 0.3;
     uint64_t seed = 1234;
     int threads = 0;
+
+    /* Environment layer (below the CLI, which overrides it). */
+    if (pipe_env_int("NQ2_PIPE_SLOTS", &g_pipe_slots)) {
+        g_slots_src = "env";
+        g_slots_explicit = 1;
+    }
+    if (pipe_env_int("NQ2_FETCH_AHEAD", &g_fetch_ahead))
+        g_fetch_src = "env";
+    if (pipe_env_int("NQ2_PREFETCH_DIST", &g_prefetch_dist))
+        g_dist_src = "env";
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) dir = argv[++i];
@@ -2116,8 +2350,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) threads = atoi(argv[++i]);
         else if (strcmp(argv[i], "--forensics") == 0) g_forensics = 1;
-        else if (strcmp(argv[i], "--pipe-slots") == 0 && i + 1 < argc) g_pipe_slots = atoi(argv[++i]);
-        else if (strcmp(argv[i], "--fetch-ahead") == 0 && i + 1 < argc) g_fetch_ahead = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--pipe-slots") == 0 && i + 1 < argc) { g_pipe_slots = atoi(argv[++i]); g_slots_src = "cli"; g_slots_explicit = 1; }
+        else if (strcmp(argv[i], "--fetch-ahead") == 0 && i + 1 < argc) { g_fetch_ahead = atoi(argv[++i]); g_fetch_src = "cli"; }
+        else if (strcmp(argv[i], "--prefetch-dist") == 0 && i + 1 < argc) { g_prefetch_dist = atoi(argv[++i]); g_dist_src = "cli"; }
         else if (strcmp(argv[i], "--logits-dump") == 0 && i + 1 < argc) g_logits_dump = argv[++i];
         else if (strcmp(argv[i], "--logits-dump-all") == 0 && i + 1 < argc) { g_logits_dump = argv[++i]; g_logits_dump_all = 1; }
         else {
@@ -2206,6 +2441,16 @@ int main(int argc, char **argv)
         }
         M_HEADS = q0->rows / M_HD;
         M_KVHEADS = k0->rows / M_HD;
+        /* The attention path groups query heads by
+         * M_HEADS / M_KVHEADS: both counts must be real and
+         * the division exact (H4). */
+        if (M_HEADS < 1 || M_KVHEADS < 1
+                || M_HEADS % M_KVHEADS != 0) {
+            fprintf(stderr, "unsupported head grouping "
+                    "(%d query heads over %d kv heads)\n",
+                    M_HEADS, M_KVHEADS);
+            return 1;
+        }
         int maxl = -1;
         for (int i = 0; i < g_ndir; i++) {
             int li;
@@ -2231,20 +2476,25 @@ int main(int argc, char **argv)
     for (int l = 0; l < M_L; l++) {
         char nm[256];
         snprintf(nm, sizeof(nm), "encoder.layers.%d.input_layernorm.weight", l);
-        float *b = load_small(nm);
+        float *b = load_small_req(nm, (uint64_t)M_H);
         memcpy(g_norm_in + (size_t)l * M_H, b, M_H * sizeof(float));
         free(b);
         snprintf(nm, sizeof(nm), "encoder.layers.%d.post_attention_layernorm.weight", l);
-        b = load_small(nm);
+        b = load_small_req(nm, (uint64_t)M_H);
         memcpy(g_norm_post + (size_t)l * M_H, b, M_H * sizeof(float));
         free(b);
     }
-    g_norm_final = load_small("encoder.norm.weight");
-    g_in_linear = load_small("replaid_input_linear.weight");
-    g_sc_linear = load_small("replaid_selfcond_linear.weight");
-    g_gamma_linear = load_small("replaid_gamma_linear.weight");
+    g_norm_final = load_small_req("encoder.norm.weight",
+                                  (uint64_t)M_H);
+    g_in_linear = load_small_req("replaid_input_linear.weight",
+                                 (uint64_t)M_H * M_ED);
+    g_sc_linear = load_small_req("replaid_selfcond_linear.weight",
+                                 (uint64_t)M_H * M_ED);
+    g_gamma_linear = load_small_req("replaid_gamma_linear.weight",
+                                    (uint64_t)M_H * 64);
     {
-        float *raw_e = load_small("replaid_embedding_matrix.matrix");
+        float *raw_e = load_small_req("replaid_embedding_matrix.matrix",
+                                      (uint64_t)M_VOCAB * M_ED);
         g_E = (float *)malloc((size_t)M_VOCAB * M_ED * sizeof(float));
         if (!g_E) { fprintf(stderr, "oom\n"); return 1; }
         for (int v = 0; v < M_VOCAB; v++) {
@@ -2256,7 +2506,8 @@ int main(int argc, char **argv)
                 g_E[(size_t)v * M_ED + d] = (float)(r[d] * inv);
         }
         free(raw_e);
-        float *gb = load_small("gamma_bounds.endpoint_values");
+        float *gb = load_small_req("gamma_bounds.endpoint_values",
+                                   2);
         g_gamma0 = gb[0];
         g_gamma1 = gb[1];
         free(gb);
@@ -2289,15 +2540,21 @@ int main(int argc, char **argv)
     cache_init(cap);
     WS w = ws_alloc(plen > block ? plen : block);
 
-    size_t pipe_bytes = (size_t)g_pipe.slots * g_pipe.cap_elems * sizeof(float);
+    /* The pipe budget counts the float slots AND the staging
+     * buffers pipe_init allocated (M-I6): at Sigma the staging
+     * is larger than the slots it stages for. */
+    size_t pipe_bytes = (size_t)g_pipe.slots * g_pipe.cap_elems * sizeof(float)
+        + g_pipe_staging_bytes;
     size_t cache_bytes = (size_t)M_L * 2 * cap * (M_KVHEADS * M_HD) * 2;
     printf("NanoQuatTwo inference engine\n");
     printf("model: %d layers, hidden %d, vocab %d, embed_dim %d, "
            "source: %s\n", M_L, M_H, M_VOCAB, M_ED,
            g_use_packed ? "packed .nq2" : "raw safetensors");
     printf("threads: %d workers + fetch/unpack (triforce); derived budget: "
-           "pipe %.1f MB, KV cache %.1f MB, embedding matrix %.1f MB\n",
-           threads, pipe_bytes / 1048576.0, cache_bytes / 1048576.0,
+           "pipe %.1f MB (incl. staging %.1f MB), KV cache %.1f MB, "
+           "embedding matrix %.1f MB\n",
+           threads, pipe_bytes / 1048576.0,
+           g_pipe_staging_bytes / 1048576.0, cache_bytes / 1048576.0,
            (size_t)M_VOCAB * M_ED * 4 / 1048576.0);
 
     /* gamma grid, fp64 */

@@ -91,8 +91,15 @@ static int smap_init(smap *m, int cap) {
     m->keys = (char **)calloc((size_t)cap, sizeof(char *));
     m->vals = (int *)malloc((size_t)cap * sizeof(int));
     if (!m->keys || !m->vals) {
+        /* Clear the pointers on the way out: the loader's
+         * common cleanup path runs smap_free on this map after
+         * a failed init, and it must find nothing to free a
+         * second time (Codex Astra review M-I7, 2026-11-25). */
         free(m->keys);
         free(m->vals);
+        m->keys = NULL;
+        m->vals = NULL;
+        m->cap = 0;
         return -1;
     }
     m->cap = cap;
@@ -105,6 +112,9 @@ static void smap_free(smap *m) {
         for (int i = 0; i < m->cap; i++) free(m->keys[i]);
     free(m->keys);
     free(m->vals);
+    m->keys = NULL;
+    m->vals = NULL;
+    m->cap = 0;
 }
 
 static int smap_put(smap *m, const char *key, int val) {
@@ -149,9 +159,14 @@ static int pmap_init(pmap *m, int cap) {
     m->vals = (int *)malloc((size_t)cap * sizeof(int));
     m->taken = (unsigned char *)calloc((size_t)cap, 1);
     if (!m->keys || !m->vals || !m->taken) {
+        /* Pointer clearing as in smap_init (M-I7). */
         free(m->keys);
         free(m->vals);
         free(m->taken);
+        m->keys = NULL;
+        m->vals = NULL;
+        m->taken = NULL;
+        m->cap = 0;
         return -1;
     }
     m->cap = cap;
@@ -162,6 +177,10 @@ static void pmap_free(pmap *m) {
     free(m->keys);
     free(m->vals);
     free(m->taken);
+    m->keys = NULL;
+    m->vals = NULL;
+    m->taken = NULL;
+    m->cap = 0;
 }
 
 static int pmap_put(pmap *m, int a, int b, int rank) {
@@ -197,7 +216,35 @@ struct nemo_tokenizer {
     char *is_special;
     int n_ids;
     pmap merges; /* (idA, idB) -> rank */
+    /* Pre-tokenizer configuration from tokenizer.json (H2):
+     * use_split is set when the file declares the Split
+     * pre-tokenizer this engine implements (the Nemotron
+     * checkpoint's pattern, matched exactly in the loader);
+     * ignore_merges mirrors model.ignore_merges. Tokenizers
+     * without the declaration keep the legacy whole-input
+     * encoding the fixture suite is written against. */
+    int use_split;
+    int ignore_merges;
 };
+
+/* The one Split pattern this engine implements: the
+ * Nemotron checkpoint's pre-tokenizer regex (Llama-style
+ * word/number/punctuation splitting), matched verbatim
+ * against the decoded JSON string. A tokenizer declaring a
+ * different Split pattern is refused at load rather than
+ * silently encoded with the wrong splits. */
+static const char NEMO_SPLIT_PATTERN[] =
+    "[^\\r\\n\\p{L}\\p{N}]?"
+    "[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]*"
+    "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]+"
+    "|[^\\r\\n\\p{L}\\p{N}]?"
+    "[\\p{Lu}\\p{Lt}\\p{Lm}\\p{Lo}\\p{M}]+"
+    "[\\p{Ll}\\p{Lm}\\p{Lo}\\p{M}]*"
+    "|\\p{N}"
+    "| ?[^\\s\\p{L}\\p{N}]+[\\r\\n/]*"
+    "|\\s*[\\r\\n]+"
+    "|\\s+(?!\\S)"
+    "|\\s+";
 
 static char *read_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
@@ -245,8 +292,13 @@ static int json_id(const nemo_json *j, int *out) {
 }
 
 /* Smallest power-of-two table capacity that holds n entries at
- * the maps' half-load discipline. */
+ * the maps' half-load discipline. n is clamped first: a hostile
+ * or malformed tokenizer.json could otherwise drive 2 * n into
+ * signed overflow (Archie Round 2 P2-D). The 1 << 22 ceiling is
+ * preserved; past it the maps reject cleanly at half load. */
 static int map_cap_for(int n) {
+    if (n <= 0) return 1 << 10;
+    if (n > (1 << 21)) n = 1 << 21;
     int cap = 1 << 10;
     while (cap < 2 * n && cap < (1 << 22)) cap <<= 1;
     return cap;
@@ -270,6 +322,37 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
     const nemo_json *merges = model ? nemo_json_get(model, "merges") : NULL;
     const nemo_json *added = nemo_json_get(root, "added_tokens");
     if (!vocab || vocab->type != NEMO_JSON_OBJ) goto fail;
+
+    /* Pre-tokenizer configuration (H2). A declared Split step
+     * must carry the one pattern this engine implements; any
+     * other pattern fails the load rather than encoding with
+     * the wrong splits. No Split step: legacy encoding. */
+    {
+        const nemo_json *pt = nemo_json_get(root, "pre_tokenizer");
+        const nemo_json *im = nemo_json_get(model, "ignore_merges");
+        if (im && im->type == NEMO_JSON_BOOL && im->num != 0.0)
+            tk->ignore_merges = 1;
+        if (pt && pt->type == NEMO_JSON_OBJ) {
+            const nemo_json *seq = nemo_json_get(pt, "pretokenizers");
+            int nsteps = 0;
+            if (seq && seq->type == NEMO_JSON_ARR)
+                nsteps = seq->count;
+            for (int s = 0; s < nsteps; s++) {
+                const nemo_json *step = seq->items[s];
+                const nemo_json *sty = nemo_json_get(step, "type");
+                if (!sty || sty->type != NEMO_JSON_STR
+                    || strcmp(sty->str, "Split") != 0)
+                    continue;
+                const nemo_json *pat = nemo_json_get(step, "pattern");
+                const nemo_json *rx = pat
+                    ? nemo_json_get(pat, "Regex") : NULL;
+                if (!rx || rx->type != NEMO_JSON_STR
+                    || strcmp(rx->str, NEMO_SPLIT_PATTERN) != 0)
+                    goto fail;
+                tk->use_split = 1;
+            }
+        }
+    }
 
     int max_id = -1;
     for (int i = 0; i < vocab->count; i++) {
@@ -379,25 +462,15 @@ int nemo_tokenizer_special(const nemo_tokenizer *tk, const char *content) {
     return id;
 }
 
-int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
-                          int *ids_out, int max_ids) {
-    if (!tk || !utf8 || !ids_out) return -1;
-    size_t nbytes = strlen(utf8);
-    if (nbytes > (size_t)max_ids) return -1;
-    int n = 0;
-    for (size_t i = 0; i < nbytes; i++) {
-        char sym[4];
-        int w = utf8_encode_cp(sym, byte_to_cp[(unsigned char)utf8[i]]);
-        sym[w] = '\0';
-        int id = smap_get(&tk->vocab, sym);
-        if (id < 0) return -1;
-        ids_out[n++] = id;
-    }
-    /* Greedy lowest-rank merging. */
+/* Greedy lowest-rank merging over ids[0..n); returns the new
+ * count, or -1 on error. Shared by the legacy whole-input path
+ * and the per-piece split path: merges never cross a piece
+ * boundary, because the checkpoint's Split is Isolated. */
+static int bpe_merge(const nemo_tokenizer *tk, int *ids, int n) {
     for (;;) {
         int best_rank = -1, best_pos = -1;
         for (int i = 0; i + 1 < n; i++) {
-            int r = pmap_get(&tk->merges, ids_out[i], ids_out[i + 1]);
+            int r = pmap_get(&tk->merges, ids[i], ids[i + 1]);
             if (r >= 0 && (best_rank < 0 || r < best_rank)) {
                 best_rank = r;
                 best_pos = i;
@@ -406,8 +479,8 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
         if (best_pos < 0) break;
         /* The merged token's string is the concatenation; it must be
          * in the vocab for a well-formed tokenizer file. */
-        const char *sa = tk->id_str[ids_out[best_pos]];
-        const char *sb = tk->id_str[ids_out[best_pos + 1]];
+        const char *sa = tk->id_str[ids[best_pos]];
+        const char *sb = tk->id_str[ids[best_pos + 1]];
         size_t la = strlen(sa), lb = strlen(sb);
         char *cat = (char *)malloc(la + lb + 1);
         if (!cat) return -1;
@@ -420,20 +493,314 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
          * pair's ids are captured first: compaction overwrites the
          * array in place, so indexing best_pos inside the loop would
          * read already-merged values. */
-        const int pa = ids_out[best_pos], pb = ids_out[best_pos + 1];
+        const int pa = ids[best_pos], pb = ids[best_pos + 1];
         int w = 0;
         for (int i = 0; i < n; i++) {
-            if (i + 1 < n && ids_out[i] == pa && ids_out[i + 1] == pb &&
-                pmap_get(&tk->merges, ids_out[i], ids_out[i + 1]) ==
+            if (i + 1 < n && ids[i] == pa && ids[i + 1] == pb &&
+                pmap_get(&tk->merges, ids[i], ids[i + 1]) ==
                     best_rank) {
-                ids_out[w++] = merged;
+                ids[w++] = merged;
                 i++;
             } else {
-                ids_out[w++] = ids_out[i];
+                ids[w++] = ids[i];
             }
         }
         n = w;
     }
+    return n;
+}
+
+/* --- pre-tokenizer split (H2) --------------------------------
+ * A hand-written scanner for NEMO_SPLIT_PATTERN over decoded
+ * code points, following the regex's alternation order and
+ * greedy backtracking. Unicode classes come from range tables
+ * over the major blocks: exact for ASCII, Latin, Greek,
+ * Cyrillic, Hebrew, Arabic, the major Indic blocks, Thai,
+ * Lao, Tibetan, Myanmar, Khmer, CJK, Hiragana, Katakana and
+ * Hangul. Code points outside the tables fall to CC_OTHER
+ * (the punctuation/symbol bucket), which is where the pattern
+ * effectively puts unlisted scripts' separators; letters of
+ * an unlisted script may split at case boundaries the tables
+ * cannot see, and that limitation is accepted and stated
+ * rather than hidden. */
+enum {
+    CC_OTHER = 0, CC_UPPER, CC_LOWER, CC_LETTER, CC_MARK,
+    CC_NUMBER, CC_SPACE
+};
+
+static int in_rng(unsigned cp, unsigned lo, unsigned hi) {
+    return cp >= lo && cp <= hi;
+}
+
+static int cp_class(unsigned cp) {
+    if (cp == 0x20 || (cp >= 0x09 && cp <= 0x0d) || cp == 0x85
+        || cp == 0xa0 || cp == 0x1680
+        || (cp >= 0x2000 && cp <= 0x200a) || cp == 0x2028
+        || cp == 0x2029 || cp == 0x202f || cp == 0x205f
+        || cp == 0x3000)
+        return CC_SPACE;
+    if ((cp >= '0' && cp <= '9')
+        || in_rng(cp, 0x660, 0x669) || in_rng(cp, 0x6f0, 0x6f9)
+        || in_rng(cp, 0x7c0, 0x7c9) || in_rng(cp, 0x966, 0x96f)
+        || in_rng(cp, 0x9e6, 0x9ef) || in_rng(cp, 0xa66, 0xa6f)
+        || in_rng(cp, 0xae6, 0xaef) || in_rng(cp, 0xb66, 0xb6f)
+        || in_rng(cp, 0xbe6, 0xbef) || in_rng(cp, 0xc66, 0xc6f)
+        || in_rng(cp, 0xce6, 0xcef) || in_rng(cp, 0xd66, 0xd6f)
+        || in_rng(cp, 0xde6, 0xdef) || in_rng(cp, 0xe50, 0xe59)
+        || in_rng(cp, 0xed0, 0xed9) || in_rng(cp, 0xf20, 0xf29)
+        || in_rng(cp, 0x1040, 0x1049) || in_rng(cp, 0x1090, 0x1099)
+        || in_rng(cp, 0x17e0, 0x17e9) || in_rng(cp, 0x1810, 0x1819)
+        || in_rng(cp, 0x1946, 0x194f) || in_rng(cp, 0x19d0, 0x19d9)
+        || in_rng(cp, 0x1b50, 0x1b59) || in_rng(cp, 0x1c40, 0x1c49)
+        || in_rng(cp, 0x1c50, 0x1c59) || in_rng(cp, 0xa620, 0xa629)
+        || in_rng(cp, 0xa900, 0xa909) || in_rng(cp, 0xa9d0, 0xa9d9)
+        || in_rng(cp, 0xaa50, 0xaa59) || in_rng(cp, 0xff10, 0xff19)
+        || in_rng(cp, 0x2160, 0x2188))
+        return CC_NUMBER;
+    if (in_rng(cp, 0x300, 0x36f) || in_rng(cp, 0x483, 0x489)
+        || in_rng(cp, 0x591, 0x5bd) || cp == 0x5bf
+        || in_rng(cp, 0x5c1, 0x5c2) || in_rng(cp, 0x5c4, 0x5c7)
+        || in_rng(cp, 0x610, 0x61a) || in_rng(cp, 0x64b, 0x65f)
+        || cp == 0x670 || in_rng(cp, 0x6d6, 0x6dc)
+        || in_rng(cp, 0x6df, 0x6e4) || in_rng(cp, 0x6e7, 0x6e8)
+        || in_rng(cp, 0x6ea, 0x6ed) || in_rng(cp, 0x901, 0x903)
+        || in_rng(cp, 0x93a, 0x954) || in_rng(cp, 0x981, 0x983)
+        || in_rng(cp, 0x1dc0, 0x1dff) || in_rng(cp, 0x20d0, 0x20f0)
+        || in_rng(cp, 0xfe00, 0xfe0f) || in_rng(cp, 0xfe20, 0xfe2f))
+        return CC_MARK;
+    if ((cp >= 'A' && cp <= 'Z')
+        || (in_rng(cp, 0xc0, 0xde) && cp != 0xd7)
+        || in_rng(cp, 0x391, 0x3a1) || in_rng(cp, 0x3a3, 0x3ab)
+        || in_rng(cp, 0x400, 0x42f) || in_rng(cp, 0x531, 0x556)
+        || in_rng(cp, 0x10a0, 0x10c5) || in_rng(cp, 0xff21, 0xff3a)
+        || (in_rng(cp, 0x100, 0x131) && !(cp & 1)))
+        return CC_UPPER;
+    if ((cp >= 'a' && cp <= 'z')
+        || (in_rng(cp, 0xdf, 0xff) && cp != 0xf7)
+        || in_rng(cp, 0x3b1, 0x3c1) || in_rng(cp, 0x3c3, 0x3cb)
+        || cp == 0x3c2
+        || in_rng(cp, 0x430, 0x44f) || in_rng(cp, 0x561, 0x586)
+        || in_rng(cp, 0xff41, 0xff5a)
+        || (in_rng(cp, 0x100, 0x131) && (cp & 1)))
+        return CC_LOWER;
+    if (in_rng(cp, 0x132, 0x24f) || in_rng(cp, 0x250, 0x2ff)
+        || in_rng(cp, 0x374, 0x3ff) || in_rng(cp, 0x450, 0x52f)
+        || in_rng(cp, 0x5d0, 0x5ea) || in_rng(cp, 0x5f0, 0x5f2)
+        || in_rng(cp, 0x620, 0x64a) || in_rng(cp, 0x66e, 0x6d3)
+        || in_rng(cp, 0x710, 0x74a)
+        || in_rng(cp, 0x900, 0x97f) || in_rng(cp, 0x980, 0x9ff)
+        || in_rng(cp, 0xa00, 0xa7f) || in_rng(cp, 0xa80, 0xaff)
+        || in_rng(cp, 0xb00, 0xb7f) || in_rng(cp, 0xb80, 0xbff)
+        || in_rng(cp, 0xc00, 0xc7f) || in_rng(cp, 0xc80, 0xcff)
+        || in_rng(cp, 0xd00, 0xd7f) || in_rng(cp, 0xd80, 0xdff)
+        || in_rng(cp, 0xe00, 0xe7f) || in_rng(cp, 0xe80, 0xeff)
+        || in_rng(cp, 0xf00, 0xfff) || in_rng(cp, 0x1000, 0x109f)
+        || in_rng(cp, 0x10d0, 0x10ff) || in_rng(cp, 0x1100, 0x11ff)
+        || in_rng(cp, 0x1200, 0x137f) || in_rng(cp, 0x1780, 0x17ff)
+        || in_rng(cp, 0x1800, 0x18af)
+        || in_rng(cp, 0x3040, 0x309f) || in_rng(cp, 0x30a0, 0x30ff)
+        || in_rng(cp, 0x3100, 0x312f) || in_rng(cp, 0x3130, 0x318f)
+        || in_rng(cp, 0x31f0, 0x31ff)
+        || in_rng(cp, 0x3400, 0x4dbf) || in_rng(cp, 0x4e00, 0x9fff)
+        || in_rng(cp, 0xac00, 0xd7af) || in_rng(cp, 0xf900, 0xfaff)
+        || in_rng(cp, 0xff66, 0xff9d))
+        return CC_LETTER;
+    return CC_OTHER;
+}
+
+/* The pattern's letter classes: the "upper" run set is
+ * Lu/Lt/Lm/Lo/M and the "lower" run set is Ll/Lm/Lo/M. Lm and
+ * Lo are CC_LETTER here, Lt folds into CC_UPPER. */
+static int cls_is_letter(int c) {
+    return c == CC_UPPER || c == CC_LOWER || c == CC_LETTER;
+}
+static int cls_in_U(int c) {
+    return c == CC_UPPER || c == CC_LETTER || c == CC_MARK;
+}
+static int cls_in_Lw(int c) {
+    return c == CC_LOWER || c == CC_LETTER || c == CC_MARK;
+}
+
+/* Length in code points of the piece starting at i (>= 1),
+ * following the pattern's alternation order. */
+static int split_piece_len(const unsigned *cps, const int *cls,
+                           int ncp, int i) {
+    /* Alternatives A and B share the optional prefix: one code
+     * point that is not a letter, not a number, and not CR/LF. */
+    int pref = (!cls_is_letter(cls[i]) && cls[i] != CC_NUMBER
+                && cps[i] != '\r' && cps[i] != '\n') ? 1 : 0;
+    for (int use_pref = pref; use_pref >= 0; use_pref--) {
+        int j = i + use_pref;
+        int urun = 0;
+        while (j + urun < ncp && cls_in_U(cls[j + urun])) urun++;
+        /* A: U* Lw+ ... the longest U run that still leaves an
+         * Lw code point for the mandatory tail. */
+        for (int u = urun; u >= 0; u--) {
+            int lw = 0;
+            while (j + u + lw < ncp && cls_in_Lw(cls[j + u + lw]))
+                lw++;
+            if (lw >= 1) return use_pref + u + lw;
+        }
+        /* B: U+ Lw* */
+        if (urun >= 1) {
+            int lw = 0;
+            while (j + urun + lw < ncp
+                   && cls_in_Lw(cls[j + urun + lw]))
+                lw++;
+            return use_pref + urun + lw;
+        }
+    }
+    /* C: a single number code point */
+    if (cls[i] == CC_NUMBER) return 1;
+    /* D: optional literal space, a run of other/mark code
+     * points, then any trailing CR/LF/slash run */
+    {
+        int j = i;
+        if (j < ncp && cps[j] == ' ') j++;
+        int run = 0;
+        while (j + run < ncp
+               && (cls[j + run] == CC_OTHER
+                   || cls[j + run] == CC_MARK))
+            run++;
+        if (run >= 1) {
+            int t = 0;
+            while (j + run + t < ncp
+                   && (cps[j + run + t] == '\r'
+                       || cps[j + run + t] == '\n'
+                       || cps[j + run + t] == '/'))
+                t++;
+            return (j - i) + run + t;
+        }
+    }
+    /* E, F, G work on the whitespace run */
+    if (cls[i] == CC_SPACE) {
+        int run = 0;
+        while (i + run < ncp && cls[i + run] == CC_SPACE) run++;
+        /* E: \s*[\r\n]+ ends just past the last CR/LF in the
+         * run (the greedy \s* leaves exactly the trailing
+         * newline sequence for the +). */
+        for (int k = run - 1; k >= 0; k--)
+            if (cps[i + k] == '\r' || cps[i + k] == '\n')
+                return k + 1;
+        /* F: \s+(?!\S) ... the whole run at end of input, else
+         * the run minus its last code point (the lookahead
+         * then faces a whitespace). */
+        if (i + run >= ncp) return run;
+        if (run >= 2) return run - 1;
+        /* G: \s+ */
+        return run;
+    }
+    /* Every class is covered above; never drop input. */
+    return 1;
+}
+
+int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
+                          int *ids_out, int max_ids) {
+    if (!tk || !utf8 || !ids_out || max_ids < 0) return -1;
+    size_t nbytes = strlen(utf8);
+    /* Independent work storage (Codex Astra review M-I4,
+     * 2026-11-25): the byte sequence can be longer than the
+     * caller's token budget because merging only shrinks it.
+     * The old code used the caller's buffer for the byte
+     * sequence and rejected any input whose BYTE count
+     * exceeded max_ids before BPE ran; the final token count
+     * is what must fit, and it is checked at the end. */
+    int *work = (int *)malloc((nbytes + 1) * sizeof(int));
+    if (!work) return -1;
+    int n = 0;
+    if (!tk->use_split) {
+        for (size_t i = 0; i < nbytes; i++) {
+            char sym[4];
+            int w = utf8_encode_cp(sym, byte_to_cp[(unsigned char)utf8[i]]);
+            sym[w] = '\0';
+            int id = smap_get(&tk->vocab, sym);
+            if (id < 0) { free(work); return -1; }
+            work[n++] = id;
+        }
+        n = bpe_merge(tk, work, n);
+        if (n < 0) { free(work); return -1; }
+    } else {
+        unsigned *cps = (unsigned *)malloc((nbytes + 1)
+                                           * sizeof(unsigned));
+        int *cls = (int *)malloc((nbytes + 1) * sizeof(int));
+        size_t *coff = (size_t *)malloc((nbytes + 1)
+                                        * sizeof(size_t));
+        if (!cps || !cls || !coff) {
+            free(cps); free(cls); free(coff); free(work);
+            return -1;
+        }
+        int ncp = 0;
+        for (size_t i = 0; i < nbytes; ) {
+            unsigned cp;
+            int w = utf8_decode_cp(
+                (const unsigned char *)utf8 + i, nbytes - i, &cp);
+            if (w < 0) { /* stray byte: its own code point */
+                cp = (unsigned char)utf8[i];
+                w = 1;
+            }
+            cps[ncp] = cp;
+            cls[ncp] = cp_class(cp);
+            coff[ncp] = i;
+            ncp++;
+            i += (size_t)w;
+        }
+        int ci = 0, failed = 0;
+        while (ci < ncp && !failed) {
+            int plen_cp = split_piece_len(cps, cls, ncp, ci);
+            size_t b0 = coff[ci];
+            size_t b1 = (ci + plen_cp < ncp)
+                        ? coff[ci + plen_cp] : nbytes;
+            /* Byte-level map the piece (H2). */
+            char *mapped = (char *)malloc((b1 - b0) * 2 + 1);
+            if (!mapped) { failed = 1; break; }
+            size_t ml = 0;
+            for (size_t k = b0; k < b1; k++)
+                ml += (size_t)utf8_encode_cp(
+                    mapped + ml,
+                    byte_to_cp[(unsigned char)utf8[k]]);
+            mapped[ml] = '\0';
+            {
+                /* With ignore_merges, a piece that is itself a
+                 * vocabulary entry is emitted directly; any
+                 * other piece goes through ordinary ranked BPE
+                 * merging. That is the reference tokenizer's
+                 * behavior, verified against it on a 70-case
+                 * battery: a greedy longest-match segmentation
+                 * (tried and reverted) diverges on repeated
+                 * characters, where the reference emits the
+                 * merge-derived pairs ("aaaaaaaaaa" -> five
+                 * "aa" entries), not the longest entry. */
+                int direct = tk->ignore_merges
+                             ? smap_get(&tk->vocab, mapped) : -1;
+                free(mapped);
+                if (direct >= 0) {
+                    work[n++] = direct;
+                    ci += plen_cp;
+                    continue;
+                }
+                int pn = 0;
+                for (size_t k = b0; k < b1; k++) {
+                    char sym[4];
+                    int w = utf8_encode_cp(
+                        sym, byte_to_cp[(unsigned char)utf8[k]]);
+                    sym[w] = '\0';
+                    int id = smap_get(&tk->vocab, sym);
+                    if (id < 0) { failed = 1; break; }
+                    work[n + pn++] = id;
+                }
+                if (failed) break;
+                int merged = bpe_merge(tk, work + n, pn);
+                if (merged < 0) { failed = 1; break; }
+                n += merged;
+            }
+            ci += plen_cp;
+        }
+        free(cps); free(cls); free(coff);
+        if (failed) { free(work); return -1; }
+    }
+    if (n > max_ids) { free(work); return -1; }
+    memcpy(ids_out, work, (size_t)n * sizeof(int));
+    free(work);
     return n;
 }
 

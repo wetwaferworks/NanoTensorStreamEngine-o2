@@ -16,7 +16,9 @@ static int checks = 0, failures = 0;
 static void expect_close(const char *name, double got, double want,
                          double tol) {
     checks++;
-    if (fabs(got - want) > tol) {
+    /* !(<=) rather than (>): a NaN got must FAIL, not slip past
+     * the comparison (Codex Astra review M-R3, 2026-11-25). */
+    if (!(fabs(got - want) <= tol)) {
         failures++;
         printf("FAIL %s: got %.9g want %.9g\n", name, got, want);
     } else {

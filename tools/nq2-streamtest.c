@@ -181,6 +181,14 @@ static const float *g_book;
 static uint32_t g_entries;
 static const float *g_rows[256];
 static int g_variant = 0;   /* 0 baseline, 1 rows+prefetch, 2 entry-major */
+/* Block-level prefetch distance in the variant-1 expansion
+ * loop: how far ahead of the block being expanded its book
+ * row is pulled toward cache. A runtime tunable since the
+ * prefetch adaptability item (2026-11-25): --prefetch-dist N
+ * or NQ2_PREFETCH_DIST, default 2, the original hard-coded
+ * value. A cache hint only; the accumulator cannot depend
+ * on it. */
+static int g_prefetch_dist = 2;
 static __thread uint32_t *g_bucket = NULL;
 static __thread uint64_t g_bucket_cap = 0;
 
@@ -245,7 +253,8 @@ static void unpack_tensor(int ord, const uint8_t *idx, const uint16_t *fr,
         float sc = half_to_float(fr[nb + b]);
         const float *proto;
         if (g_variant == 1) {
-            if (b + 2 < nb) __builtin_prefetch(g_rows[idx[b + 2]], 0, 1);
+            if (b + (uint64_t)g_prefetch_dist < nb)
+                __builtin_prefetch(g_rows[idx[b + (uint64_t)g_prefetch_dist]], 0, 1);
             proto = g_rows[idx[b]];
         } else {
             proto = g_book + (size_t)idx[b] * g_block;
@@ -338,6 +347,22 @@ int main(int argc, char **argv)
     const char *pack = NULL, *bookp = NULL;
     const char *shards[8];
     int n_shards = 0, unpackers = 2, layers = 26;
+    /* Environment layer for the prefetch distance; the CLI
+     * flag below overrides it. Strict parse, loud on garbage,
+     * same discipline as the Triforce engine. */
+    {
+        const char *v = getenv("NQ2_PREFETCH_DIST");
+        if (v && *v) {
+            char *end = NULL;
+            long n = strtol(v, &end, 10);
+            if (end == v || *end != '\0') {
+                fprintf(stderr, "nq2-streamtest: NQ2_PREFETCH_DIST "
+                        "'%s' is not a number\n", v);
+                return 1;
+            }
+            g_prefetch_dist = (int)n;
+        }
+    }
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--pack") == 0 && i + 1 < argc) pack = argv[++i];
         else if (strcmp(argv[i], "--book") == 0 && i + 1 < argc) bookp = argv[++i];
@@ -348,11 +373,17 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--unpackers") == 0 && i + 1 < argc) unpackers = atoi(argv[++i]);
         else if (strcmp(argv[i], "--variant") == 0 && i + 1 < argc) g_variant = atoi(argv[++i]);
         else if (strcmp(argv[i], "--lookahead") == 0 && i + 1 < argc) g_lookahead = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--prefetch-dist") == 0 && i + 1 < argc) g_prefetch_dist = atoi(argv[++i]);
         else if (strcmp(argv[i], "--layers") == 0 && i + 1 < argc) layers = atoi(argv[++i]);
+    }
+    if (g_prefetch_dist < 0) {
+        fprintf(stderr, "nq2-streamtest: --prefetch-dist must be >= 0\n");
+        return 1;
     }
     if (!pack || !bookp || n_shards == 0) {
         fprintf(stderr, "usage: nq2-streamtest --pack S.nq2 --book S.nq2book "
-                "--shards d [...] [--unpackers N] [--lookahead N] [--layers N]\n");
+                "--shards d [...] [--unpackers N] [--lookahead N] "
+                "[--prefetch-dist N] [--layers N]\n");
         return 1;
     }
     /* pack header */
@@ -369,11 +400,14 @@ int main(int argc, char **argv)
     g_nb_total = rd64(hdr + 24);
     g_header = version == 2 ? 36 : 32;
     if (version != 1) { fprintf(stderr, "streamtest takes v1 packs\n"); return 1; }
-    /* book */
+    /* book (size kept in off_t: the old (long)ftello cast
+     * narrows a book above 2 GiB on Windows; Codex Astra
+     * review M-P7, 2026-11-25) */
     FILE *bf = fopen(bookp, "rb");
     if (!bf) { fprintf(stderr, "cannot open book\n"); return 1; }
     fseeko(bf, 0, SEEK_END);
-    long bsz = (long)ftello(bf);
+    off_t bsz = ftello(bf);
+    if (bsz < 12) { fprintf(stderr, "book too small\n"); return 1; }
     fseeko(bf, 0, SEEK_SET);
     uint8_t *bookf = (uint8_t *)malloc((size_t)bsz);
     if (!bookf || fread(bookf, 1, (size_t)bsz, bf) != (size_t)bsz) return 1;
@@ -408,6 +442,20 @@ int main(int argc, char **argv)
     for (int o = 0; o < g_nord; o++) {
         if (g_demand[o]->count > max_elems) max_elems = g_demand[o]->count;
         tot_w += g_demand[o]->count;
+    }
+    {
+        uint64_t tail_w = 0;
+        int tail_n = 0;
+        for (int o = 0; o < g_nord; o++) {
+            uint64_t t = g_demand[o]->count
+                       - g_demand[o]->nblocks * g_block;
+            if (t) { tail_w += t; tail_n++; }
+        }
+        if (tail_n)
+            printf("note: %d tensors have %llu tail elements past "
+                   "the last whole block; the pack does not cover "
+                   "them and the accumulator excludes them\n",
+                   tail_n, (unsigned long long)tail_w);
     }
     memset(&P, 0, sizeof(P));
     pthread_mutex_init(&P.lock, NULL);
@@ -448,7 +496,14 @@ int main(int argc, char **argv)
             }
             P.unpack_busy += now_s() - t0;
             t0 = now_s();
-            acc += compute_tensor(buf, g_demand[ord]->count);
+            /* Accumulate over exactly the packed extent: the
+             * unpacker writes whole blocks only, so the raw
+             * count's tail elements were never written (stale
+             * or uninitialized memory). For block-aligned
+             * tensors the two extents are identical (Codex
+             * Astra review M-P6, 2026-11-25). */
+            acc += compute_tensor(buf, g_demand[ord]->nblocks
+                                       * g_block);
             P.main_busy += now_s() - t0;
             free(idx); free(fr);
             P.consumed = ord + 1;
@@ -466,8 +521,11 @@ int main(int argc, char **argv)
             pthread_mutex_unlock(&P.lock);
             P.main_stall += now_s() - tw;
             double t0 = now_s();
+            /* Packed extent only, as in the serial path above
+             * (M-P6): the slot buffer's tail past the last
+             * whole block holds a previous tensor's values. */
             acc += compute_tensor(P.slot_buf[ord % SLOTS],
-                                  g_demand[ord]->count);
+                                  g_demand[ord]->nblocks * g_block);
             P.main_busy += now_s() - t0;
             pthread_mutex_lock(&P.lock);
             P.consumed = ord + 1;

@@ -27,7 +27,7 @@ in littlenemo/BLOCK-MATH-SPEC.md, derived from NVIDIA's
 reference implementation and verified against hand-computed
 fixtures.
 
-## What is verified (2026-11-24)
+## What is verified (2026-11-25)
 
 - Checkpoint inspector and loader: the real checkpoint's tensor
   inventory matches the architecture study exactly. Loader
@@ -96,6 +96,35 @@ fixtures.
   same night, the Triforce mode-2 staging buffer was completed
   with no change to any on-disk format, and the frozen
   baseline pack decodes bit-identically under the new build.
+- A fourth outside review (Codex (Astra 6.2), 2026-11-25) read
+  the same tree independently; every finding touching this
+  engine was sustained on triage and is fixed. The tokenizer
+  now implements the checkpoint's own pre-tokenizer (a Split
+  step with the checkpoint's exact pattern, refused loudly if
+  the pattern differs) and the ignore_merges direct vocabulary
+  lookup, and merges never cross a piece boundary. A
+  seventy-case battery (whitespace runs, newline patterns,
+  contractions, digits, accented, Cyrillic, Greek, CJK,
+  Japanese, and Korean text, emoji) matches the reference
+  tokenizer token-for-token, and a new suite
+  (test_tokenizer_split, 5/5 against the real tokenizer.json)
+  pins the case the old encoder got wrong: the two-space
+  prompt "  a" now encodes as [1032, 1261]. The 27/27 fixture
+  suite is unchanged (the fixture declares no pre-tokenizer).
+  The SIMD suite is now 7/7 synthetic-only and 14/14 with the
+  checkpoint; its two new checks observe a kernel-entry
+  counter, because output comparison alone cannot prove
+  dispatch for a kernel that is bit-exact by design. The
+  kernel lives in its own translation unit (src/nn_simd.c),
+  the only file compiled with -mavx2; the scalar fallback and
+  the dispatcher build at the baseline instruction set and
+  their object code contains no VEX instructions. The final
+  token of a capped turn is now committed to the model state
+  with the hidden-only step, so conversation state and the
+  transcript agree. And the loader captures each shard's true
+  file size at open and refuses any tensor whose span ends
+  past it, so READY is no longer announced for a truncated
+  download.
 
 ## What is not done yet, said plainly
 
@@ -103,9 +132,10 @@ fixtures.
   engine prints READY on it. A three-question battery (the
   capitals of France, Japan, and Ohio, asked in a raw
   question/answer scaffold) stands at two passed, France and
-  Japan. The third question has not yet run on the post-review
-  build, and nothing broader about generation quality is
-  claimed until it and the behavioral battery below have run.
+  Japan. The third question (Ohio) has not yet run; it runs
+  next on this post-fix build, and nothing broader about
+  generation quality is claimed until it and the behavioral
+  battery below have run.
 - Chat-template wrapping arrives with tokenizer_config.json;
   prompts are currently encoded as-is.
 - The NanoQuant packed weight source plugs into the same fetch

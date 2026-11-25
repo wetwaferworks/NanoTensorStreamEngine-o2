@@ -96,6 +96,16 @@ static int cp_push(nemo_checkpoint *cp, const nemo_tensor_info *t) {
 static int index_shard(nemo_checkpoint *cp, const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
+    /* The shard's true size on disc, captured before anything
+     * is indexed: tensor spans are validated against it below
+     * (Codex Astra review M-I3, 2026-11-25). */
+    if (fseeko(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    off_t fsz = ftello(f);
+    if (fsz < 0 || fseeko(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return -1;
+    }
+    uint64_t fsize = (uint64_t)fsz;
     unsigned char lenbuf[8];
     if (fread(lenbuf, 1, 8, f) != 8) { fclose(f); return -1; }
     uint64_t hlen = rd_u64le(lenbuf);
@@ -149,6 +159,16 @@ static int index_shard(nemo_checkpoint *cp, const char *path) {
         if (count > UINT64_MAX / (uint64_t)esz) { free(hdr); return -1; }
         if (offs[1] < offs[0]) { free(hdr); return -1; }
         if (offs[1] - offs[0] != count * (uint64_t)esz) { free(hdr); return -1; }
+        /* The span must lie inside the shard as it exists on
+         * disc, not only inside the header's own arithmetic: a
+         * truncated download with an intact header otherwise
+         * indexes cleanly and the engine announces READY for
+         * weights that are not there (M-I3). Subtraction form,
+         * so the comparison cannot overflow. */
+        if (fsize < 8 + hlen || offs[1] > fsize - (8 + hlen)) {
+            free(hdr);
+            return -1;
+        }
         nemo_tensor_info t;
         memset(&t, 0, sizeof t);
         t.name = strdup(name);

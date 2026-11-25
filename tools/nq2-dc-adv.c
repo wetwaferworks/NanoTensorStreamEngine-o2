@@ -164,8 +164,14 @@ static double dc_vs_oracle(Fx *f)   /* helper: returns rel L2 */
     free(yo); free(yd); free(dd);
     return v;
 }
+/* BREAK verdicts are counted so the exit status can report
+ * them: a build or CI system checking only the exit code must
+ * not accept a broken run (Codex Astra review M-R1, 2026-11-25).
+ * The verdict lines themselves are unchanged. */
+static int g_breaks = 0;
 static void verdict(const char *name, int hold, const char *detail)
 {
+    if (!hold) g_breaks++;
     printf("  [%s] %-46s %s\n", hold ? "HOLD" : "BREAK", name, detail);
 }
 
@@ -717,5 +723,8 @@ int main(void)
         fx_free(&f);
     }
     printf("suite done.\n");
-    return 0;
+    if (g_breaks)
+        fprintf(stderr, "dc-adv: %d BREAK verdict(s); failing\n",
+                g_breaks);
+    return g_breaks ? 1 : 0;
 }

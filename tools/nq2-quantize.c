@@ -251,9 +251,17 @@ static int shard_open(Shard *sh, const char *path)
                 else if (strcmp(dts, "F16") == 0) t->dtype = DT_F16;
                 else if (strcmp(dts, "F32") == 0) t->dtype = DT_F32;
                 else {
-                    fprintf(stderr, "warning: tensor %s has unrecognized "
-                            "dtype '%s'; assuming F32\n", key, dts);
-                    t->dtype = DT_F32;
+                    /* Unsupported dtypes are rejected, never
+                     * reinterpreted: an I32 tensor's bit patterns
+                     * are not F32 weights, and packing them as if
+                     * they were silently corrupts the model and
+                     * its rate accounting (Codex Astra review
+                     * M-P4, 2026-11-25). */
+                    fprintf(stderr, "reject: tensor %s has "
+                            "unsupported dtype '%s' (only BF16, "
+                            "F16, F32 pack)\n", key, dts);
+                    free(hdr);
+                    return -1;
                 }
                 const char *br = strchr(doff, '[');
                 t->begin = br ? strtoull(br + 1, NULL, 10) : 0;
@@ -375,12 +383,24 @@ static int g_norm_rms = 0;
 static void normalize_block(const float *raw, uint32_t block,
                             float *out, float *mn_out, float *sc_out)
 {
+    /* A zero-range (minmax) or zero-RMS block gets a zero scale
+     * and a zero normalized vector (Codex Astra review H3,
+     * 2026-11-25). The old substitution of scale 1.0 let the
+     * nearest shared centroid manufacture nonzero weights out
+     * of an all-zero block at decode. With scale 0 the existing
+     * reconstruction mn + 0 * prototype yields exactly mn: the
+     * zero vector for RMS, and for minmax the constant itself,
+     * preserved to the precision of the stored offset. No
+     * format change: readers already multiply by the scale. */
     if (g_norm_rms) {
         double s = 0.0;
         for (uint32_t i = 0; i < block; i++) s += (double)raw[i] * raw[i];
         float sc = (float)dsqrt(s / block);
-        if (sc == 0.0f) sc = 1.0f;
-        for (uint32_t i = 0; i < block; i++) out[i] = raw[i] / sc;
+        if (sc == 0.0f) {
+            for (uint32_t i = 0; i < block; i++) out[i] = 0.0f;
+        } else {
+            for (uint32_t i = 0; i < block; i++) out[i] = raw[i] / sc;
+        }
         *mn_out = 0.0f;
         *sc_out = sc;
         return;
@@ -391,8 +411,11 @@ static void normalize_block(const float *raw, uint32_t block,
         if (raw[i] > mx) mx = raw[i];
     }
     float sc = mx - mn;
-    if (sc == 0.0f) sc = 1.0f;
-    for (uint32_t i = 0; i < block; i++) out[i] = (raw[i] - mn) / sc;
+    if (sc == 0.0f) {
+        for (uint32_t i = 0; i < block; i++) out[i] = 0.0f;
+    } else {
+        for (uint32_t i = 0; i < block; i++) out[i] = (raw[i] - mn) / sc;
+    }
     *mn_out = mn;
     *sc_out = sc;
 }
@@ -446,6 +469,12 @@ static void learn_book(const float *sample, uint64_t sample_n,
                        uint32_t block, uint32_t entries, int iters,
                        float *cent)
 {
+    /* Precondition guard: the initializer below divides by
+     * sample_n (Codex Astra review M-P3, 2026-11-25). */
+    if (sample_n == 0) {
+        fprintf(stderr, "learn_book: empty training sample\n");
+        exit(1);
+    }
     for (uint32_t k = 0; k < entries; k++) {
         uint64_t src = rng_next() % sample_n;
         memcpy(cent + (size_t)k * block, sample + src * block,
@@ -642,6 +671,39 @@ static void res_fid_fn(const float *raw, void *vctx)
 
 /* ---------------- main ---------------- */
 
+/* Checked write for the artifact writers (Codex Astra review
+ * H6, 2026-11-25): a short fwrite is a failure the caller must
+ * propagate, never a detail to ignore. The writers stage each
+ * artifact under a temporary name, verify every write and the
+ * final close, and rename the pair into place only when both
+ * are complete, so a rejected write publishes neither a half
+ * pair nor a success report, and a failed re-pack leaves the
+ * previous pair untouched. */
+static int wr(FILE *f, const void *p, size_t sz, size_t n)
+{
+    return fwrite(p, sz, n, f) == n ? 0 : -1;
+}
+
+/* Canonical shard order: by filename (the part after the last
+ * '/'), ties broken by the full path. The readers (all four
+ * inference engines, the runner, the error probe) bind the
+ * packed stream to directory tensors in this order, so the
+ * writer must serialize in it too, whatever order the shards
+ * were passed in (Codex Astra review H1, 2026-11-25). */
+static const char *base_name(const char *p)
+{
+    const char *s = strrchr(p, '/');
+    return s ? s + 1 : p;
+}
+
+static int cmp_shard_arg(const void *a, const void *b)
+{
+    const char *pa = *(const char *const *)a;
+    const char *pb = *(const char *const *)b;
+    int c = strcmp(base_name(pa), base_name(pb));
+    return c ? c : strcmp(pa, pb);
+}
+
 int main(int argc, char **argv)
 {
     const char *out_prefix = NULL;
@@ -685,6 +747,27 @@ int main(int argc, char **argv)
         fprintf(stderr, "block and entries must both be at least 1\n");
         return 1;
     }
+    /* The writer must not accept geometry its readers refuse:
+     * every reader rejects block above 4096 (Codex Astra
+     * review M-P2, 2026-11-25). */
+    if (block > 4096) {
+        fprintf(stderr, "block above 4096 exceeds the geometry "
+                "limit every reader enforces\n");
+        return 1;
+    }
+    /* The sample caps are validated here, before the books-mode
+     * branch: the zero-cap check used to sit in the global path
+     * only, after per-tensor mode had already trained on an
+     * empty sample (Codex Astra review M-P3, 2026-11-25). */
+    if (sample_cap == 0 || tensor_sample_cap == 0) {
+        fprintf(stderr, "--sample-blocks and "
+                "--tensor-sample-blocks must be at least 1\n");
+        return 1;
+    }
+    /* Serialize in canonical order regardless of argv order
+     * (H1; see cmp_shard_arg above). */
+    qsort(shard_paths, (size_t)n_shard_paths,
+          sizeof(shard_paths[0]), cmp_shard_arg);
 
     /* Open shards and build the scope: whole tensors, in order,
      * while the running weight total is under the budget. */
@@ -816,36 +899,70 @@ int main(int argc, char **argv)
                "relative L2 error %.4f\n",
                (unsigned long long)pctx.cursor, g_n_scope, rel_l2);
 
-        char pathbuf[1024];
+        char pathbuf[1024], book_tmp[1088], stream_tmp[1088];
         uint32_t version = 2;
         uint32_t n_books = (uint32_t)g_n_scope;
-        snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
-        FILE *bf = fopen(pathbuf, "wb");
-        if (!bf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
-        fwrite("NQ2B", 1, 4, bf);
-        fwrite(&version, 4, 1, bf);
-        fwrite(&block, 4, 1, bf);
-        fwrite(&entries, 4, 1, bf);
-        fwrite(&n_books, 4, 1, bf);
-        fwrite(books, sizeof(float),
-               (size_t)g_n_scope * entries * block, bf);
-        fclose(bf);
+        int bad = 0;
+        snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.tmp",
+                 out_prefix);
+        FILE *bf = fopen(book_tmp, "wb");
+        if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
+        bad |= wr(bf, "NQ2B", 1, 4);
+        bad |= wr(bf, &version, 4, 1);
+        bad |= wr(bf, &block, 4, 1);
+        bad |= wr(bf, &entries, 4, 1);
+        bad |= wr(bf, &n_books, 4, 1);
+        bad |= wr(bf, books, sizeof(float),
+                  (size_t)g_n_scope * entries * block);
+        if (fclose(bf) != 0) bad = 1;
+        if (bad) {
+            fprintf(stderr, "write failed for %s.nq2book; "
+                    "nothing published\n", out_prefix);
+            remove(book_tmp);
+            return 1;
+        }
 
+        snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.tmp",
+                 out_prefix);
+        FILE *sf = fopen(stream_tmp, "wb");
+        if (!sf) {
+            fprintf(stderr, "cannot write %s\n", stream_tmp);
+            remove(book_tmp);
+            return 1;
+        }
+        bad |= wr(sf, "NQ2\0", 1, 4);
+        bad |= wr(sf, &version, 4, 1);
+        bad |= wr(sf, &block, 4, 1);
+        bad |= wr(sf, &entries, 4, 1);
+        bad |= wr(sf, &g_total_weights, 8, 1);
+        bad |= wr(sf, &g_total_blocks, 8, 1);
+        bad |= wr(sf, &n_books, 4, 1);
+        bad |= wr(sf, tblocks, 8, g_n_scope);
+        bad |= wr(sf, pctx.idx, 1, g_total_blocks);
+        bad |= wr(sf, pctx.mn_h, 2, g_total_blocks);
+        bad |= wr(sf, pctx.sc_h, 2, g_total_blocks);
+        if (fclose(sf) != 0) bad = 1;
+        if (bad) {
+            fprintf(stderr, "write failed for %s.nq2; "
+                    "nothing published\n", out_prefix);
+            remove(stream_tmp);
+            remove(book_tmp);
+            return 1;
+        }
+        /* Both artifacts are complete on disc; publish the pair. */
+        snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
+        if (rename(book_tmp, pathbuf) != 0) {
+            fprintf(stderr, "cannot publish %s\n", pathbuf);
+            remove(book_tmp);
+            remove(stream_tmp);
+            return 1;
+        }
         snprintf(pathbuf, sizeof(pathbuf), "%s.nq2", out_prefix);
-        FILE *sf = fopen(pathbuf, "wb");
-        if (!sf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
-        fwrite("NQ2\0", 1, 4, sf);
-        fwrite(&version, 4, 1, sf);
-        fwrite(&block, 4, 1, sf);
-        fwrite(&entries, 4, 1, sf);
-        fwrite(&g_total_weights, 8, 1, sf);
-        fwrite(&g_total_blocks, 8, 1, sf);
-        fwrite(&n_books, 4, 1, sf);
-        fwrite(tblocks, 8, g_n_scope, sf);
-        fwrite(pctx.idx, 1, g_total_blocks, sf);
-        fwrite(pctx.mn_h, 2, g_total_blocks, sf);
-        fwrite(pctx.sc_h, 2, g_total_blocks, sf);
-        fclose(sf);
+        if (rename(stream_tmp, pathbuf) != 0) {
+            fprintf(stderr, "cannot publish %s\n", pathbuf);
+            remove(stream_tmp);
+            return 1;
+        }
 
         uint64_t book_bytes = 20 + (uint64_t)g_n_scope * entries * block * 4;
         uint64_t stream_bytes = 36 + (uint64_t)g_n_scope * 8 +
@@ -855,7 +972,11 @@ int main(int argc, char **argv)
                        / (double)g_total_weights;
         snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
         FILE *rf = fopen(pathbuf, "w");
-        if (rf) {
+        if (!rf) {
+            fprintf(stderr, "cannot write %s\n", pathbuf);
+            return 1;
+        }
+        {
             fprintf(rf, "NanoQuatTwo quantization report (per-tensor books, format v2)\n");
             fprintf(rf, "tensors packed: %d (one book each)\n", g_n_scope);
             fprintf(rf, "weights packed: %llu\n", (unsigned long long)g_total_weights);
@@ -884,7 +1005,10 @@ int main(int argc, char **argv)
             for (int s = 0; s < g_n_scope; s++)
                 fprintf(rf, "  %s: %.4f\n", g_scope[s].tensor->name,
                         tref[s] > 0 ? dsqrt(terr[s] / tref[s]) : 0.0);
-            fclose(rf);
+            if (fclose(rf) != 0) {
+                fprintf(stderr, "write failed for %s\n", pathbuf);
+                return 1;
+            }
         }
         printf("index stream: %llu bytes; memory file: %llu bytes\n",
                (unsigned long long)stream_bytes,
@@ -894,12 +1018,9 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    /* Pass 1: sample normalized blocks from across the scope. */
-    if (sample_cap == 0 || tensor_sample_cap == 0) {
-        fprintf(stderr, "--sample-blocks and --tensor-sample-blocks "
-                "must be at least 1\n");
-        return 1;
-    }
+    /* Pass 1: sample normalized blocks from across the scope.
+     * (The sample caps were validated before the books-mode
+     * branch; see M-P3 at the argument checks.) */
     if (sample_cap > g_total_blocks) sample_cap = g_total_blocks;
     SampleCtx sctx;
     memset(&sctx, 0, sizeof(sctx));
@@ -938,32 +1059,63 @@ int main(int argc, char **argv)
     printf("packed %llu blocks; relative L2 error %.4f\n",
            (unsigned long long)pctx.cursor, rel_l2);
 
-    /* Write the memory file: magic, block, entries, prototypes. */
-    char pathbuf[1024];
-    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
-    FILE *bf = fopen(pathbuf, "wb");
-    if (!bf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
-    fwrite("NQ2B", 1, 4, bf);
-    fwrite(&block, 4, 1, bf);
-    fwrite(&entries, 4, 1, bf);
-    fwrite(cent, sizeof(float), (size_t)entries * block, bf);
-    fclose(bf);
+    /* Write the memory file and the index stream, staged and
+     * checked (H6; see wr() above). */
+    char pathbuf[1024], book_tmp[1088], stream_tmp[1088];
+    int bad = 0;
+    snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.tmp", out_prefix);
+    FILE *bf = fopen(book_tmp, "wb");
+    if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
+    bad |= wr(bf, "NQ2B", 1, 4);
+    bad |= wr(bf, &block, 4, 1);
+    bad |= wr(bf, &entries, 4, 1);
+    bad |= wr(bf, cent, sizeof(float), (size_t)entries * block);
+    if (fclose(bf) != 0) bad = 1;
+    if (bad) {
+        fprintf(stderr, "write failed for %s.nq2book; "
+                "nothing published\n", out_prefix);
+        remove(book_tmp);
+        return 1;
+    }
 
-    /* Write the index stream: header, indexes, mins, scales. */
-    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2", out_prefix);
-    FILE *sf = fopen(pathbuf, "wb");
-    if (!sf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
+    snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.tmp", out_prefix);
+    FILE *sf = fopen(stream_tmp, "wb");
+    if (!sf) {
+        fprintf(stderr, "cannot write %s\n", stream_tmp);
+        remove(book_tmp);
+        return 1;
+    }
     uint32_t version = 1;
-    fwrite("NQ2\0", 1, 4, sf);
-    fwrite(&version, 4, 1, sf);
-    fwrite(&block, 4, 1, sf);
-    fwrite(&entries, 4, 1, sf);
-    fwrite(&g_total_weights, 8, 1, sf);
-    fwrite(&g_total_blocks, 8, 1, sf);
-    fwrite(pctx.idx, 1, g_total_blocks, sf);
-    fwrite(pctx.mn_h, 2, g_total_blocks, sf);
-    fwrite(pctx.sc_h, 2, g_total_blocks, sf);
-    fclose(sf);
+    bad |= wr(sf, "NQ2\0", 1, 4);
+    bad |= wr(sf, &version, 4, 1);
+    bad |= wr(sf, &block, 4, 1);
+    bad |= wr(sf, &entries, 4, 1);
+    bad |= wr(sf, &g_total_weights, 8, 1);
+    bad |= wr(sf, &g_total_blocks, 8, 1);
+    bad |= wr(sf, pctx.idx, 1, g_total_blocks);
+    bad |= wr(sf, pctx.mn_h, 2, g_total_blocks);
+    bad |= wr(sf, pctx.sc_h, 2, g_total_blocks);
+    if (fclose(sf) != 0) bad = 1;
+    if (bad) {
+        fprintf(stderr, "write failed for %s.nq2; "
+                "nothing published\n", out_prefix);
+        remove(stream_tmp);
+        remove(book_tmp);
+        return 1;
+    }
+    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
+    if (rename(book_tmp, pathbuf) != 0) {
+        fprintf(stderr, "cannot publish %s\n", pathbuf);
+        remove(book_tmp);
+        remove(stream_tmp);
+        return 1;
+    }
+    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2", out_prefix);
+    if (rename(stream_tmp, pathbuf) != 0) {
+        fprintf(stderr, "cannot publish %s\n", pathbuf);
+        remove(stream_tmp);
+        return 1;
+    }
 
     uint64_t book_bytes = 12 + (uint64_t)entries * block * 4;
     uint64_t stream_bytes = 32 + g_total_blocks * 5;
@@ -972,7 +1124,11 @@ int main(int argc, char **argv)
                    / (double)g_total_weights;
     snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
     FILE *rf = fopen(pathbuf, "w");
-    if (rf) {
+    if (!rf) {
+        fprintf(stderr, "cannot write %s\n", pathbuf);
+        return 1;
+    }
+    {
         fprintf(rf, "NanoQuatTwo quantization report\n");
         fprintf(rf, "tensors packed: %d\n", g_n_scope);
         fprintf(rf, "weights packed: %llu\n", (unsigned long long)g_total_weights);
@@ -983,7 +1139,10 @@ int main(int argc, char **argv)
         fprintf(rf, "stream rate: %.4f bits per weight (stream only)\n", rate);
         fprintf(rf, "complete rate: %.4f bits per weight (stream + book, two-part accounting)\n", crate);
         fprintf(rf, "relative L2 error on real weights: %.4f\n", rel_l2);
-        fclose(rf);
+        if (fclose(rf) != 0) {
+            fprintf(stderr, "write failed for %s\n", pathbuf);
+            return 1;
+        }
     }
     printf("index stream: %llu bytes; memory file: %llu bytes\n",
            (unsigned long long)stream_bytes, (unsigned long long)book_bytes);

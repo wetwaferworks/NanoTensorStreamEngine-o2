@@ -79,6 +79,8 @@ typedef struct {
     pthread_cond_t work_cv, done_cv;
 #endif
     int nworkers;
+    int started;        /* threads actually launched (M-I5):
+                         * shutdown joins exactly these */
     work_fn fn;
     void *ctx;
     int pending;        /* workers that still owe a completion */
@@ -141,23 +143,48 @@ static void pool_init(int nworkers)
 {
     if (nworkers < 1) nworkers = 1;
     g_pool.nworkers = nworkers;
+    /* Launch failures shrink the pool to the workers that
+     * actually started (Codex Astra review M-I5, 2026-11-25):
+     * launches are sequential, so the started set is always the
+     * contiguous prefix [0, started) and dispatch partitions
+     * stay exact. pool_run waits for g_pool.nworkers
+     * completions, so recording the requested count after a
+     * failed launch would hang the first projection forever.
+     * Zero started workers leaves nworkers at 1, which pool_run
+     * serves serially on the caller. */
+    int started = 0;
 #ifdef _WIN32
     InitializeCriticalSection(&g_pool.lock);
     InitializeConditionVariable(&g_pool.work_cv);
     InitializeConditionVariable(&g_pool.done_cv);
     g_pool.threads = (HANDLE *)malloc(sizeof(HANDLE) * nworkers);
-    for (int i = 0; i < nworkers; i++)
+    for (int i = 0; i < nworkers; i++) {
         g_pool.threads[i] = CreateThread(NULL, 0, pool_worker,
                                          (LPVOID)(intptr_t)i, 0, NULL);
+        if (!g_pool.threads[i]) break;
+        started++;
+    }
 #else
     pthread_mutex_init(&g_pool.lock, NULL);
     pthread_cond_init(&g_pool.work_cv, NULL);
     pthread_cond_init(&g_pool.done_cv, NULL);
     g_pool.threads = (pthread_t *)malloc(sizeof(pthread_t) * nworkers);
-    for (int i = 0; i < nworkers; i++)
-        pthread_create(&g_pool.threads[i], NULL, pool_worker,
-                       (void *)(intptr_t)i);
+    for (int i = 0; i < nworkers; i++) {
+        if (pthread_create(&g_pool.threads[i], NULL, pool_worker,
+                           (void *)(intptr_t)i) != 0)
+            break;
+        started++;
+    }
 #endif
+    if (started < nworkers) {
+        fprintf(stderr, "pool: %d of %d workers started; "
+                "continuing with the smaller pool\n",
+                started, nworkers);
+        g_pool.started = started;
+        g_pool.nworkers = started > 0 ? started : 1;
+    } else {
+        g_pool.started = started;
+    }
 }
 
 /* Run fn(ctx, worker, nworkers) on every worker and wait. */
@@ -194,7 +221,7 @@ static void pool_shutdown(void)
     g_pool.stop = 1;
     WakeAllConditionVariable(&g_pool.work_cv);
     LeaveCriticalSection(&g_pool.lock);
-    for (int i = 0; i < g_pool.nworkers; i++) {
+    for (int i = 0; i < g_pool.started; i++) {
         WaitForSingleObject(g_pool.threads[i], INFINITE);
         CloseHandle(g_pool.threads[i]);
     }
@@ -203,7 +230,7 @@ static void pool_shutdown(void)
     g_pool.stop = 1;
     pthread_cond_broadcast(&g_pool.work_cv);
     pthread_mutex_unlock(&g_pool.lock);
-    for (int i = 0; i < g_pool.nworkers; i++)
+    for (int i = 0; i < g_pool.started; i++)
         pthread_join(g_pool.threads[i], NULL);
 #endif
 }
@@ -453,9 +480,14 @@ static int shard_open_raw(const char *path, int shard_idx)
             else if (strcmp(dts, "F16") == 0) t->dtype = DT_F16;
             else if (strcmp(dts, "F32") == 0) t->dtype = DT_F32;
             else {
-                fprintf(stderr, "warning: tensor %s dtype '%s' "
-                        "unrecognized, assuming F32\n", key, dts);
-                t->dtype = DT_F32;
+                /* Unsupported dtypes are rejected, never
+                 * reinterpreted as F32 (Codex Astra review
+                 * M-P4, 2026-11-25; the packer does the same). */
+                fprintf(stderr, "reject: tensor %s has "
+                        "unsupported dtype '%s' (only BF16, "
+                        "F16, F32 load)\n", key, dts);
+                free(hdr);
+                return -1;
             }
         }
         const char *sh = strstr(obj, "\"shape\"");
@@ -806,6 +838,21 @@ static int packed_open(const char *stream_path, const char *book_path)
             return -1;
         }
         for (int i = 0; i < g_ndir; i++) {
+            /* The segment table must agree with the directory,
+             * tensor by tensor: a pack serialized in a different
+             * tensor order (or for a different directory) fails
+             * loudly here instead of binding stream segments to
+             * the wrong weights by position (Codex Astra
+             * review H1, 2026-11-25). */
+            if (seg[i] != g_dir[i].count / g_pk_block) {
+                fprintf(stderr, "packed segment %d holds %llu "
+                        "blocks but tensor %s has %llu (pack and "
+                        "directory do not match)\n", i,
+                        (unsigned long long)seg[i], g_dir[i].name,
+                        (unsigned long long)(g_dir[i].count
+                                             / g_pk_block));
+                return -1;
+            }
             g_dir[i].block0 = cursor;
             g_dir[i].nblocks = seg[i];
             cursor += seg[i];
@@ -815,6 +862,14 @@ static int packed_open(const char *stream_path, const char *book_path)
             g_dir[i].block0 = cursor;
             g_dir[i].nblocks = g_dir[i].count / g_pk_block;
             cursor += g_dir[i].nblocks;
+        }
+        if (cursor != g_pk_nblocks) {
+            fprintf(stderr, "packed stream holds %llu blocks "
+                    "but the directory tensors cover %llu "
+                    "(pack and directory do not match)\n",
+                    (unsigned long long)g_pk_nblocks,
+                    (unsigned long long)cursor);
+            return -1;
         }
     }
     /* Round 4 P0, read-integrity audit gap B: the per-tensor
@@ -1203,6 +1258,28 @@ static float *load_small(const char *name)
         exit(1);
     }
     return buf;
+}
+
+/* load_small with an architecture conformance check (Codex
+ * Astra review H4, 2026-11-25): the tensor's own span check
+ * cannot catch a tensor whose declared count is smaller than
+ * the extent its consumer reads (the layer-norm copy reads
+ * M_H floats whatever the norm tensor declares). A checkpoint
+ * whose shapes disagree with the derived architecture fails
+ * loudly here, before any workspace is allocated or worker
+ * started, instead of over-reading the allocation. */
+static float *load_small_req(const char *name, uint64_t need)
+{
+    TEnt *t = dir_find(name);
+    if (!t) { fprintf(stderr, "missing tensor %s\n", name); exit(1); }
+    if (t->count < need) {
+        fprintf(stderr, "tensor %s holds %llu elements, the "
+                "architecture requires %llu\n", name,
+                (unsigned long long)t->count,
+                (unsigned long long)need);
+        exit(1);
+    }
+    return load_small(name);
 }
 
 /* YaRN rotary tables, following the reference exactly:
@@ -1793,6 +1870,16 @@ int main(int argc, char **argv)
         }
         M_HEADS = q0->rows / M_HD;
         M_KVHEADS = k0->rows / M_HD;
+        /* The attention path groups query heads by
+         * M_HEADS / M_KVHEADS: both counts must be real and
+         * the division exact (H4). */
+        if (M_HEADS < 1 || M_KVHEADS < 1
+                || M_HEADS % M_KVHEADS != 0) {
+            fprintf(stderr, "unsupported head grouping "
+                    "(%d query heads over %d kv heads)\n",
+                    M_HEADS, M_KVHEADS);
+            return 1;
+        }
         int maxl = -1;
         for (int i = 0; i < g_ndir; i++) {
             int li;
@@ -1818,20 +1905,25 @@ int main(int argc, char **argv)
     for (int l = 0; l < M_L; l++) {
         char nm[256];
         snprintf(nm, sizeof(nm), "encoder.layers.%d.input_layernorm.weight", l);
-        float *b = load_small(nm);
+        float *b = load_small_req(nm, (uint64_t)M_H);
         memcpy(g_norm_in + (size_t)l * M_H, b, M_H * sizeof(float));
         free(b);
         snprintf(nm, sizeof(nm), "encoder.layers.%d.post_attention_layernorm.weight", l);
-        b = load_small(nm);
+        b = load_small_req(nm, (uint64_t)M_H);
         memcpy(g_norm_post + (size_t)l * M_H, b, M_H * sizeof(float));
         free(b);
     }
-    g_norm_final = load_small("encoder.norm.weight");
-    g_in_linear = load_small("replaid_input_linear.weight");
-    g_sc_linear = load_small("replaid_selfcond_linear.weight");
-    g_gamma_linear = load_small("replaid_gamma_linear.weight");
+    g_norm_final = load_small_req("encoder.norm.weight",
+                                  (uint64_t)M_H);
+    g_in_linear = load_small_req("replaid_input_linear.weight",
+                                 (uint64_t)M_H * M_ED);
+    g_sc_linear = load_small_req("replaid_selfcond_linear.weight",
+                                 (uint64_t)M_H * M_ED);
+    g_gamma_linear = load_small_req("replaid_gamma_linear.weight",
+                                    (uint64_t)M_H * 64);
     {
-        float *raw_e = load_small("replaid_embedding_matrix.matrix");
+        float *raw_e = load_small_req("replaid_embedding_matrix.matrix",
+                                      (uint64_t)M_VOCAB * M_ED);
         g_E = (float *)malloc((size_t)M_VOCAB * M_ED * sizeof(float));
         if (!g_E) { fprintf(stderr, "oom\n"); return 1; }
         for (int v = 0; v < M_VOCAB; v++) {
@@ -1843,7 +1935,8 @@ int main(int argc, char **argv)
                 g_E[(size_t)v * M_ED + d] = (float)(r[d] * inv);
         }
         free(raw_e);
-        float *gb = load_small("gamma_bounds.endpoint_values");
+        float *gb = load_small_req("gamma_bounds.endpoint_values",
+                                   2);
         g_gamma0 = gb[0];
         g_gamma1 = gb[1];
         free(gb);
