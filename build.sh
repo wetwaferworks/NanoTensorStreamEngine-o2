@@ -17,5 +17,5 @@ $CC -O3 -march=native -std=c99 -Wall -Wextra -o nq2-rsqrtbench tools/nq2-rsqrtbe
 for t in infer infer-lab infer-triforce infer-triforce-dbg streamtest; do
     $CC $FLAGS -pthread -o nq2-$t tools/nq2-$t.c -lm
 done
-(cd littlenemo && ./build.sh)
+(cd littlenemo && sh ./build.sh)
 echo "built all 23 nq2 tools and Little Nemo (littlenemo/bin/)"

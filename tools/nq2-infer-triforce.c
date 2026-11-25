@@ -37,6 +37,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -589,6 +590,27 @@ static int seek_to(FILE *f, uint64_t off)
 #endif
 }
 
+/* 64-bit position/size reads, the same discipline as seek_to.
+ * A plain long ftell narrows a stream above 2 GiB on Windows
+ * (Archie Round 3 P2-2, completing Codex M-P7, 2026-11-25). */
+static off_t tell_of(FILE *f)
+{
+#ifdef _WIN32
+    return (off_t)_ftelli64(f);
+#else
+    return ftello(f);
+#endif
+}
+
+static int seek_end(FILE *f)
+{
+#ifdef _WIN32
+    return _fseeki64(f, 0, SEEK_END);
+#else
+    return fseeko(f, 0, SEEK_END);
+#endif
+}
+
 /* Convert raw source bytes of a tensor to fp32. This is the
  * one conversion every raw read path uses (direct reads and
  * the pipe's staged reads alike), so the two can never drift
@@ -611,6 +633,10 @@ static void raw_convert(const TEnt *t, const uint8_t *raw,
 static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
 {
+    /* Tensor-local bound (Sol H5): a range read may never
+     * leave the tensor it names. Without it, a short or
+     * misbound tensor's read runs into its neighbour's bytes. */
+    if (elem0 > t->count || nelems > t->count - elem0) return -1;
     int esz = t->dtype == DT_F32 ? 4 : 2;
     uint8_t *raw = (uint8_t *)malloc(nelems * (uint64_t)esz);
     if (!raw) return -1;
@@ -867,6 +893,21 @@ static const char *g_slots_src = "default";
 static const char *g_fetch_src = "default";
 static const char *g_dist_src = "default";
 static int g_slots_explicit = 0; /* cli/env: no device derivation */
+/* Expansion width (Tensor Handshake stage 2, JD 2026-11-25):
+ * how many layers may be expanding at the same time. A knob
+ * of its own, distinct from pipe slots: slots are staged
+ * pipeline depth, lanes are simultaneous expansions. Same
+ * three-tier family (device-derived default, NQ2_EXPAND_LANES,
+ * --expand-lanes), strict parsing, range 1..64, and a loud
+ * clamp when the requested width cannot fit the device. The
+ * ladder {2, 4, 8, 16, 32, 64} is the residency dial (JD,
+ * 2026-11-25, after the kimi-k3-in-c memory-for-speed ladder):
+ * more memory buys more layers in flight, exactly as far as
+ * the hardware ceiling allows, and the guardrails are what
+ * make the dial safe to turn. */
+static int g_expand_lanes = 2;  /* --expand-lanes N (1..64) */
+static const char *g_lanes_src = "default";
+static int g_lanes_explicit = 0; /* cli/env: no device derivation */
 static const char *g_logits_dump = NULL;  /* lab: --logits-dump */
 static int g_logits_dumped = 0;
 /* Round 4 P1: --logits-dump-all appends one LOG1 block per
@@ -879,6 +920,10 @@ static int g_logits_dump_count = 0;
 static int src_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
 {
+    /* The shared range-read boundary enforces the tensor-local
+     * bound for the packed path too (Sol H5); the raw path
+     * re-checks it in raw_read_range. */
+    if (elem0 > t->count || nelems > t->count - elem0) return -1;
     if (!g_use_packed) return raw_read_range(t, elem0, nelems, out);
     /* The stream holds only whole blocks: elements past the last
      * packed block (tensors smaller than one block, and block
@@ -936,7 +981,7 @@ static int packed_open(const char *stream_path, const char *book_path)
         return -1;
     }
     {
-        long hb = ftell(g_pk_stream);
+        off_t hb = tell_of(g_pk_stream);
         g_pk_header = hb > 0 ? (uint64_t)hb : 0;
     }
     /* Round 4 P0, read-integrity audit gap A: the header's
@@ -947,17 +992,17 @@ static int packed_open(const char *stream_path, const char *book_path)
     {
         if (g_pk_nblocks > (UINT64_MAX - g_pk_header) / 5)
             return -1;      /* header arithmetic would overflow */
-        long save = ftell(g_pk_stream);
-        if (save < 0 || fseek(g_pk_stream, 0, SEEK_END) != 0)
+        off_t save = tell_of(g_pk_stream);
+        if (save < 0 || seek_end(g_pk_stream) != 0)
             return -1;
-        long fsz = ftell(g_pk_stream);
-        if (fsz < 0 || fseek(g_pk_stream, save, SEEK_SET) != 0)
+        off_t fsz = tell_of(g_pk_stream);
+        if (fsz < 0 || seek_to(g_pk_stream, (uint64_t)save) != 0)
             return -1;
         uint64_t want = g_pk_header + 5 * g_pk_nblocks;
         if ((uint64_t)fsz != want) {
             fprintf(stderr, "packed stream size mismatch: file "
-                    "has %ld bytes, header describes %llu\n",
-                    fsz, (unsigned long long)want);
+                    "has %lld bytes, header describes %llu\n",
+                    (long long)fsz, (unsigned long long)want);
             return -1;
         }
     }
@@ -1077,6 +1122,11 @@ static double pipe_now(void)
 #endif
 }
 
+#define PIPE_MAX_LANES 64
+/* Prefetch-list entry states (Tensor Handshake stage 2). */
+enum { ORD_IDLE = 0, ORD_STAGED = 1, ORD_EXPANDING = 2,
+       ORD_READY = 3 };
+
 typedef struct {
 #ifdef _WIN32
     CRITICAL_SECTION lock;
@@ -1086,7 +1136,8 @@ typedef struct {
     pthread_mutex_t lock;
     pthread_cond_t cv;
     pthread_t thread;    /* fetch worker (triforce) */
-    pthread_t thread2;   /* unpack worker (triforce) */
+    pthread_t lanes[PIPE_MAX_LANES]; /* unpack lanes (triforce) */
+    int n_lanes;
 #endif
     float **buf;
     size_t cap_elems;
@@ -1109,14 +1160,14 @@ typedef struct {
     long stat_hits, stat_miss;
     /* The Tensor Handshake layer counter (JD, 2026-11-25): the
      * consumer's committed position in the ordinal sequence,
-     * published for the fetch/expand side and the stats line.
-     * Written only by the consumer inside pipe_get, read by
-     * pipe_report on the same thread; it coordinates
-     * preparation and never gates consumption, so it cannot
-     * change results. The per-thread tick counters that
-     * complete the Tensor Handshake design are staged (see the
-     * fix log): phase boundaries in the eval loop are where
-     * they belong, and they were not bolted on mid-pass. */
+     * and the consume tick of the stage-2 protocol (below):
+     * the prefetch priority list derives its horizon from it,
+     * and the phase-boundary check compares it against the
+     * fetch and expansion ticks before a pass may roll over.
+     * Written only by the consumer inside pipe_get. It
+     * coordinates preparation; consumption itself commits in
+     * ordinal order whatever the list says, so it cannot
+     * change results. */
     int layer_counter;
     /* Stall forensics (lab build only): per-ordinal accumulation
      * so every miss is attributable to a layer, a slot, and a
@@ -1144,6 +1195,53 @@ typedef struct {
      * could never win the race and the consumer always
      * self-loaded. */
     long demand_posted, demand_seen;
+    /* Tensor Handshake stage 2 (JD, 2026-11-25): the global
+     * prefetch priority list and the phase-boundary ticks.
+     * ord_state[ord] / ord_claim[ord] are the list: each
+     * ordinal is IDLE, STAGED (sections staged, unclaimed),
+     * EXPANDING (claimed by exactly one worker, or the
+     * consumer) or READY. Priority is derived, never voted:
+     * the lowest ordinal that is not READY is always the
+     * highest-priority work, for the fetcher and for every
+     * expansion lane alike, so work selection comes from the
+     * list, not from private arithmetic. The w_* fields are
+     * the per-worker rows: each worker publishes the ordinal
+     * it is working on and the next one it intends to claim,
+     * and writes only its own row. list_gen bumps on every
+     * list mutation and broadcasts with it: one door for
+     * every waiter, and the generation counter is the phase
+     * boundary mechanism. The three ticks are fetched_upto
+     * (fetch), n_ready (expansions completed, counted) and
+     * layer_counter (consume); at a pass restart the consumer
+     * verifies all three agree the prior pass drained before
+     * the pass may roll over, and a disagreement is a printed
+     * fault with a visible drain, never a silent wait. The
+     * list governs scheduling only, never arithmetic or
+     * commit order: consumption commits in ordinal order
+     * regardless of expansion completion order, which is
+     * what keeps every output bit-identical. */
+    uint8_t *ord_state;     /* [max_ord+1] ORD_* */
+    int *ord_claim;         /* [max_ord+1] lane id, 32 = consumer, -1 none */
+    uint8_t *ord_counted;   /* [max_ord+1] expansion tick counted this pass */
+    int n_ready;            /* ordinals whose expansion completed this pass */
+    long list_gen;          /* bumped on every list mutation */
+    int expand_busy_n;      /* expansions in flight (lanes + consumer) */
+    int w_fetch, w_fetch_next;
+    int w_expand[PIPE_MAX_LANES + 1], w_expand_next[PIPE_MAX_LANES + 1];
+    int w_consume;
+    /* Highest ordinal the consumer has requested this pass.
+     * The expansion window is bounded by buffer lifetime: an
+     * ordinal x may be expanded into its slot only once the
+     * slot's previous occupant (x - slots) is dead, which is
+     * exactly when the consumer has requested x... so lanes
+     * may claim at most req_max + slots - 1. Expanding past
+     * that overwrites a tensor whose matmul has not run yet
+     * (measured: nondeterministic tokens at slots 2 when the
+     * window ran one ordinal too far). Fetch staging has no
+     * such bound and runs as far ahead as configured; the
+     * decoupling of fetch depth from expansion width lives
+     * here. */
+    int req_max;
     FILE *pk_priv;          /* fetch thread's own stream handle */
     /* Fetch thread's own handle per shard, for staging raw
      * tensor bytes at fetch time. pipe_fetch executions are
@@ -1176,6 +1274,60 @@ static const TEnt *ord_ent(int ord)
     char full[256];
     snprintf(full, sizeof(full), "encoder.layers.%d.%s", layer, names[slot]);
     return dir_find(full);
+}
+
+/* The architecture globals are defined in the model
+ * section below; tentative declarations so the shape
+ * validator can sit with the pipe code it guards.
+ * load_model fills them before the validator runs. */
+static int M_H, M_L, M_HEADS, M_KVHEADS, M_HD, M_FFN,
+    M_VOCAB;
+static TEnt *g_head_ent;
+
+/* Exact per-layer projection shapes, validated before any
+ * worker starts (Sol H5). The pipeline stages each projection
+ * into a shared slot buffer sized by the largest tensor, and
+ * the matmuls consume architecture-derived dimensions; before
+ * this check, a projection was verified only against the
+ * buffer capacity, so a short one left stale bytes in the
+ * reused buffer and a transposed same-count one passed every
+ * test. The architecture is derived from layer 0 and the
+ * embedding, so layer 0's row counts are the derivation
+ * itself; every other tensor, and every column count, is
+ * checked exactly here. The head is checked too: head_all
+ * tiles it as M_VOCAB rows of M_H. */
+static int validate_projection_shapes(void)
+{
+    int qdim = M_HEADS * M_HD, kv_dim = M_KVHEADS * M_HD;
+    for (int ord = 0; ord < M_L * SLOTS_PER_LAYER; ord++) {
+        const TEnt *t = ord_ent(ord);
+        int rows, cols;
+        if (!t) {
+            fprintf(stderr, "geometry: no tensor for ordinal "
+                    "%d\n", ord);
+            return -1;
+        }
+        switch (ord % SLOTS_PER_LAYER) {
+        case SLOT_Q: rows = qdim; cols = M_H; break;
+        case SLOT_K: case SLOT_V: rows = kv_dim; cols = M_H; break;
+        case SLOT_O: rows = M_H; cols = qdim; break;
+        case SLOT_GATE: case SLOT_UP: rows = M_FFN; cols = M_H; break;
+        default: rows = M_H; cols = M_FFN; break; /* SLOT_DOWN */
+        }
+        if (t->rows != rows || t->cols != cols) {
+            fprintf(stderr, "geometry: %s is %dx%d, the "
+                    "architecture requires %dx%d\n",
+                    t->name, t->rows, t->cols, rows, cols);
+            return -1;
+        }
+    }
+    if (!g_head_ent || g_head_ent->rows != M_VOCAB
+            || g_head_ent->cols != M_H) {
+        fprintf(stderr, "geometry: diffusion_head.weight must "
+                "be %dx%d\n", M_VOCAB, M_H);
+        return -1;
+    }
+    return 0;
 }
 
 static void pipe_load(int slot, int ord)
@@ -1315,6 +1467,22 @@ static void pipe_expand(int slot, int ord)
 /* Called under the lock wherever an ordinal is marked ready. */
 static void pipe_mark_ready(int ord)
 {
+    /* Tensor Handshake stage 2: the ordinal joins the READY
+     * set, its claim is released, and the list generation
+     * bumps so every waiter re-evaluates. Called under the
+     * lock wherever an ordinal is marked ready. The expansion
+     * tick counts each ordinal once per pass (ord_counted):
+     * an ordinal that stayed resident from the last pass is
+     * counted at the restart, and if its slot is later reused
+     * and it is expanded again, the re-mark must not count it
+     * twice. */
+    if (g_pipe.ord_state) g_pipe.ord_state[ord] = ORD_READY;
+    if (g_pipe.ord_counted && !g_pipe.ord_counted[ord]) {
+        g_pipe.ord_counted[ord] = 1;
+        g_pipe.n_ready++;
+    }
+    if (g_pipe.ord_claim) g_pipe.ord_claim[ord] = -1;
+    g_pipe.list_gen++;
     g_pipe.ready_at[ord] = pipe_now();
     g_pipe.stat_load_ms += g_pipe.load_ms_last;
     g_pipe.stat_bytes += g_pipe.load_bytes_last;
@@ -1364,13 +1532,27 @@ static void *fetch_worker(void *unused)
         for (;;) {
             if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
             c = g_pipe.fetched_upto + 1;
-            if (c <= g_pipe.max_ord && g_pipe.have[pslot(c)] == c) {
+            if (c <= g_pipe.max_ord && g_pipe.have[pslot(c)] == c
+                    && (g_pipe.st_owner[pslot(c)] == -1
+                        || g_pipe.have[pslot(c)]
+                            == g_pipe.st_owner[pslot(c)])) {
                 /* Already resident from an earlier pass: mark it
                  * staged without re-reading it from disc (Archie
                  * P1-1; with slots > max_ord the fetcher used to
-                 * re-read the whole model on every pass). */
+                 * re-read the whole model on every pass). The
+                 * slot-free predicate is the same one the fetch
+                 * branch below uses (Sol H1): the shortcut used
+                 * to stamp the slot's owner unconditionally, so
+                 * when the slot still held an earlier ordinal's
+                 * staged, unexpanded sections, the stamp orphaned
+                 * them... the unpacker could never claim that
+                 * ordinal again, and at slots 8 / fetch-ahead 18
+                 * the consumer waited forever. Staged data and
+                 * resident data are separate fields and neither
+                 * may overwrite the other's claim. */
                 g_pipe.st_owner[pslot(c)] = c;
                 g_pipe.fetched_upto = c;
+                g_pipe.list_gen++;
                 continue;
             }
             if (c <= g_pipe.max_ord && c <= g_pipe.want_u + g_fetch_ahead
@@ -1378,10 +1560,27 @@ static void *fetch_worker(void *unused)
                     && (g_pipe.st_owner[pslot(c)] == -1
                         || g_pipe.have[pslot(c)] == g_pipe.st_owner[pslot(c)]))
                 break;
-            g_pipe.demand_seen = g_pipe.demand_posted;
+            /* Every predicate write broadcasts (Sol H1): the
+             * demand acknowledgement is a predicate other
+             * threads wait on, so when it CHANGES it bumps the
+             * list generation and wakes the door like every
+             * other list mutation. An unchanged acknowledgement
+             * is not a mutation: broadcasting it on every wait
+             * re-check cascaded wakeups between the workers
+             * (the generation counter spun into the tens of
+             * thousands per run, measured) and made the counter
+             * useless as an instrument. */
+            if (g_pipe.demand_seen != g_pipe.demand_posted) {
+                g_pipe.demand_seen = g_pipe.demand_posted;
+                g_pipe.list_gen++;
+                pthread_cond_broadcast(&g_pipe.cv);
+            }
+            g_pipe.w_fetch = -1;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         }
         g_pipe.fetch_busy = 1;
+        g_pipe.w_fetch = c;
+        g_pipe.w_fetch_next = (c + 1 <= g_pipe.max_ord) ? c + 1 : -1;
         int epoch = g_pipe.epoch;
         pthread_mutex_unlock(&g_pipe.lock);
         pipe_fetch(pslot(c), c);
@@ -1389,6 +1588,9 @@ static void *fetch_worker(void *unused)
         if (epoch == g_pipe.epoch) {
             g_pipe.st_owner[pslot(c)] = c;
             g_pipe.fetched_upto = c;
+            g_pipe.ord_state[c] = (g_pipe.have[pslot(c)] == c)
+                                  ? ORD_READY : ORD_STAGED;
+            g_pipe.list_gen++;
         }
         g_pipe.fetch_busy = 0;
         pthread_cond_broadcast(&g_pipe.cv);
@@ -1396,30 +1598,80 @@ static void *fetch_worker(void *unused)
     }
 }
 
-/* Triforce unpack worker: owns reconstruction. Expands the
- * demanded ordinal once its sections are staged. */
-static void *unpack_worker(void *unused)
+/* Triforce unpack lane: owns reconstruction. Each lane
+ * claims work from the shared prefetch priority list: the
+ * lowest staged, unexpanded, unclaimed ordinal inside the
+ * admission window (the consumer's demand plus fetch-ahead),
+ * which is the demanded ordinal first by construction.
+ * Claim exclusivity is a hard rule (JD, 2026-11-25): an
+ * ordinal is claimed by exactly one lane by stamping
+ * ord_claim under the lock, and no second lane can take it
+ * while the stamp stands; the consumer's self-service path
+ * honours the same stamp. A lane whose expansion finishes
+ * out of ordinal order simply marks its ordinal ready;
+ * consumption still commits in ordinal order. With one lane
+ * configured this reduces to the original single unpack
+ * worker's behaviour, except that the claim, not the busy
+ * flag, is what serializes expansion. */
+static void *unpack_worker(void *arg)
 {
-    (void)unused;
+    int lane = (int)(intptr_t)arg;
     for (;;) {
         pthread_mutex_lock(&g_pipe.lock);
-        while (!g_pipe.stop
-               && !(g_pipe.want_u >= 0 && g_pipe.want_u <= g_pipe.max_ord
-                    && g_pipe.st_owner[pslot(g_pipe.want_u)] == g_pipe.want_u
-                    && g_pipe.have[pslot(g_pipe.want_u)] != g_pipe.want_u
-                    && !g_pipe.unpack_busy)) {
-            g_pipe.demand_seen = g_pipe.demand_posted;
+        int ord = -1;
+        for (;;) {
+            if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
+            ord = -1;
+            {
+                /* Priority: the lowest staged, unexpanded,
+                 * unclaimed ordinal inside the expansion
+                 * window. The window is bounded by buffer
+                 * lifetime (req_max + slots - 1, see the
+                 * req_max field), NOT by the fetch depth:
+                 * staging may run far ahead, expansion may
+                 * not. The demanded ordinal is always inside
+                 * the window (slots >= 2), so the consumer's
+                 * own demand can always be claimed. */
+                int hi = g_pipe.req_max + g_pipe.slots - 1;
+                if (hi > g_pipe.max_ord) hi = g_pipe.max_ord;
+                for (int o = 0; o <= hi; o++) {
+                    if (g_pipe.st_owner[pslot(o)] == o
+                            && g_pipe.have[pslot(o)] != o
+                            && g_pipe.ord_claim[o] < 0) {
+                        ord = o;
+                        break;
+                    }
+                }
+            }
+            if (ord >= 0) break;
+            /* Demand acknowledgement: broadcasts when it
+             * changes, like the fetcher's (Sol H1; see there
+             * for why an unchanged value must not broadcast). */
+            if (g_pipe.demand_seen != g_pipe.demand_posted) {
+                g_pipe.demand_seen = g_pipe.demand_posted;
+                g_pipe.list_gen++;
+                pthread_cond_broadcast(&g_pipe.cv);
+            }
+            g_pipe.w_expand[lane] = -1;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         }
-        if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
-        int ord = g_pipe.want_u;
+        g_pipe.ord_claim[ord] = lane;
+        g_pipe.ord_state[ord] = ORD_EXPANDING;
+        g_pipe.w_expand[lane] = ord;
+        g_pipe.w_expand_next[lane] =
+            (ord + 1 <= g_pipe.max_ord) ? ord + 1 : -1;
+        g_pipe.expand_busy_n++;
         g_pipe.unpack_busy = 1;
+        g_pipe.list_gen++;
         pthread_mutex_unlock(&g_pipe.lock);
         pipe_expand(pslot(ord), ord);
         pthread_mutex_lock(&g_pipe.lock);
         g_pipe.have[pslot(ord)] = ord;
         pipe_mark_ready(ord);
-        g_pipe.unpack_busy = 0;
+        if (--g_pipe.expand_busy_n <= 0) {
+            g_pipe.expand_busy_n = 0;
+            g_pipe.unpack_busy = 0;
+        }
         pthread_cond_broadcast(&g_pipe.cv);
         pthread_mutex_unlock(&g_pipe.lock);
     }
@@ -1458,10 +1710,77 @@ static void pipe_init(int layers)
         g_pipe_slots = (int)d;
         g_slots_src = "device";
     }
-    if (g_pipe_slots < 2 || g_fetch_ahead < 1 || g_prefetch_dist < 0) {
+    if (!g_lanes_explicit) {
+        /* Device-derived expansion width, same doctrine as
+         * the slot default above (Mega Tensor is hardware
+         * aware: every default is derived from the machine
+         * it runs on, JD 2026-11-25): cores/2 lanes, bounded
+         * by a quarter of RAM against the per-slot cost,
+         * clamped to [1, 8] as a default. On the bench this
+         * yields exactly 2, the width the pipeline was built
+         * and proven at. */
+        long by_cores = cpu_count() / 2;
+        uint64_t ram = device_ram_bytes();
+        uint64_t slot_cost = (uint64_t)max_elems * 2 * sizeof(float);
+        long by_ram = (ram && slot_cost)
+            ? (long)(ram / 4 / slot_cost) : 2;
+        long d = by_cores < by_ram ? by_cores : by_ram;
+        if (d < 1) d = 1;
+        if (d > 8) d = 8;
+        g_expand_lanes = (int)d;
+        g_lanes_src = "device";
+    }
+    if (g_pipe_slots < 2 || g_fetch_ahead < 1 || g_prefetch_dist < 0
+            || g_expand_lanes < 1 || g_expand_lanes > PIPE_MAX_LANES) {
         fprintf(stderr, "pipe: --pipe-slots must be >= 2, "
-                "--fetch-ahead >= 1 and --prefetch-dist >= 0\n");
+                "--fetch-ahead >= 1, --prefetch-dist >= 0 and "
+                "--expand-lanes in [1, %d]\n", PIPE_MAX_LANES);
         exit(1);
+    }
+    /* The effective width is clamped against the device with
+     * the reason printed, never silently honoured and never
+     * an allocation failure: lanes cannot exceed slots (each
+     * expansion target lives in a slot), and the family's
+     * RAM guardrail (a quarter of physical RAM against the
+     * per-slot cost) bounds the width the same way it bounds
+     * the slot default. */
+    int lanes_ceiling;
+    {
+        int eff = g_expand_lanes;
+        uint64_t ram = device_ram_bytes();
+        uint64_t slot_cost = (uint64_t)max_elems * 2 * sizeof(float);
+        /* The hardware ceiling of the residency dial: the
+         * widest expansion the slot count and the RAM
+         * guardrail (a quarter of physical RAM at the
+         * per-slot cost) permit on THIS machine. It is
+         * printed in the startup line whether or not it
+         * binds, so every run confesses the ceiling it ran
+         * under (JD, 2026-11-25). */
+        lanes_ceiling = g_pipe_slots;
+        if (ram && slot_cost) {
+            long by_ram = (long)(ram / 4 / slot_cost);
+            if (by_ram < lanes_ceiling)
+                lanes_ceiling = (int)by_ram;
+            if (lanes_ceiling < 1) lanes_ceiling = 1;
+        }
+        if (eff > g_pipe_slots) {
+            printf("pipe: expand lanes %d clamped to %d: one "
+                   "expansion per staged slot\n",
+                   eff, g_pipe_slots);
+            eff = g_pipe_slots;
+        }
+        if (eff > lanes_ceiling) {
+            printf("pipe: expand lanes %d clamped to %d: "
+                   "hardware ceiling, estimated cost exceeds "
+                   "a quarter of device RAM at %.1f MB per "
+                   "slot\n", eff, lanes_ceiling,
+                   slot_cost / 1048576.0);
+            eff = lanes_ceiling;
+        }
+#ifndef _WIN32
+        g_pipe.n_lanes = eff;   /* the Windows struct has no lanes */
+#endif
+        g_expand_lanes = eff;
     }
     g_pipe.slots = g_pipe_slots;
     g_pipe.cap_elems = max_elems;
@@ -1483,9 +1802,20 @@ static void pipe_init(int layers)
         g_pipe.st_owner[s] = -1;
     }
     printf("pipe: %d slots (%s), fetch-ahead %d (%s), "
-           "prefetch distance %d (%s)\n",
+           "prefetch distance %d (%s), expand lanes %d (%s), "
+           "hardware ceiling %d lanes\n",
            g_pipe.slots, g_slots_src, g_fetch_ahead, g_fetch_src,
-           g_prefetch_dist, g_dist_src);
+           g_prefetch_dist, g_dist_src,
+           g_expand_lanes, g_lanes_src, lanes_ceiling);
+#ifdef _WIN32
+    /* Sol M3: the startup line must not report settings the
+     * fused Windows worker ignores as if they were in force.
+     * Slots size its buffers and are effective; the other
+     * three knobs configure the POSIX triforce split. */
+    printf("pipe: note: the Windows fused worker loads on "
+           "demand; fetch-ahead, prefetch distance and expand "
+           "lanes do not take effect on this path\n");
+#endif
     g_pipe.layer_counter = -1;
     g_pipe.want = -1;
     g_pipe.want_u = -1;
@@ -1507,6 +1837,24 @@ static void pipe_init(int layers)
     g_pipe.stat_stall_s = g_pipe.stat_slack_s = g_pipe.stat_load_ms = 0.0;
     g_pipe.stat_bytes = 0;
     g_pipe.stat_hits = g_pipe.stat_miss = 0;
+    /* Tensor Handshake stage 2: the prefetch priority list
+     * starts empty, every worker row idle. */
+    g_pipe.ord_state = (uint8_t *)calloc((size_t)max_ord + 1, 1);
+    g_pipe.ord_claim = (int *)malloc(sizeof(int) * ((size_t)max_ord + 1));
+    g_pipe.ord_counted = (uint8_t *)calloc((size_t)max_ord + 1, 1);
+    if (!g_pipe.ord_state || !g_pipe.ord_claim || !g_pipe.ord_counted) {
+        fprintf(stderr, "pipe: out of memory\n");
+        exit(1);
+    }
+    for (int o = 0; o <= max_ord; o++) g_pipe.ord_claim[o] = -1;
+    g_pipe.n_ready = 0;
+    g_pipe.list_gen = 0;
+    g_pipe.expand_busy_n = 0;
+    g_pipe.w_fetch = g_pipe.w_fetch_next = -1;
+    for (int i = 0; i <= PIPE_MAX_LANES; i++)
+        g_pipe.w_expand[i] = g_pipe.w_expand_next[i] = -1;
+    g_pipe.w_consume = -1;
+    g_pipe.req_max = -1;
     /* Triforce staging: raw packed sections for one whole
      * tensor per slot, sized from the largest tensor, plus the
      * raw staging buffer (source bytes of one whole tensor;
@@ -1566,11 +1914,27 @@ static void pipe_init(int layers)
     InitializeCriticalSection(&g_pipe.lock);
     InitializeConditionVariable(&g_pipe.cv);
     g_pipe.thread = CreateThread(NULL, 0, pipe_worker, NULL, 0, NULL);
+    if (!g_pipe.thread) {
+        fprintf(stderr, "pipe: cannot start the worker thread\n");
+        exit(1);
+    }
 #else
     pthread_mutex_init(&g_pipe.lock, NULL);
     pthread_cond_init(&g_pipe.cv, NULL);
-    pthread_create(&g_pipe.thread, NULL, fetch_worker, NULL);
-    pthread_create(&g_pipe.thread2, NULL, unpack_worker, NULL);
+    /* Sol M6: a worker that fails to start is a startup
+     * failure, never a silent infinite wait downstream. */
+    if (pthread_create(&g_pipe.thread, NULL, fetch_worker, NULL) != 0) {
+        fprintf(stderr, "pipe: cannot start the fetch worker\n");
+        exit(1);
+    }
+    for (int i = 0; i < g_pipe.n_lanes; i++) {
+        if (pthread_create(&g_pipe.lanes[i], NULL, unpack_worker,
+                           (void *)(intptr_t)i) != 0) {
+            fprintf(stderr, "pipe: cannot start expand lane %d "
+                    "of %d\n", i, g_pipe.n_lanes);
+            exit(1);
+        }
+    }
 #endif
 }
 
@@ -1621,19 +1985,78 @@ static const float *pipe_get(int ord)
 #else
     pthread_mutex_lock(&g_pipe.lock);
     if (ord == 0 && g_pipe.fetched_upto >= 0) {
+        /* Tensor Handshake phase boundary (stage 2): the pass
+         * may roll over only when all three ticks agree the
+         * prior pass drained... the fetch tick (fetched_upto),
+         * the expansion tick (n_ready) and the consume tick
+         * (layer_counter) all at the last ordinal. A
+         * disagreement is a printed fault and a visible drain
+         * through consumer self-service below, never a silent
+         * wait; a claimed-but-unready ordinal at the boundary
+         * means a worker vanished mid-expansion and stops the
+         * run loudly rather than consuming a half-drained
+         * pipeline. */
+        if (g_pipe.layer_counter >= 0
+                && (g_pipe.fetched_upto != g_pipe.max_ord
+                    || g_pipe.n_ready != g_pipe.max_ord + 1
+                    || g_pipe.layer_counter != g_pipe.max_ord)) {
+            fprintf(stderr, "tensor handshake: phase boundary "
+                    "fault at pass restart: ticks fetch %d, "
+                    "expand %d of %d ready, consume %d; the "
+                    "prior pass did not drain\n",
+                    g_pipe.fetched_upto, g_pipe.n_ready,
+                    g_pipe.max_ord + 1, g_pipe.layer_counter);
+            for (int o = 0; o <= g_pipe.max_ord; o++) {
+                if (g_pipe.have[pslot(o)] == o) continue;
+                int slot_claimed = 0;
+                for (int o2 = 0; o2 <= g_pipe.max_ord; o2++)
+                    if (pslot(o2) == pslot(o)
+                            && g_pipe.ord_claim[o2] >= 0)
+                        slot_claimed = 1;
+                if (g_pipe.ord_claim[o] >= 0 || slot_claimed) {
+                    fprintf(stderr, "tensor handshake: ordinal "
+                            "%d's slot is still claimed at the "
+                            "boundary; cannot reconcile\n", o);
+                    exit(1);
+                }
+                g_pipe.ord_claim[o] = PIPE_MAX_LANES;
+                g_pipe.ord_state[o] = ORD_EXPANDING;
+                pthread_mutex_unlock(&g_pipe.lock);
+                pipe_load(pslot(o), o);
+                pthread_mutex_lock(&g_pipe.lock);
+                g_pipe.have[pslot(o)] = o;
+                pipe_mark_ready(o);
+            }
+            fprintf(stderr, "tensor handshake: boundary drain "
+                    "complete; the pass restarts on a drained "
+                    "pipeline\n");
+        }
         /* A new forward pass restarts the ordinal walk: reset
          * the staging bookkeeping so the fetcher works in this
          * pass too (before this it silently died after pass 1,
          * leaving later passes to consumer self-service).
          * have[] stays: a marked buffer still holds its ordinal.
          * In-flight fetches publish under the old epoch and are
-         * discarded by the fetcher's epoch check. */
+         * discarded by the fetcher's epoch check. The list is
+         * rebuilt from have[]: resident ordinals stay READY,
+         * everything else returns to IDLE, all claims clear. */
         g_pipe.epoch++;
         g_pipe.fetched_upto = -1;
         for (int s = 0; s < g_pipe.slots; s++)
             g_pipe.st_owner[s] = -1;
+        g_pipe.n_ready = 0;
+        for (int o = 0; o <= g_pipe.max_ord; o++) {
+            int resident = (g_pipe.have[pslot(o)] == o);
+            g_pipe.ord_state[o] = resident ? ORD_READY : ORD_IDLE;
+            g_pipe.ord_claim[o] = -1;
+            g_pipe.ord_counted[o] = resident ? 1 : 0;
+            if (resident) g_pipe.n_ready++;
+        }
+        g_pipe.req_max = -1;    /* the new pass has requested nothing */
+        g_pipe.list_gen++;
         pthread_cond_broadcast(&g_pipe.cv);
     }
+    if (ord > g_pipe.req_max) g_pipe.req_max = ord;
     was_ready = (g_pipe.have[pslot(ord)] == ord);
     if (was_ready) {
         g_pipe.stat_hits++;
@@ -1651,14 +2074,25 @@ static const float *pipe_get(int ord)
         pthread_cond_broadcast(&g_pipe.cv);
         while (g_pipe.have[pslot(ord)] != ord
                && (g_pipe.fetch_busy || g_pipe.unpack_busy
+                   || g_pipe.ord_claim[ord] >= 0
                    || g_pipe.demand_seen < my_demand))
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         if (g_pipe.have[pslot(ord)] != ord) {
-            /* Both stages idle and ord still not ready: the
-             * consumer does the work itself, as the fused pipe
-             * did... expanding staged sections if it has them,
-             * loading fused if it does not. */
+            /* Both stages idle, ord unclaimed and still not
+             * ready: the consumer does the work itself, as the
+             * fused pipe did... expanding staged sections if
+             * it has them, loading fused if it does not. The
+             * consumer claims the ordinal in the list first
+             * (claim id PIPE_MAX_LANES, its own row), so the
+             * lanes honour its work exactly as they honour
+             * each other's: claim exclusivity has no
+             * exceptions. */
             self_loaded = 1;
+            g_pipe.ord_claim[ord] = PIPE_MAX_LANES;
+            g_pipe.ord_state[ord] = ORD_EXPANDING;
+            g_pipe.w_expand[PIPE_MAX_LANES] = ord;
+            g_pipe.expand_busy_n++;
+            g_pipe.list_gen++;
             if (g_pipe.st_owner[pslot(ord)] == ord) {
                 g_pipe.unpack_busy = 1;
                 pthread_mutex_unlock(&g_pipe.lock);
@@ -1666,7 +2100,6 @@ static const float *pipe_get(int ord)
                 pthread_mutex_lock(&g_pipe.lock);
                 g_pipe.have[pslot(ord)] = ord;
                 pipe_mark_ready(ord);
-                g_pipe.unpack_busy = 0;
             } else {
                 g_pipe.fetch_busy = 1;
                 g_pipe.unpack_busy = 1;
@@ -1678,8 +2111,12 @@ static const float *pipe_get(int ord)
                     g_pipe.fetched_upto = ord;
                 pipe_mark_ready(ord);
                 g_pipe.fetch_busy = 0;
+            }
+            if (--g_pipe.expand_busy_n <= 0) {
+                g_pipe.expand_busy_n = 0;
                 g_pipe.unpack_busy = 0;
             }
+            g_pipe.w_expand[PIPE_MAX_LANES] = -1;
             pthread_cond_broadcast(&g_pipe.cv);
         }
     }
@@ -1697,10 +2134,13 @@ static const float *pipe_get(int ord)
     }
     pthread_mutex_unlock(&g_pipe.lock);
 #endif
-    /* Tensor Handshake: publish the committed position. The
-     * consumer is the only writer; fetch-ahead targets are
-     * this counter plus the configured distance. */
+    /* Tensor Handshake: publish the committed position (the
+     * consume tick). The consumer is the only writer; the
+     * prefetch priority list derives its horizon from this
+     * counter, and the phase-boundary check compares it
+     * against the fetch and expansion ticks. */
     g_pipe.layer_counter = ord;
+    g_pipe.w_consume = ord;
     return g_pipe.buf[pslot(ord)];
 }
 
@@ -1716,6 +2156,12 @@ static void pipe_report(void)
     printf("  tensor handshake: layer counter %d of %d "
            "(consumer's committed ordinal)\n",
            g_pipe.layer_counter, g_pipe.max_ord);
+    printf("  tensor handshake ticks: fetch %d, expand %d of "
+           "%d ready, consume %d; prefetch list generation "
+           "%ld\n",
+           g_pipe.fetched_upto, g_pipe.n_ready,
+           g_pipe.max_ord + 1, g_pipe.layer_counter,
+           g_pipe.list_gen);
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,
@@ -1764,7 +2210,8 @@ static void pipe_shutdown(void)
     pthread_cond_broadcast(&g_pipe.cv);
     pthread_mutex_unlock(&g_pipe.lock);
     pthread_join(g_pipe.thread, NULL);
-    pthread_join(g_pipe.thread2, NULL);
+    for (int i = 0; i < g_pipe.n_lanes; i++)
+        pthread_join(g_pipe.lanes[i], NULL);
 #endif
 }
 
@@ -2311,6 +2758,20 @@ static int pipe_env_int(const char *name, int *out)
     return 1;
 }
 
+/* Strict CLI integer, the same standard as pipe_env_int
+ * (Sol M3): the whole argument must be the number, so a
+ * mistyped value fails loudly instead of atoi's silent 0. */
+static void pipe_cli_int(const char *flag, const char *v, int *out)
+{
+    char *end = NULL;
+    long n = strtol(v, &end, 10);
+    if (end == v || *end != '\0') {
+        fprintf(stderr, "pipe: %s '%s' is not a number\n", flag, v);
+        exit(1);
+    }
+    *out = (int)n;
+}
+
 int main(int argc, char **argv)
 {
     const char *dir = NULL;
@@ -2331,6 +2792,10 @@ int main(int argc, char **argv)
         g_fetch_src = "env";
     if (pipe_env_int("NQ2_PREFETCH_DIST", &g_prefetch_dist))
         g_dist_src = "env";
+    if (pipe_env_int("NQ2_EXPAND_LANES", &g_expand_lanes)) {
+        g_lanes_src = "env";
+        g_lanes_explicit = 1;
+    }
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) dir = argv[++i];
@@ -2350,9 +2815,10 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) seed = strtoull(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) threads = atoi(argv[++i]);
         else if (strcmp(argv[i], "--forensics") == 0) g_forensics = 1;
-        else if (strcmp(argv[i], "--pipe-slots") == 0 && i + 1 < argc) { g_pipe_slots = atoi(argv[++i]); g_slots_src = "cli"; g_slots_explicit = 1; }
-        else if (strcmp(argv[i], "--fetch-ahead") == 0 && i + 1 < argc) { g_fetch_ahead = atoi(argv[++i]); g_fetch_src = "cli"; }
-        else if (strcmp(argv[i], "--prefetch-dist") == 0 && i + 1 < argc) { g_prefetch_dist = atoi(argv[++i]); g_dist_src = "cli"; }
+        else if (strcmp(argv[i], "--pipe-slots") == 0 && i + 1 < argc) { pipe_cli_int("--pipe-slots", argv[++i], &g_pipe_slots); g_slots_src = "cli"; g_slots_explicit = 1; }
+        else if (strcmp(argv[i], "--fetch-ahead") == 0 && i + 1 < argc) { pipe_cli_int("--fetch-ahead", argv[++i], &g_fetch_ahead); g_fetch_src = "cli"; }
+        else if (strcmp(argv[i], "--prefetch-dist") == 0 && i + 1 < argc) { pipe_cli_int("--prefetch-dist", argv[++i], &g_prefetch_dist); g_dist_src = "cli"; }
+        else if (strcmp(argv[i], "--expand-lanes") == 0 && i + 1 < argc) { pipe_cli_int("--expand-lanes", argv[++i], &g_expand_lanes); g_lanes_src = "cli"; g_lanes_explicit = 1; }
         else if (strcmp(argv[i], "--logits-dump") == 0 && i + 1 < argc) g_logits_dump = argv[++i];
         else if (strcmp(argv[i], "--logits-dump-all") == 0 && i + 1 < argc) { g_logits_dump = argv[++i]; g_logits_dump_all = 1; }
         else {
@@ -2533,6 +2999,7 @@ int main(int argc, char **argv)
         }
 
     int cap = plen + max_new + block + 8;
+    if (validate_projection_shapes() != 0) return 1;
     if (threads <= 0) threads = cpu_count();
     pool_init(threads);
     pipe_init(M_L);

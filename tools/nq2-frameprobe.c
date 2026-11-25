@@ -18,6 +18,9 @@
  * tools/nq2-frameprobe.c -lm
  */
 
+#define _POSIX_C_SOURCE 200809L
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,9 +86,12 @@ int main(int argc, char **argv)
     }
     FILE *f = fopen(argv[1], "rb");
     if (!f) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
-    fseek(f, 0, SEEK_END);
-    long fsz = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    /* Size kept in off_t: a long ftell narrows a stream above
+     * 2 GiB on Windows (Archie Round 3 P2-2, 2026-11-25). */
+    fseeko(f, 0, SEEK_END);
+    off_t fsz = ftello(f);
+    fseeko(f, 0, SEEK_SET);
+    if (fsz < 0) { fprintf(stderr, "cannot size %s\n", argv[1]); return 1; }
     uint8_t *buf = (uint8_t *)malloc((size_t)fsz);
     if (!buf) { fprintf(stderr, "out of memory\n"); return 1; }
     if (fread(buf, 1, (size_t)fsz, f) != (size_t)fsz) {
@@ -118,8 +124,8 @@ int main(int argc, char **argv)
     const uint8_t *scales = buf + header + 3 * n_blocks;
 
     printf("frame probe: %s\n", argv[1]);
-    printf("blocks: %llu of %u weights; stream %ld bytes\n",
-           (unsigned long long)n_blocks, block, fsz);
+    printf("blocks: %llu of %u weights; stream %lld bytes\n",
+           (unsigned long long)n_blocks, block, (long long)fsz);
     printf("frame bytes: %llu of %llu stream bytes (%.1f%%); "
            "frame rate %.5f bits/weight\n",
            (unsigned long long)(4 * n_blocks),

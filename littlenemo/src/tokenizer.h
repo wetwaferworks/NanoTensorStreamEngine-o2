@@ -3,9 +3,10 @@
  * model.vocab, model.merges (string "A B" or pair-array form), and
  * added_tokens for the specials. Encoding is the standard greedy
  * lowest-rank merge over byte-mapped symbols (GPT-2 byte-to-unicode
- * mapping); decoding reverses it. Special tokens are never produced
- * by encode and are looked up by content ("<|im_start|>" and kin);
- * the chat template layer decides where they go.
+ * mapping); decoding reverses it. Added tokens appearing in the
+ * input are extracted and emitted as their own ids before BPE,
+ * matching the reference tokenizer (Sol M1); specials are also
+ * looked up by content ("<unk>" and kin) for the template layer.
  */
 #ifndef NEMO_TOKENIZER_H
 #define NEMO_TOKENIZER_H

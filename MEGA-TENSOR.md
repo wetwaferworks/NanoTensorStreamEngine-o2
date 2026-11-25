@@ -59,11 +59,49 @@ exactly. The full story is PIPELINE-2026-11-24.md.
 consumer's committed ordinal, on the existing ordinal machinery.
 Fetch-ahead targets are that counter plus the configured
 distance, so prefetch presses N+2, N+3, N+4 by count rather than
-by guess. The counter coordinates preparation only and never
-gates consumption. Per-thread tick counters (phase boundaries
-commit only when every thread's count agrees) and parallel
-expansion lanes are designed and staged; neither lands without a
-bit-identical proof at every lane count.
+by guess.
+
+Stage 2 of the Handshake landed on 2026-11-25, with the
+bit-identical proof the design demanded at every configuration
+it was run. Each pipeline thread now publishes a tick: the
+fetcher its highest staged ordinal, the expansion lanes the
+count of ordinals ready, the consumer its committed ordinal. A
+pass may not roll over until the three ticks agree the prior
+pass drained; that agreement is the commit condition for the
+restart, and disagreement is a printed fault, never a silent
+wait. Work selection runs through a global prefetch priority
+list, one row per layer: its state, which thread holds its
+claim, and each worker's current and next intended layer.
+Priority is derived from the consumer's counter, so the nearest
+unready layer is always next. A layer is claimed by exactly one
+thread, stamped under the lock; no two threads ever expand the
+same layer at the same time. Every change to the list bumps one
+generation counter and wakes the one wait point, so there is a
+single door for every waiter and the phase boundary is that
+door. The list governs scheduling only, never arithmetic or
+commit order: consumption still commits in ordinal order, which
+is why the anchors stay bit-identical at every width. Expansion
+width is its own runtime knob (expand lanes, 1 to 64), separate
+from pipeline depth: staging may run far ahead while only a few
+layers expand at once, because expansion is bounded by buffer
+lifetime, not by fetch depth. The lane ladder {2, 4, 8, 16, 32,
+64} is the residency dial: more memory buys more layers in
+flight, exactly as far as the hardware ceiling allows, and the
+guardrails below are what make the dial safe to turn.
+
+**Hardware awareness is Mega Tensor's defining property.** A
+streaming engine is a tensor pipeline, and a tensor pipeline
+has to configure itself to the hardware it runs on. Every
+Tensor Handshake default (slots, fetch-ahead, prefetch
+distance, expand lanes) is derived from the machine underneath:
+core count and RAM today, structured so a GPU's memory can join
+the inputs when that lane exists. Overrides are range-checked
+against the same hardware, clamped loudly with the reason
+printed rather than honored into an allocation failure, and the
+startup line reports every effective value with its source, so
+a run on any machine confesses its own shape. The Tensor
+Handshake is the coordination protocol; hardware awareness is
+what the protocol serves.
 
 Measured load-path figures, same throttled bench:
 

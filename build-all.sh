@@ -14,5 +14,12 @@
 # Everything is C99 with no dependencies beyond the standard
 # library, libm, and pthreads.
 set -e
-./build.sh
+# Child scripts are invoked through sh, never executed
+# directly (ChatGPT Sol review H7, 2026-11-25): a tree that
+# passed through a channel which does not preserve file
+# modes (the GitHub connector's pushes carry none) leaves
+# every script at 644, and a direct ./build.sh then fails
+# with Permission denied despite the README's build claim.
+# Through sh, no execute bit is needed anywhere.
+sh ./build.sh
 echo "build-all: done (23 tools + Little Nemo)"

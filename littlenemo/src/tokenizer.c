@@ -225,6 +225,13 @@ struct nemo_tokenizer {
      * encoding the fixture suite is written against. */
     int use_split;
     int ignore_merges;
+    /* The file's added_tokens table as (content, id) pairs,
+     * for encode-time span extraction (Sol M1). The strings
+     * are owned by id_str (not duplicated, not freed here). */
+    const char **added_str;
+    int *added_id;
+    size_t *added_len;
+    int n_added;
 };
 
 /* The one Split pattern this engine implements: the
@@ -383,6 +390,15 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
         strcpy(tk->id_str[id], s);
         if (smap_put(&tk->vocab, s, id) != 0) goto fail;
     }
+    if (n_added > 0) {
+        tk->added_str = (const char **)calloc((size_t)n_added,
+                                              sizeof(char *));
+        tk->added_id = (int *)malloc((size_t)n_added * sizeof(int));
+        tk->added_len = (size_t *)malloc((size_t)n_added
+                                         * sizeof(size_t));
+        if (!tk->added_str || !tk->added_id || !tk->added_len)
+            goto fail;
+    }
     for (int i = 0; i < n_added; i++) {
         const nemo_json *a = added->items[i];
         const nemo_json *idj = nemo_json_get(a, "id");
@@ -397,6 +413,10 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
         }
         tk->is_special[id] = 1;
         if (smap_put(&tk->vocab, content->str, id) != 0) goto fail;
+        tk->added_str[tk->n_added] = tk->id_str[id];
+        tk->added_id[tk->n_added] = id;
+        tk->added_len[tk->n_added] = strlen(content->str);
+        tk->n_added++;
     }
     if (merges && merges->type == NEMO_JSON_ARR) {
         if (pmap_init(&tk->merges, map_cap_for(merges->count)) != 0)
@@ -448,6 +468,9 @@ void nemo_tokenizer_free(nemo_tokenizer *tk) {
         for (int i = 0; i < tk->n_ids; i++) free(tk->id_str[i]);
     free(tk->id_str);
     free(tk->is_special);
+    free(tk->added_str);    /* strings owned by id_str */
+    free(tk->added_id);
+    free(tk->added_len);
     free(tk);
 }
 
@@ -694,31 +717,27 @@ static int split_piece_len(const unsigned *cps, const int *cls,
     return 1;
 }
 
-int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
-                          int *ids_out, int max_ids) {
-    if (!tk || !utf8 || !ids_out || max_ids < 0) return -1;
-    size_t nbytes = strlen(utf8);
-    /* Independent work storage (Codex Astra review M-I4,
-     * 2026-11-25): the byte sequence can be longer than the
-     * caller's token budget because merging only shrinks it.
-     * The old code used the caller's buffer for the byte
-     * sequence and rejected any input whose BYTE count
-     * exceeded max_ids before BPE ran; the final token count
-     * is what must fit, and it is checked at the end. */
-    int *work = (int *)malloc((nbytes + 1) * sizeof(int));
-    if (!work) return -1;
-    int n = 0;
+/* Encode one span of raw text (no added tokens inside it)
+ * into work at *pn, advancing *pn. These are the whole-input
+ * paths factored to a byte span (Sol M1): the non-Split shape
+ * byte-maps and merges the span; the Split shape runs the
+ * pre-tokenizer over the span's code points and merges each
+ * piece. Merging is confined to the span's own segment. */
+static int encode_span(const nemo_tokenizer *tk, const char *utf8,
+                       size_t nbytes, int *work, int *pn) {
+    int n = *pn;
     if (!tk->use_split) {
         for (size_t i = 0; i < nbytes; i++) {
             char sym[4];
             int w = utf8_encode_cp(sym, byte_to_cp[(unsigned char)utf8[i]]);
             sym[w] = '\0';
             int id = smap_get(&tk->vocab, sym);
-            if (id < 0) { free(work); return -1; }
+            if (id < 0) return -1;
             work[n++] = id;
         }
-        n = bpe_merge(tk, work, n);
-        if (n < 0) { free(work); return -1; }
+        int merged = bpe_merge(tk, work + *pn, n - *pn);
+        if (merged < 0) return -1;
+        n = *pn + merged;
     } else {
         unsigned *cps = (unsigned *)malloc((nbytes + 1)
                                            * sizeof(unsigned));
@@ -726,7 +745,7 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
         size_t *coff = (size_t *)malloc((nbytes + 1)
                                         * sizeof(size_t));
         if (!cps || !cls || !coff) {
-            free(cps); free(cls); free(coff); free(work);
+            free(cps); free(cls); free(coff);
             return -1;
         }
         int ncp = 0;
@@ -778,7 +797,7 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
                     ci += plen_cp;
                     continue;
                 }
-                int pn = 0;
+                int pn2 = 0;
                 for (size_t k = b0; k < b1; k++) {
                     char sym[4];
                     int w = utf8_encode_cp(
@@ -786,17 +805,86 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
                     sym[w] = '\0';
                     int id = smap_get(&tk->vocab, sym);
                     if (id < 0) { failed = 1; break; }
-                    work[n + pn++] = id;
+                    work[n + pn2++] = id;
                 }
                 if (failed) break;
-                int merged = bpe_merge(tk, work + n, pn);
+                int merged = bpe_merge(tk, work + n, pn2);
                 if (merged < 0) { failed = 1; break; }
                 n += merged;
             }
             ci += plen_cp;
         }
         free(cps); free(cls); free(coff);
-        if (failed) { free(work); return -1; }
+        if (failed) return -1;
+    }
+    *pn = n;
+    return 0;
+}
+
+int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
+                          int *ids_out, int max_ids) {
+    if (!tk || !utf8 || !ids_out || max_ids < 0) return -1;
+    size_t nbytes = strlen(utf8);
+    /* Independent work storage (Codex Astra review M-I4,
+     * 2026-11-25): the byte sequence can be longer than the
+     * caller's token budget because merging only shrinks it.
+     * The old code used the caller's buffer for the byte
+     * sequence and rejected any input whose BYTE count
+     * exceeded max_ids before BPE ran; the final token count
+     * is what must fit, and it is checked at the end. Spans
+     * and extracted added tokens only shrink the count
+     * further: every emitted id consumes at least one input
+     * byte, so nbytes + 1 ints always suffice. */
+    int *work = (int *)malloc((nbytes + 1) * sizeof(int));
+    if (!work) return -1;
+    int n = 0;
+    /* Added-token extraction (ChatGPT Sol review M1,
+     * 2026-11-25). The reference tokenizer splits the input
+     * on the file's added_tokens before pre-tokenization:
+     * each occurrence is emitted as its own id and the text
+     * between occurrences is encoded as independent spans
+     * (verified against HF tokenizers 0.23.3 on the triage
+     * battery: "a<unk>b" -> [1097, 0, 1098]; tokens that are
+     * NOT in added_tokens, like <|im_start|>, are not split
+     * and go through ordinary BPE). The scan is left to
+     * right, longest match at each position. Byte-prefix
+     * matching is exact here: an added token's bytes can
+     * only begin at a code point boundary, because a UTF-8
+     * continuation byte never equals a token's leading byte
+     * in this table (all contents are ASCII-led). The
+     * table's lstrip/rstrip/single_word flags are all false
+     * in the shipped tokenizer.json; flags that would alter
+     * the extracted span boundaries are outside this
+     * contract and noted in the fix log. */
+    size_t span = 0, i = 0;
+    while (i < nbytes) {
+        int best = -1;
+        size_t best_len = 0;
+        for (int a = 0; a < tk->n_added; a++) {
+            size_t L = tk->added_len[a];
+            if (L > best_len && L <= nbytes - i
+                    && tk->added_str[a][0] == utf8[i]
+                    && memcmp(utf8 + i, tk->added_str[a], L) == 0) {
+                best = tk->added_id[a];
+                best_len = L;
+            }
+        }
+        if (best < 0) { i++; continue; }
+        if (i > span
+                && encode_span(tk, utf8 + span, i - span,
+                               work, &n) != 0) {
+            free(work);
+            return -1;
+        }
+        work[n++] = best;
+        i += best_len;
+        span = i;
+    }
+    if (nbytes > span
+            && encode_span(tk, utf8 + span, nbytes - span,
+                           work, &n) != 0) {
+        free(work);
+        return -1;
     }
     if (n > max_ids) { free(work); return -1; }
     memcpy(ids_out, work, (size_t)n * sizeof(int));

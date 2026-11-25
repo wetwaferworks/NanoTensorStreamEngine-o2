@@ -37,6 +37,7 @@
  */
 
 #define _POSIX_C_SOURCE 200809L
+#define _FILE_OFFSET_BITS 64 /* 64-bit off_t on Windows too */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -557,10 +558,35 @@ static int seek_to(FILE *f, uint64_t off)
 #endif
 }
 
+/* 64-bit position/size reads, the same discipline as seek_to.
+ * A plain long ftell narrows a stream above 2 GiB on Windows
+ * (Archie Round 3 P2-2, completing Codex M-P7, 2026-11-25). */
+static off_t tell_of(FILE *f)
+{
+#ifdef _WIN32
+    return (off_t)_ftelli64(f);
+#else
+    return ftello(f);
+#endif
+}
+
+static int seek_end(FILE *f)
+{
+#ifdef _WIN32
+    return _fseeki64(f, 0, SEEK_END);
+#else
+    return fseeko(f, 0, SEEK_END);
+#endif
+}
+
 /* Read elements [elem0, elem0+nelems) of a raw tensor as fp32. */
 static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
 {
+    /* Tensor-local bound (Sol H5): a range read may never
+     * leave the tensor it names. Without it, a short or
+     * misbound tensor's read runs into its neighbour's bytes. */
+    if (elem0 > t->count || nelems > t->count - elem0) return -1;
     int esz = t->dtype == DT_F32 ? 4 : 2;
     uint8_t *raw = (uint8_t *)malloc(nelems * (uint64_t)esz);
     if (!raw) return -1;
@@ -717,6 +743,10 @@ static int tensor_restored(const TEnt *t)
 static int src_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
 {
+    /* The shared range-read boundary enforces the tensor-local
+     * bound for the packed path too (Sol H5); the raw path
+     * re-checks it in raw_read_range. */
+    if (elem0 > t->count || nelems > t->count - elem0) return -1;
     if (!g_use_packed) return raw_read_range(t, elem0, nelems, out);
     if (tensor_restored(t)) return raw_read_range(t, elem0, nelems, out);
     /* The stream holds only whole blocks: elements past the last
@@ -774,7 +804,7 @@ static int packed_open(const char *stream_path, const char *book_path)
         return -1;
     }
     {
-        long hb = ftell(g_pk_stream);
+        off_t hb = tell_of(g_pk_stream);
         g_pk_header = hb > 0 ? (uint64_t)hb : 0;
     }
     /* Round 4 P0, read-integrity audit gap A: the header's
@@ -785,17 +815,17 @@ static int packed_open(const char *stream_path, const char *book_path)
     {
         if (g_pk_nblocks > (UINT64_MAX - g_pk_header) / 5)
             return -1;      /* header arithmetic would overflow */
-        long save = ftell(g_pk_stream);
-        if (save < 0 || fseek(g_pk_stream, 0, SEEK_END) != 0)
+        off_t save = tell_of(g_pk_stream);
+        if (save < 0 || seek_end(g_pk_stream) != 0)
             return -1;
-        long fsz = ftell(g_pk_stream);
-        if (fsz < 0 || fseek(g_pk_stream, save, SEEK_SET) != 0)
+        off_t fsz = tell_of(g_pk_stream);
+        if (fsz < 0 || seek_to(g_pk_stream, (uint64_t)save) != 0)
             return -1;
         uint64_t want = g_pk_header + 5 * g_pk_nblocks;
         if ((uint64_t)fsz != want) {
             fprintf(stderr, "packed stream size mismatch: file "
-                    "has %ld bytes, header describes %llu\n",
-                    fsz, (unsigned long long)want);
+                    "has %lld bytes, header describes %llu\n",
+                    (long long)fsz, (unsigned long long)want);
             return -1;
         }
     }
@@ -966,6 +996,60 @@ static const TEnt *ord_ent(int ord)
     char full[256];
     snprintf(full, sizeof(full), "encoder.layers.%d.%s", layer, names[slot]);
     return dir_find(full);
+}
+
+/* The architecture globals are defined in the model
+ * section below; tentative declarations so the shape
+ * validator can sit with the pipe code it guards.
+ * load_model fills them before the validator runs. */
+static int M_H, M_L, M_HEADS, M_KVHEADS, M_HD, M_FFN,
+    M_VOCAB;
+static TEnt *g_head_ent;
+
+/* Exact per-layer projection shapes, validated before any
+ * worker starts (Sol H5). The pipeline stages each projection
+ * into a shared slot buffer sized by the largest tensor, and
+ * the matmuls consume architecture-derived dimensions; before
+ * this check, a projection was verified only against the
+ * buffer capacity, so a short one left stale bytes in the
+ * reused buffer and a transposed same-count one passed every
+ * test. The architecture is derived from layer 0 and the
+ * embedding, so layer 0's row counts are the derivation
+ * itself; every other tensor, and every column count, is
+ * checked exactly here. The head is checked too: head_all
+ * tiles it as M_VOCAB rows of M_H. */
+static int validate_projection_shapes(void)
+{
+    int qdim = M_HEADS * M_HD, kv_dim = M_KVHEADS * M_HD;
+    for (int ord = 0; ord < M_L * SLOTS_PER_LAYER; ord++) {
+        const TEnt *t = ord_ent(ord);
+        int rows, cols;
+        if (!t) {
+            fprintf(stderr, "geometry: no tensor for ordinal "
+                    "%d\n", ord);
+            return -1;
+        }
+        switch (ord % SLOTS_PER_LAYER) {
+        case SLOT_Q: rows = qdim; cols = M_H; break;
+        case SLOT_K: case SLOT_V: rows = kv_dim; cols = M_H; break;
+        case SLOT_O: rows = M_H; cols = qdim; break;
+        case SLOT_GATE: case SLOT_UP: rows = M_FFN; cols = M_H; break;
+        default: rows = M_H; cols = M_FFN; break; /* SLOT_DOWN */
+        }
+        if (t->rows != rows || t->cols != cols) {
+            fprintf(stderr, "geometry: %s is %dx%d, the "
+                    "architecture requires %dx%d\n",
+                    t->name, t->rows, t->cols, rows, cols);
+            return -1;
+        }
+    }
+    if (!g_head_ent || g_head_ent->rows != M_VOCAB
+            || g_head_ent->cols != M_H) {
+        fprintf(stderr, "geometry: diffusion_head.weight must "
+                "be %dx%d\n", M_VOCAB, M_H);
+        return -1;
+    }
+    return 0;
 }
 
 static void pipe_load(int slot, int ord)
@@ -1962,6 +2046,7 @@ int main(int argc, char **argv)
         }
 
     int cap = plen + max_new + block + 8;
+    if (validate_projection_shapes() != 0) return 1;
     if (threads <= 0) threads = cpu_count();
     pool_init(threads);
     pipe_init(M_L);

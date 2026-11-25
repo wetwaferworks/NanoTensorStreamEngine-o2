@@ -255,12 +255,17 @@ typedef struct {
 } Row;
 
 /* Canonical shard order: by filename (the part after the last
- * '/'), ties broken by the full path. The same rule the
+ * '/' or '\\'), ties broken by the full path. The same rule the
  * quantizer now writes packs in and the inference engines
- * scan directories in (Codex Astra review H1, 2026-11-25). */
+ * scan directories in (Codex Astra review H1, 2026-11-25).
+ * Both separators count, matching the quantizer, so a Windows
+ * invocation spelled with native backslashes sorts by the
+ * same basenames (Archie Round 3 P2-1, 2026-11-25). */
 static const char *base_name(const char *p)
 {
     const char *s = strrchr(p, '/');
+    const char *b = strrchr(p, '\\');
+    if (b && (!s || b > s)) s = b;
     return s ? s + 1 : p;
 }
 

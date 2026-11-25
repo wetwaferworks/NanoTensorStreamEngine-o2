@@ -37,6 +37,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#ifdef _WIN32
+#include <process.h>    /* _getpid */
+#else
+#include <unistd.h>     /* getpid */
+#endif
 
 /* Seek to a 64-bit file offset. Plain fseek takes a long, which
  * is 32 bits wide on Windows, and the shards this tool reads run
@@ -556,6 +561,11 @@ typedef struct {
     uint64_t cursor;
     double err2, ref2;
     float *tmp;
+    /* First block whose serialized frame is not finite in
+     * float16 (Sol H8); the callers refuse publication. */
+    int frame_bad;
+    float bad_value;
+    uint64_t bad_block;
 } PackCtx;
 
 static void pack_fn(const float *raw, void *vctx)
@@ -568,6 +578,21 @@ static void pack_fn(const float *raw, void *vctx)
     ctx->idx[at] = (uint8_t)k;
     ctx->mn_h[at] = float_to_half(mn);
     ctx->sc_h[at] = float_to_half(sc);
+    /* The frame is what the format actually stores. A finite
+     * weight past the float16 range (or a non-finite source
+     * value) converts to an Inf/NaN half pattern, and the
+     * block would expand to NaNs while every tool downstream
+     * reports success (ChatGPT Sol review H8, 2026-11-25).
+     * Record the first offender; the callers check after the
+     * walk and refuse to publish. */
+    if (!ctx->frame_bad
+            && (((ctx->mn_h[at] & 0x7c00u) == 0x7c00u)
+                || ((ctx->sc_h[at] & 0x7c00u) == 0x7c00u))) {
+        ctx->frame_bad = 1;
+        ctx->bad_block = at;
+        ctx->bad_value = ((ctx->mn_h[at] & 0x7c00u) == 0x7c00u)
+                         ? mn : sc;
+    }
     /* Measure fidelity the way the runner will see it: frames
      * rounded to float16, prototype from the book. */
     float rmn = f16_to_float(ctx->mn_h[at]);
@@ -684,15 +709,122 @@ static int wr(FILE *f, const void *p, size_t sz, size_t n)
     return fwrite(p, sz, n, f) == n ? 0 : -1;
 }
 
+/* Publish a fully written staging file over its destination.
+ * POSIX rename() replaces an existing destination atomically.
+ * Windows rename() (MoveFileA without MOVEFILE_REPLACE_EXISTING)
+ * fails with EEXIST when the destination already exists, so a
+ * re-pack over an existing prefix could never publish (Archie
+ * Round 3 P1-WIN, 2026-11-25). On Windows the destination is
+ * removed first; that leaves a small non-atomic window where
+ * the destination is briefly absent, the accepted platform
+ * trade-off. The H6 guarantee is unchanged in the part that
+ * matters: staging writes are fully checked before this is
+ * called, so a failed write still publishes nothing. */
+static int publish_file(const char *tmp, const char *dst)
+{
+#ifdef _WIN32
+    remove(dst); /* Windows rename() fails with EEXIST if dst exists */
+#endif
+    return rename(tmp, dst);
+}
+
+/* Per-writer identity for staging and backup names (Sol H4):
+ * two quantizer runs aimed at the same prefix must not share
+ * staging files, or each can publish the other's half pair. */
+static long writer_pid(void)
+{
+#ifdef _WIN32
+    return (long)_getpid();
+#else
+    return (long)getpid();
+#endif
+}
+
+static int path_exists(const char *p)
+{
+    FILE *f = fopen(p, "rb");
+    if (f) { fclose(f); return 1; }
+    return 0;
+}
+
+/* Publish a staged pair (book, stream) as one commit (Sol
+ * H4). Publishing the book and then the stream with no commit
+ * point can leave a new book beside an old stream, and the
+ * readers validate the pair on geometry only, so a mixed
+ * generation of the same geometry reads silently. Within the
+ * current format the commit is a rename sequence: the old
+ * pair is first moved aside to per-writer backup names, then
+ * both staging files are renamed in; if the second rename
+ * fails, the new book is unpublished and the backups are
+ * restored, so the prefix names either the whole old pair or
+ * the whole new pair, never a mixture. If a rollback rename
+ * itself fails, the backups are left in place and named in
+ * the error. True generation pairing inside the files needs
+ * a format change and is flagged for JD with the H3b design
+ * options, not invented here. */
+static int publish_pair(const char *book_tmp, const char *stream_tmp,
+                        const char *book_dst, const char *stream_dst)
+{
+    char book_bak[1088], stream_bak[1088];
+    long pid = writer_pid();
+    snprintf(book_bak, sizeof(book_bak), "%s.bak-%ld",
+             book_dst, pid);
+    snprintf(stream_bak, sizeof(stream_bak), "%s.bak-%ld",
+             stream_dst, pid);
+    int have_book_bak = 0, have_stream_bak = 0;
+    remove(book_bak);
+    remove(stream_bak);
+    if (rename(book_dst, book_bak) == 0) have_book_bak = 1;
+    else if (path_exists(book_dst)) {
+        fprintf(stderr, "cannot move %s aside for the pair "
+                "publish; nothing published\n", book_dst);
+        return -1;
+    }
+    if (rename(stream_dst, stream_bak) == 0) have_stream_bak = 1;
+    else if (path_exists(stream_dst)) {
+        fprintf(stderr, "cannot move %s aside for the pair "
+                "publish; nothing published\n", stream_dst);
+        if (have_book_bak) rename(book_bak, book_dst);
+        return -1;
+    }
+    if (publish_file(book_tmp, book_dst) != 0) {
+        if (have_book_bak && rename(book_bak, book_dst) != 0)
+            fprintf(stderr, "rollback failed: previous book "
+                    "left at %s\n", book_bak);
+        if (have_stream_bak && rename(stream_bak, stream_dst) != 0)
+            fprintf(stderr, "rollback failed: previous stream "
+                    "left at %s\n", stream_bak);
+        return -1;
+    }
+    if (publish_file(stream_tmp, stream_dst) != 0) {
+        remove(book_dst); /* unpublish the new book */
+        if (have_book_bak && rename(book_bak, book_dst) != 0)
+            fprintf(stderr, "rollback failed: previous book "
+                    "left at %s\n", book_bak);
+        if (have_stream_bak && rename(stream_bak, stream_dst) != 0)
+            fprintf(stderr, "rollback failed: previous stream "
+                    "left at %s\n", stream_bak);
+        return -1;
+    }
+    if (have_book_bak) remove(book_bak);
+    if (have_stream_bak) remove(stream_bak);
+    return 0;
+}
+
 /* Canonical shard order: by filename (the part after the last
- * '/'), ties broken by the full path. The readers (all four
- * inference engines, the runner, the error probe) bind the
- * packed stream to directory tensors in this order, so the
+ * '/' or '\\'), ties broken by the full path. The readers (all
+ * four inference engines, the runner, the error probe) bind
+ * the packed stream to directory tensors in this order, so the
  * writer must serialize in it too, whatever order the shards
- * were passed in (Codex Astra review H1, 2026-11-25). */
+ * were passed in (Codex Astra review H1, 2026-11-25). Both
+ * separators count: a Windows invocation spelled with native
+ * backslashes must sort by the same basenames as one spelled
+ * with slashes (Archie Round 3 P2-1, 2026-11-25). */
 static const char *base_name(const char *p)
 {
     const char *s = strrchr(p, '/');
+    const char *b = strrchr(p, '\\');
+    if (b && (!s || b > s)) s = b;
     return s ? s + 1 : p;
 }
 
@@ -846,6 +978,16 @@ int main(int argc, char **argv)
             pctx.cent = cent;
             double e0 = pctx.err2, r0 = pctx.ref2;
             walk_one_tensor(s, block, pack_fn, &pctx);
+            if (pctx.frame_bad) {
+                fprintf(stderr, "tensor %s, block %llu: frame "
+                        "value %g is not representable in "
+                        "float16; refusing to publish a pack "
+                        "with non-finite frames (Sol H8)\n",
+                        ti->name,
+                        (unsigned long long)pctx.bad_block,
+                        (double)pctx.bad_value);
+                return 1;
+            }
             terr[s] = pctx.err2 - e0;
             tref[s] = pctx.ref2 - r0;
             printf("  tensor relative L2: %.4f\n",
@@ -903,8 +1045,8 @@ int main(int argc, char **argv)
         uint32_t version = 2;
         uint32_t n_books = (uint32_t)g_n_scope;
         int bad = 0;
-        snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.tmp",
-                 out_prefix);
+        snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.%ld.tmp",
+                 out_prefix, writer_pid());
         FILE *bf = fopen(book_tmp, "wb");
         if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
         bad |= wr(bf, "NQ2B", 1, 4);
@@ -922,8 +1064,8 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.tmp",
-                 out_prefix);
+        snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.%ld.tmp",
+                 out_prefix, writer_pid());
         FILE *sf = fopen(stream_tmp, "wb");
         if (!sf) {
             fprintf(stderr, "cannot write %s\n", stream_tmp);
@@ -949,19 +1091,22 @@ int main(int argc, char **argv)
             remove(book_tmp);
             return 1;
         }
-        /* Both artifacts are complete on disc; publish the pair. */
-        snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
-        if (rename(book_tmp, pathbuf) != 0) {
-            fprintf(stderr, "cannot publish %s\n", pathbuf);
-            remove(book_tmp);
-            remove(stream_tmp);
-            return 1;
-        }
-        snprintf(pathbuf, sizeof(pathbuf), "%s.nq2", out_prefix);
-        if (rename(stream_tmp, pathbuf) != 0) {
-            fprintf(stderr, "cannot publish %s\n", pathbuf);
-            remove(stream_tmp);
-            return 1;
+        /* Both artifacts are complete on disc; publish the
+         * pair as one commit (publish_pair, Sol H4). */
+        {
+            char book_dst[1024], stream_dst[1024];
+            snprintf(book_dst, sizeof(book_dst), "%s.nq2book",
+                     out_prefix);
+            snprintf(stream_dst, sizeof(stream_dst), "%s.nq2",
+                     out_prefix);
+            if (publish_pair(book_tmp, stream_tmp,
+                             book_dst, stream_dst) != 0) {
+                fprintf(stderr, "cannot publish %s pair\n",
+                        out_prefix);
+                remove(book_tmp);
+                remove(stream_tmp);
+                return 1;
+            }
         }
 
         uint64_t book_bytes = 20 + (uint64_t)g_n_scope * entries * block * 4;
@@ -1055,6 +1200,14 @@ int main(int argc, char **argv)
     }
     pctx.tmp = tmp;
     walk_blocks(block, pack_fn, &pctx);
+    if (pctx.frame_bad) {
+        fprintf(stderr, "block %llu: frame value %g is not "
+                "representable in float16; refusing to publish "
+                "a pack with non-finite frames (Sol H8)\n",
+                (unsigned long long)pctx.bad_block,
+                (double)pctx.bad_value);
+        return 1;
+    }
     double rel_l2 = pctx.ref2 > 0 ? dsqrt(pctx.err2 / pctx.ref2) : 0.0;
     printf("packed %llu blocks; relative L2 error %.4f\n",
            (unsigned long long)pctx.cursor, rel_l2);
@@ -1063,7 +1216,8 @@ int main(int argc, char **argv)
      * checked (H6; see wr() above). */
     char pathbuf[1024], book_tmp[1088], stream_tmp[1088];
     int bad = 0;
-    snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.tmp", out_prefix);
+    snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.%ld.tmp",
+             out_prefix, writer_pid());
     FILE *bf = fopen(book_tmp, "wb");
     if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
     bad |= wr(bf, "NQ2B", 1, 4);
@@ -1078,7 +1232,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.tmp", out_prefix);
+    snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.%ld.tmp",
+             out_prefix, writer_pid());
     FILE *sf = fopen(stream_tmp, "wb");
     if (!sf) {
         fprintf(stderr, "cannot write %s\n", stream_tmp);
@@ -1103,18 +1258,20 @@ int main(int argc, char **argv)
         remove(book_tmp);
         return 1;
     }
-    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2book", out_prefix);
-    if (rename(book_tmp, pathbuf) != 0) {
-        fprintf(stderr, "cannot publish %s\n", pathbuf);
-        remove(book_tmp);
-        remove(stream_tmp);
-        return 1;
-    }
-    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2", out_prefix);
-    if (rename(stream_tmp, pathbuf) != 0) {
-        fprintf(stderr, "cannot publish %s\n", pathbuf);
-        remove(stream_tmp);
-        return 1;
+    /* Publish the pair as one commit (publish_pair, Sol H4). */
+    {
+        char book_dst[1024], stream_dst[1024];
+        snprintf(book_dst, sizeof(book_dst), "%s.nq2book",
+                 out_prefix);
+        snprintf(stream_dst, sizeof(stream_dst), "%s.nq2",
+                 out_prefix);
+        if (publish_pair(book_tmp, stream_tmp,
+                         book_dst, stream_dst) != 0) {
+            fprintf(stderr, "cannot publish %s pair\n", out_prefix);
+            remove(book_tmp);
+            remove(stream_tmp);
+            return 1;
+        }
     }
 
     uint64_t book_bytes = 12 + (uint64_t)entries * block * 4;

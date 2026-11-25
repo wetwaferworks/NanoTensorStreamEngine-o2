@@ -18,6 +18,13 @@
 #define NEMO_HAVE_AVX2 1
 #include <immintrin.h>
 
+/* The dispatch counter is incremented from pool worker
+ * threads concurrently; a plain unsigned long loses
+ * increments to the read-modify-write race (ChatGPT Sol
+ * review H6, 2026-11-25). It is updated and read only
+ * through the __atomic builtins with relaxed ordering: the
+ * count is an observation, not a synchronization point, and
+ * the builtins keep this unit C99 (no <stdatomic.h>). */
 static unsigned long g_kernel_calls = 0;
 
 static void rows_avx2(const uint16_t *W, const float *x, float *y,
@@ -58,7 +65,7 @@ static void rows_avx2(const uint16_t *W, const float *x, float *y,
  * entry point selected the kernel" is observable only here. */
 unsigned long nemo_simd_kernel_calls(void) {
 #if defined(NEMO_HAVE_AVX2)
-    return g_kernel_calls;
+    return __atomic_load_n(&g_kernel_calls, __ATOMIC_RELAXED);
 #else
     return 0;
 #endif
@@ -69,7 +76,7 @@ void nemo_linear_bf16_rows_simd(const uint16_t *W, const float *x, float *y,
     if (in <= 0) return;
 #if defined(NEMO_HAVE_AVX2)
     if (nemo_simd_available()) {
-        g_kernel_calls++;
+        __atomic_fetch_add(&g_kernel_calls, 1, __ATOMIC_RELAXED);
         rows_avx2(W, x, y, begin, end, in);
         return;
     }

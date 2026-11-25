@@ -297,6 +297,8 @@ typedef struct {
     int max_new;
     int eos_id;
     uint64_t bytes_tok;
+    uint64_t head_bytes; /* lm_head.weight: in bytes_tok, but the
+                          * hidden-only commit never reads it */
     char *pending_cmd; /* command read while generating (STOP handled) */
 } engine;
 
@@ -385,6 +387,8 @@ static void run_turn(engine *e, const char *prompt_text) {
     int generated = 0;
     double gen_ms = 0.0;
     int stopped = 0;
+    int capped_commit = 0; /* the cap token was committed
+                            * hidden-only inside its iteration */
     /* Whether the last emitted token has been stepped into the
      * model state, and which token it was (Codex Astra review
      * H7, 2026-11-25). */
@@ -411,31 +415,52 @@ static void run_turn(engine *e, const char *prompt_text) {
         }
         /* Step the chosen token to produce the next logits. At
          * the cap there is no next token to produce, so the
-         * step is deferred to the hidden-only commit after the
-         * loop: the emitted token must still enter the state,
-         * or the next turn is conditioned as if this turn's
-         * last token had never been said, while the transcript
-         * shows it. (The earlier rationale here was inverted:
-         * stepping an emitted token is precisely how the state
-         * comes to include it.) */
-        if (generated < e->max_new &&
-            nemo_model_step(e->model, next, logits) != 0) {
-            nemo_model_reset(e->model);
-            printf("ERROR forward pass failed during generation; "
-                   "state reset\n");
-            fflush(stdout);
-            free(logits);
-            free(hidden);
-            return;
+         * token is committed hidden-only instead: the emitted
+         * token must still enter the state, or the next turn
+         * is conditioned as if this turn's last token had
+         * never been said, while the transcript shows it. The
+         * commit happens INSIDE this timed iteration (Sol
+         * M4): it used to run after the loop, outside gen_ms,
+         * so the generation span never paid for work it
+         * caused, and the byte charge below now matches what
+         * each step actually reads... the hidden-only commit
+         * never reads lm_head. */
+        if (generated < e->max_new) {
+            if (nemo_model_step(e->model, next, logits) != 0) {
+                nemo_model_reset(e->model);
+                printf("ERROR forward pass failed during generation; "
+                       "state reset\n");
+                fflush(stdout);
+                free(logits);
+                free(hidden);
+                return;
+            }
+            last_committed = 1;
+        } else {
+            if (nemo_model_step_hidden(e->model, next, hidden) != 0) {
+                nemo_model_reset(e->model);
+                printf("ERROR forward pass failed committing the "
+                       "final token; state reset\n");
+                fflush(stdout);
+                free(logits);
+                free(hidden);
+                return;
+            }
+            last_committed = 1;
+            capped_commit = 1;
         }
-        if (generated < e->max_new) last_committed = 1;
         double ms = now_ms() - t0;
         gen_ms += ms;
-        printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d "
-               "ms_tok=%.1f gbs=%.3f\n",
-               sp.thinking ? "thinking" : "answering",
-               e->model->layer_limit - 1, generated, ms,
-               ms > 0 ? (double)e->bytes_tok / (ms / 1000.0) / 1e9 : 0.0);
+        {
+            uint64_t charged = capped_commit
+                && generated == e->max_new
+                    ? e->bytes_tok - e->head_bytes : e->bytes_tok;
+            printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d "
+                   "ms_tok=%.1f gbs=%.3f\n",
+                   sp.thinking ? "thinking" : "answering",
+                   e->model->layer_limit - 1, generated, ms,
+                   ms > 0 ? (double)charged / (ms / 1000.0) / 1e9 : 0.0);
+        }
         fflush(stdout);
         if (poll_command(e)) {
             if (e->pending_cmd &&
@@ -449,22 +474,14 @@ static void run_turn(engine *e, const char *prompt_text) {
         }
     }
     (void)stopped;
-    /* Commit the final emitted token (H7): at the cap it was
-     * never stepped, so step it now with the hidden-only step,
-     * which advances KV/SSM state and position without needing
-     * logits nobody will read. The transcript and the model
-     * state then agree about what was said. */
-    if (!last_committed && last_token >= 0) {
-        if (nemo_model_step_hidden(e->model, last_token, hidden) != 0) {
-            nemo_model_reset(e->model);
-            printf("ERROR forward pass failed committing the "
-                   "final token; state reset\n");
-            fflush(stdout);
-            free(logits);
-            free(hidden);
-            return;
-        }
-    }
+    /* The final emitted token is always committed by the time
+     * the loop ends (H7's invariant, kept): at the cap its
+     * hidden-only commit now runs inside the last timed
+     * iteration (Sol M4), so there is no post-loop commit left
+     * to make. last_committed/last_token remain as the
+     * loop's record of that invariant. */
+    (void)last_committed;
+    (void)last_token;
     split_flush(&sp, 1);
     double total_ms = now_ms() - turn_t0;
     printf("STATS tokens=%d ms=%.0f tps=%.3f ms_per_tok=%.1f "
@@ -473,7 +490,9 @@ static void run_turn(engine *e, const char *prompt_text) {
            gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0,
            generated ? gen_ms / generated : 0.0,
            gen_ms > 0
-               ? (double)e->bytes_tok * generated / (gen_ms / 1000.0) / 1e9
+               ? ((double)e->bytes_tok * generated
+                  - (capped_commit ? (double)e->head_bytes : 0.0))
+                     / (gen_ms / 1000.0) / 1e9
                : 0.0,
            peak_kb() / 1024.0);
     printf("DONE\n");
@@ -639,6 +658,7 @@ int main(int argc, char **argv) {
     e.eos_id = nemo_tokenizer_special(tk, "<|end_of_text|>");
     if (e.eos_id < 0) e.eos_id = 12; /* arch study: EOS 12 */
     e.bytes_tok = bytes_per_token(&cp, model.layer_limit);
+    e.head_bytes = tensor_bytes(&cp, "lm_head.weight");
     printf("READY nemo-engine 2 model=Nemotron-Nano-9B-v2 weights=raw "
            "layers=%d cores=%d threads=%d mode=%s simd=%d\n",
            model.layer_limit, cores, model.nthreads,

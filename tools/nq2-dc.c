@@ -373,7 +373,10 @@ int main(int argc, char **argv)
     /* pack into memory */
     FILE *sf = fopen(argv[1], "rb");
     if (!sf) { fprintf(stderr, "cannot open %s\n", argv[1]); return 1; }
-    fseek(sf, 0, SEEK_END); long ssz = ftell(sf); fseek(sf, 0, SEEK_SET);
+    /* Size kept in off_t: a long ftell narrows a stream above
+     * 2 GiB on Windows (Archie Round 3 P2-2, 2026-11-25). */
+    fseeko(sf, 0, SEEK_END); off_t ssz = ftello(sf); fseeko(sf, 0, SEEK_SET);
+    if (ssz < 0) { fprintf(stderr, "cannot size %s\n", argv[1]); return 1; }
     uint8_t *stream = (uint8_t *)malloc((size_t)ssz);
     if (!stream || fread(stream, 1, (size_t)ssz, sf) != (size_t)ssz) return 1;
     fclose(sf);
@@ -399,8 +402,8 @@ int main(int argc, char **argv)
     }
     if (n_blocks > (UINT64_MAX - 32) / 5
         || (uint64_t)ssz != 32 + 5 * n_blocks) {
-        fprintf(stderr, "nq2-dc: reject: stream size %ld does not "
-                "equal header + 5 * n_blocks (%llu)\n", ssz,
+        fprintf(stderr, "nq2-dc: reject: stream size %lld does not "
+                "equal header + 5 * n_blocks (%llu)\n", (long long)ssz,
                 (unsigned long long)n_blocks);
         return 1;
     }
@@ -409,13 +412,14 @@ int main(int argc, char **argv)
     const uint8_t *sc_sec = stream + 32 + 3 * n_blocks;
     FILE *bf = fopen(argv[2], "rb");
     if (!bf) { fprintf(stderr, "cannot open %s\n", argv[2]); return 1; }
-    fseek(bf, 0, SEEK_END); long bsz = ftell(bf); fseek(bf, 0, SEEK_SET);
+    fseeko(bf, 0, SEEK_END); off_t bsz = ftello(bf); fseeko(bf, 0, SEEK_SET);
+    if (bsz < 0) { fprintf(stderr, "cannot size %s\n", argv[2]); return 1; }
     uint8_t *bookf = (uint8_t *)malloc((size_t)bsz);
     if (!bookf || fread(bookf, 1, (size_t)bsz, bf) != (size_t)bsz) return 1;
     fclose(bf);
     if ((uint64_t)bsz != 12 + (uint64_t)entries * block * 4) {
-        fprintf(stderr, "nq2-dc: reject: book size %ld does not "
-                "equal 12 + entries * block * 4\n", bsz);
+        fprintf(stderr, "nq2-dc: reject: book size %lld does not "
+                "equal 12 + entries * block * 4\n", (long long)bsz);
         free(stream); free(bookf);
         return 1;
     }

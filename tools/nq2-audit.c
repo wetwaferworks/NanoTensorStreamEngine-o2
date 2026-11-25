@@ -97,10 +97,79 @@ int main(int argc, char **argv)
     }
     uint64_t header_bytes = (uint64_t)ftello(sf);
     uint64_t stream_bytes = file_size(sf);
+    /* The stream must contain the complete frame payload
+     * (Sol M10): one index byte plus the 4-byte fp16 frame
+     * per block, after the header. The audit reads only the
+     * index bytes, so a stream truncated inside the frames
+     * used to pass while no engine could expand it. */
+    if (stream_bytes != header_bytes + n_blocks * 5) {
+        fprintf(stderr, "%s: stream is %llu bytes; header plus "
+                "%llu blocks of index+frame require %llu\n",
+                argv[1], (unsigned long long)stream_bytes,
+                (unsigned long long)n_blocks,
+                (unsigned long long)(header_bytes + n_blocks * 5));
+        return 1;
+    }
 
     FILE *bf = fopen(argv[2], "rb");
     if (!bf) { fprintf(stderr, "cannot open %s\n", argv[2]); return 1; }
     uint64_t book_bytes = file_size(bf);
+    /* Structural validation of the book (Sol M10): existence
+     * used to be the only check, so an unrelated or incomplete
+     * file passed the audit and its size was charged against
+     * this stream. The book must carry the NQ2B magic, agree
+     * with the stream on the whole geometry (version, block,
+     * entries, book count... the same fields the engines
+     * cross-check in packed_open), and be exactly the size
+     * that geometry implies. */
+    {
+        char bmagic[4];
+        uint64_t want_bytes;
+        if (book_bytes < 12 || fseeko(bf, 0, SEEK_SET) != 0
+                || fread(bmagic, 1, 4, bf) != 4
+                || memcmp(bmagic, "NQ2B", 4) != 0) {
+            fprintf(stderr, "%s: not a NanoQuatTwo book "
+                    "(bad magic)\n", argv[2]);
+            return 1;
+        }
+        if (version == 2) {
+            uint32_t bver = rd_u32(bf);
+            uint32_t b_block = rd_u32(bf);
+            uint32_t b_entries = rd_u32(bf);
+            uint32_t b_books = rd_u32(bf);
+            if (bver != 2 || b_block != block
+                    || b_entries != entries || b_books != n_books) {
+                fprintf(stderr, "%s: book header (v%u, block "
+                        "%u, entries %u, books %u) disagrees "
+                        "with the stream (v%u, block %u, "
+                        "entries %u, books %u)\n",
+                        argv[2], bver, b_block, b_entries,
+                        b_books, version, block, entries, n_books);
+                return 1;
+            }
+            want_bytes = 20 + (uint64_t)n_books * entries
+                       * block * 4;
+        } else {
+            uint32_t b_block = rd_u32(bf);
+            uint32_t b_entries = rd_u32(bf);
+            if (b_block != block || b_entries != entries) {
+                fprintf(stderr, "%s: book header (block %u, "
+                        "entries %u) disagrees with the stream "
+                        "(block %u, entries %u)\n",
+                        argv[2], b_block, b_entries, block,
+                        entries);
+                return 1;
+            }
+            want_bytes = 12 + (uint64_t)entries * block * 4;
+        }
+        if (book_bytes != want_bytes) {
+            fprintf(stderr, "%s: book is %llu bytes; its "
+                    "geometry requires %llu\n",
+                    argv[2], (unsigned long long)book_bytes,
+                    (unsigned long long)want_bytes);
+            return 1;
+        }
+    }
     fclose(bf);
 
     uint64_t prog_bytes = 0;

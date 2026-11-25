@@ -50,6 +50,29 @@ static uint32_t rd32(const uint8_t *p)
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
          | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+/* Canonical shard order: by filename (the part after the last
+ * '/' or '\\'), ties broken by the full path. The quantizer
+ * writes packs in this order and the engines bind packs to
+ * directory tensors in it; streamtest assigns each tensor's
+ * block0 cumulatively in scan order, so its shard list is
+ * sorted into the same order before scanning (Archie Round 3
+ * P2-1 parenthetical, sustained in triage, 2026-11-25). */
+static const char *base_name(const char *p)
+{
+    const char *s = strrchr(p, '/');
+    const char *b = strrchr(p, '\\');
+    if (b && (!s || b > s)) s = b;
+    return s ? s + 1 : p;
+}
+
+static int cmp_shard_arg(const void *a, const void *b)
+{
+    const char *pa = *(const char *const *)a;
+    const char *pb = *(const char *const *)b;
+    int c = strcmp(base_name(pa), base_name(pb));
+    return c ? c : strcmp(pa, pb);
+}
+
 static uint64_t rd64(const uint8_t *p)
 {
     uint64_t v = 0;
@@ -386,6 +409,9 @@ int main(int argc, char **argv)
                 "[--prefetch-dist N] [--layers N]\n");
         return 1;
     }
+    /* Canonical shard order, matching the writer and the
+     * engines, whatever order the shards were passed in. */
+    qsort(shards, (size_t)n_shards, sizeof(shards[0]), cmp_shard_arg);
     /* pack header */
     g_stream = fopen(pack, "rb");
     if (!g_stream) { fprintf(stderr, "cannot open pack\n"); return 1; }
@@ -438,10 +464,11 @@ int main(int argc, char **argv)
             g_demand[g_nord++] = t;
         }
     }
-    uint64_t max_elems = 0, tot_w = 0;
+    uint64_t max_elems = 0, tot_w = 0, tot_packed = 0;
     for (int o = 0; o < g_nord; o++) {
         if (g_demand[o]->count > max_elems) max_elems = g_demand[o]->count;
         tot_w += g_demand[o]->count;
+        tot_packed += g_demand[o]->nblocks * g_block;
     }
     {
         uint64_t tail_w = 0;
@@ -466,8 +493,11 @@ int main(int argc, char **argv)
     P.weights = tot_w;
 
     printf("streamtest: %d tensors in forward order, %llu weights "
-           "(%.2f GB expanded)\n", g_nord,
-           (unsigned long long)tot_w, (double)tot_w * 4.0 / 1e9);
+           "(%.2f GB expanded); packed extent %llu weights "
+           "(%.2f GB)\n", g_nord,
+           (unsigned long long)tot_w, (double)tot_w * 4.0 / 1e9,
+           (unsigned long long)tot_packed,
+           (double)tot_packed * 4.0 / 1e9);
     printf("config: unpackers %d, lookahead %d, slots %d, variant %d\n",
            unpackers, g_lookahead, SLOTS, g_variant);
 
@@ -540,8 +570,14 @@ int main(int argc, char **argv)
         for (int u = 0; u < unpackers && u < 4; u++) pthread_join(uth[u], NULL);
     }
     double wall = now_s() - wall0;
+    /* The expanded rate is computed from the packed extent
+     * (Sol M9): the raw count includes tail elements the pack
+     * never produces and the pipeline never expands, so
+     * dividing by it overstated the rate. The accumulator is
+     * untouched: this is accounting only. */
     printf("wall: %.2f s; expanded rate: %.1f M weights/sec (%.0f MB/sec)\n",
-           wall, (double)tot_w / wall / 1e6, (double)tot_w * 4.0 / wall / 1e6);
+           wall, (double)tot_packed / wall / 1e6,
+           (double)tot_packed * 4.0 / wall / 1e6);
     printf("disc busy: %.2f s; unpack busy (summed): %.2f s; "
            "main busy: %.2f s; main stall: %.2f s (%.1f%% of wall)\n",
            P.disc_busy, P.unpack_busy, P.main_busy, P.main_stall,
