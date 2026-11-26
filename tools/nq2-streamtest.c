@@ -37,6 +37,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <time.h>
+#include "nq2-handshake.h" /* Tensor Handshake: zero mutex */
 
 static double now_s(void)
 {
@@ -187,9 +188,18 @@ typedef struct {
     int consumed;              /* main loop progress (ordinal) */
     int fetched;               /* disc loop progress */
     int stop;
-    pthread_mutex_t lock;
-    pthread_cond_t cv;
-    /* stats */
+    /* Tensor Handshake door (zero mutex, 2026-11-26): replaces
+     * the lock and condvar. Each field above has one writer
+     * (staged/fetched: the disc loop; claimed: whichever
+     * unpacker wins the compare-and-swap, and it is never
+     * cleared; ready: the claim holder; consumed: the main
+     * loop), published with release stores; every change bumps
+     * the door. */
+    uint32_t door;
+    /* stats: disc_busy is the disc loop's, unpack_busy_u[u] is
+     * unpacker u's, main_* the main loop's; unpack_busy is the
+     * fixed-order reduce after the join. */
+    double unpack_busy_u[4];
     double disc_busy, unpack_busy, main_stall, main_busy;
     uint64_t bytes_packed, weights;
 } Pipe;
@@ -339,76 +349,79 @@ static void *disc_loop(void *unused)
     (void)unused;
     for (int ord = 0; ord < g_nord; ord++) {
         /* lookahead gate: never run more than g_lookahead ahead
-         * of consumption; this is the prefetch + predictive grab */
-        pthread_mutex_lock(&P.lock);
-        while (!P.stop && ord - P.consumed >= g_lookahead)
-            pthread_cond_wait(&P.cv, &P.lock);
-        pthread_mutex_unlock(&P.lock);
-        if (P.stop) return NULL;
+         * of consumption; this is the prefetch + predictive grab.
+         * "Can I tick?" is asked of the main loop's consume
+         * counter. */
+        for (;;) {
+            uint32_t d = hs_door_open(&P.door);
+            if (HS_LD(&P.stop)) return NULL;
+            if (ord - HS_LD(&P.consumed) < g_lookahead) break;
+            hs_door_wait(&P.door, d);
+        }
         double t0 = now_s();
         uint8_t *idx; uint16_t *fr;
         if (read_tensor_raw(ord, &idx, &fr) != 0) {
             /* M-P8: stop the whole pipeline; main reports the
              * recorded shortfall and exits nonzero. */
-            pthread_mutex_lock(&P.lock);
-            P.stop = 1;
-            pthread_cond_broadcast(&P.cv);
-            pthread_mutex_unlock(&P.lock);
+            HS_ST(&P.stop, 1);
+            hs_door_bump(&P.door);
             return NULL;
         }
         double dt = now_s() - t0;
-        pthread_mutex_lock(&P.lock);
         P.stage_idx[ord] = idx;
         P.stage_fr[ord] = fr;
-        P.staged[ord] = 1;
-        P.fetched = ord + 1;
         P.disc_busy += dt;
         P.bytes_packed += g_demand[ord]->nblocks * 5;
-        pthread_cond_broadcast(&P.cv);
-        pthread_mutex_unlock(&P.lock);
+        HS_ST(&P.staged[ord], 1);       /* publishes the stage */
+        HS_ST(&P.fetched, ord + 1);
+        hs_door_bump(&P.door);
     }
     return NULL;
 }
 
-static void *unpack_loop(void *unused)
+static void *unpack_loop(void *arg)
 {
-    (void)unused;
+    int me = (int)(intptr_t)arg;
     for (;;) {
-        pthread_mutex_lock(&P.lock);
         int ord = -1;
         for (;;) {
-            if (P.stop) { pthread_mutex_unlock(&P.lock); return NULL; }
+            uint32_t d = hs_door_open(&P.door);
+            if (HS_LD(&P.stop)) return NULL;
+            int consumed = HS_LD(&P.consumed);
             /* claim the lowest staged, unclaimed ordinal whose
              * slot is free (its previous tenant consumed) */
             for (int o = 0; o < g_nord; o++) {
-                if (P.staged[o] && !P.claimed[o] && !P.ready[o]
-                        && o - P.consumed < SLOTS + g_lookahead) {
+                if (HS_LD(&P.staged[o]) && !HS_LD(&P.claimed[o])
+                        && !HS_LD(&P.ready[o])
+                        && o - consumed < SLOTS + g_lookahead) {
                     /* slot safety: the slot holds ord-SLOTS until
                      * consumed; require o - SLOTS < consumed or
                      * that ordinal already consumed */
-                    if (o < SLOTS || P.consumed > o - SLOTS) { ord = o; break; }
+                    if (o < SLOTS || consumed > o - SLOTS) {
+                        if (hs_cas_int(&P.claimed[o], 0, 1)) {
+                            ord = o;
+                            break;
+                        }
+                    }
                 }
             }
             if (ord >= 0) break;
-            if (P.consumed >= g_nord) { pthread_mutex_unlock(&P.lock); return NULL; }
-            pthread_cond_wait(&P.cv, &P.lock);
+            if (consumed >= g_nord) return NULL;
+            hs_door_wait(&P.door, d);
         }
-        P.claimed[ord] = 1;
         uint8_t *idx = P.stage_idx[ord];
         uint16_t *fr = P.stage_fr[ord];
         float *dst = P.slot_buf[ord % SLOTS];
-        pthread_mutex_unlock(&P.lock);
         double t0 = now_s();
         unpack_tensor(ord, idx, fr, dst);
         double dt = now_s() - t0;
         free(idx); free(fr);
-        pthread_mutex_lock(&P.lock);
-        P.unpack_busy += dt;
-        P.ready[ord] = 1;
-        pthread_cond_broadcast(&P.cv);
-        pthread_mutex_unlock(&P.lock);
+        P.unpack_busy_u[me] += dt;
+        HS_ST(&P.ready[ord], 1);        /* publishes the slot */
+        hs_door_bump(&P.door);
     }
 }
+
 
 static double compute_tensor(const float *w, uint64_t n)
 {
@@ -561,8 +574,6 @@ int main(int argc, char **argv)
                    tail_n, (unsigned long long)tail_w);
     }
     memset(&P, 0, sizeof(P));
-    pthread_mutex_init(&P.lock, NULL);
-    pthread_cond_init(&P.cv, NULL);
     P.consumed = 0;
     for (int s = 0; s < SLOTS; s++)
         P.slot_buf[s] = (float *)malloc(max_elems * sizeof(float));
@@ -623,14 +634,16 @@ int main(int argc, char **argv)
         pthread_t dth, uth[4];
         pthread_create(&dth, NULL, disc_loop, NULL);
         for (int u = 0; u < unpackers && u < 4; u++)
-            pthread_create(&uth[u], NULL, unpack_loop, NULL);
+            pthread_create(&uth[u], NULL, unpack_loop, (void *)(intptr_t)u);
         for (int ord = 0; ord < g_nord; ord++) {
             double tw = now_s();
-            pthread_mutex_lock(&P.lock);
-            while (!P.ready[ord] && !P.stop)
-                pthread_cond_wait(&P.cv, &P.lock);
-            int have = P.ready[ord];
-            pthread_mutex_unlock(&P.lock);
+            int have;
+            for (;;) {
+                uint32_t d = hs_door_open(&P.door);
+                have = HS_LD(&P.ready[ord]);
+                if (have || HS_LD(&P.stop)) break;
+                hs_door_wait(&P.door, d);
+            }
             if (!have) break;   /* disc loop stopped: short read */
             P.main_stall += now_s() - tw;
             double t0 = now_s();
@@ -640,17 +653,15 @@ int main(int argc, char **argv)
             acc += compute_tensor(P.slot_buf[ord % SLOTS],
                                   g_demand[ord]->nblocks * g_block);
             P.main_busy += now_s() - t0;
-            pthread_mutex_lock(&P.lock);
-            P.consumed = ord + 1;
-            pthread_cond_broadcast(&P.cv);
-            pthread_mutex_unlock(&P.lock);
+            HS_ST(&P.consumed, ord + 1);    /* the consume tick */
+            hs_door_bump(&P.door);
         }
-        pthread_mutex_lock(&P.lock);
-        P.stop = 1;
-        pthread_cond_broadcast(&P.cv);
-        pthread_mutex_unlock(&P.lock);
+        HS_ST(&P.stop, 1);
+        hs_door_bump(&P.door);
         pthread_join(dth, NULL);
         for (int u = 0; u < unpackers && u < 4; u++) pthread_join(uth[u], NULL);
+        /* Deterministic reduce after the join. */
+        for (int u = 0; u < 4; u++) P.unpack_busy += P.unpack_busy_u[u];
     }
     if (g_io_fail) {
         fprintf(stderr, "%s", g_io_msg);
