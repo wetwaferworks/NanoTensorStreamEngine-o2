@@ -52,6 +52,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #endif
+#define NQ2HS_ENGINE_POOL
+#include "nq2-handshake.h" /* Tensor Handshake: zero mutex */
 
 #include <stdarg.h>
 #include "nq2-dc-kernel.h"   /* the shared DTC kernel (review P1-1) */
@@ -89,174 +91,9 @@ static uint64_t device_ram_bytes(void)
 #endif
 }
 
-typedef void (*work_fn)(void *ctx, int worker, int nworkers);
-
-typedef struct {
-#ifdef _WIN32
-    HANDLE *threads;
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE work_cv, done_cv;
-#else
-    pthread_t *threads;
-    pthread_mutex_t lock;
-    pthread_cond_t work_cv, done_cv;
-#endif
-    int nworkers;
-    int started;        /* threads actually launched (M-I5):
-                         * shutdown joins exactly these */
-    work_fn fn;
-    void *ctx;
-    int pending;        /* workers that still owe a completion */
-    uint64_t generation;
-    int stop;
-} Pool;
-
-static Pool g_pool;
-
-#ifdef _WIN32
-static DWORD WINAPI pool_worker(LPVOID arg)
-#else
-static void *pool_worker(void *arg)
-#endif
-{
-    int me = (int)(intptr_t)arg;
-    uint64_t seen = 0;
-    for (;;) {
-#ifdef _WIN32
-        EnterCriticalSection(&g_pool.lock);
-        while (!g_pool.stop && g_pool.generation == seen)
-            SleepConditionVariableCS(&g_pool.work_cv, &g_pool.lock, INFINITE);
-#else
-        pthread_mutex_lock(&g_pool.lock);
-        while (!g_pool.stop && g_pool.generation == seen)
-            pthread_cond_wait(&g_pool.work_cv, &g_pool.lock);
-#endif
-        if (g_pool.stop) {
-#ifdef _WIN32
-            LeaveCriticalSection(&g_pool.lock);
-            return 0;
-#else
-            pthread_mutex_unlock(&g_pool.lock);
-            return NULL;
-#endif
-        }
-        seen = g_pool.generation;
-        work_fn fn = g_pool.fn;
-        void *ctx = g_pool.ctx;
-        int nw = g_pool.nworkers;
-#ifdef _WIN32
-        LeaveCriticalSection(&g_pool.lock);
-#else
-        pthread_mutex_unlock(&g_pool.lock);
-#endif
-        fn(ctx, me, nw);
-#ifdef _WIN32
-        EnterCriticalSection(&g_pool.lock);
-        if (--g_pool.pending == 0) WakeConditionVariable(&g_pool.done_cv);
-        LeaveCriticalSection(&g_pool.lock);
-#else
-        pthread_mutex_lock(&g_pool.lock);
-        if (--g_pool.pending == 0) pthread_cond_signal(&g_pool.done_cv);
-        pthread_mutex_unlock(&g_pool.lock);
-#endif
-    }
-}
-
-static void pool_init(int nworkers)
-{
-    if (nworkers < 1) nworkers = 1;
-    g_pool.nworkers = nworkers;
-    /* Launch failures shrink the pool to the workers that
-     * actually started (Codex Astra review M-I5, 2026-11-25):
-     * launches are sequential, so the started set is always the
-     * contiguous prefix [0, started) and dispatch partitions
-     * stay exact. pool_run waits for g_pool.nworkers
-     * completions, so recording the requested count after a
-     * failed launch would hang the first projection forever.
-     * Zero started workers leaves nworkers at 1, which pool_run
-     * serves serially on the caller. */
-    int started = 0;
-#ifdef _WIN32
-    InitializeCriticalSection(&g_pool.lock);
-    InitializeConditionVariable(&g_pool.work_cv);
-    InitializeConditionVariable(&g_pool.done_cv);
-    g_pool.threads = (HANDLE *)malloc(sizeof(HANDLE) * nworkers);
-    for (int i = 0; i < nworkers; i++) {
-        g_pool.threads[i] = CreateThread(NULL, 0, pool_worker,
-                                         (LPVOID)(intptr_t)i, 0, NULL);
-        if (!g_pool.threads[i]) break;
-        started++;
-    }
-#else
-    pthread_mutex_init(&g_pool.lock, NULL);
-    pthread_cond_init(&g_pool.work_cv, NULL);
-    pthread_cond_init(&g_pool.done_cv, NULL);
-    g_pool.threads = (pthread_t *)malloc(sizeof(pthread_t) * nworkers);
-    for (int i = 0; i < nworkers; i++) {
-        if (pthread_create(&g_pool.threads[i], NULL, pool_worker,
-                           (void *)(intptr_t)i) != 0)
-            break;
-        started++;
-    }
-#endif
-    if (started < nworkers) {
-        fprintf(stderr, "pool: %d of %d workers started; "
-                "continuing with the smaller pool\n",
-                started, nworkers);
-        g_pool.started = started;
-        g_pool.nworkers = started > 0 ? started : 1;
-    } else {
-        g_pool.started = started;
-    }
-}
-
-/* Run fn(ctx, worker, nworkers) on every worker and wait. */
-static void pool_run(work_fn fn, void *ctx)
-{
-    if (g_pool.nworkers <= 1) { fn(ctx, 0, 1); return; }
-#ifdef _WIN32
-    EnterCriticalSection(&g_pool.lock);
-    g_pool.fn = fn;
-    g_pool.ctx = ctx;
-    g_pool.pending = g_pool.nworkers;
-    g_pool.generation++;
-    WakeAllConditionVariable(&g_pool.work_cv);
-    while (g_pool.pending > 0)
-        SleepConditionVariableCS(&g_pool.done_cv, &g_pool.lock, INFINITE);
-    LeaveCriticalSection(&g_pool.lock);
-#else
-    pthread_mutex_lock(&g_pool.lock);
-    g_pool.fn = fn;
-    g_pool.ctx = ctx;
-    g_pool.pending = g_pool.nworkers;
-    g_pool.generation++;
-    pthread_cond_broadcast(&g_pool.work_cv);
-    while (g_pool.pending > 0)
-        pthread_cond_wait(&g_pool.done_cv, &g_pool.lock);
-    pthread_mutex_unlock(&g_pool.lock);
-#endif
-}
-
-static void pool_shutdown(void)
-{
-#ifdef _WIN32
-    EnterCriticalSection(&g_pool.lock);
-    g_pool.stop = 1;
-    WakeAllConditionVariable(&g_pool.work_cv);
-    LeaveCriticalSection(&g_pool.lock);
-    for (int i = 0; i < g_pool.started; i++) {
-        WaitForSingleObject(g_pool.threads[i], INFINITE);
-        CloseHandle(g_pool.threads[i]);
-    }
-#else
-    pthread_mutex_lock(&g_pool.lock);
-    g_pool.stop = 1;
-    pthread_cond_broadcast(&g_pool.work_cv);
-    pthread_mutex_unlock(&g_pool.lock);
-    for (int i = 0; i < g_pool.started; i++)
-        pthread_join(g_pool.threads[i], NULL);
-#endif
-}
+/* The compute pool lives in nq2-handshake.h (Tensor Handshake,
+ * zero mutex): pool_init / pool_run / pool_shutdown and g_pool,
+ * same contract and partitions as before. */
 
 /* ================= small math ================= */
 
@@ -1546,18 +1383,39 @@ enum { ORD_IDLE = 0, ORD_STAGED = 1, ORD_EXPANDING = 2,
  * and the consumer's demand path resolves it as EXPAND. */
 enum { MARK_UNDECIDED = 0, MARK_EXPAND = 1, MARK_DTC = 2 };
 
+/* Telemetry roles: expansion lanes 0..PIPE_MAX_LANES-1, then the
+ * consumer (the core loop), then the fetcher / fused worker. Each
+ * role writes only its own accumulators; pipe_report reduces them
+ * in this fixed order after the join. */
+#define PIPE_ROLE_CONSUMER PIPE_MAX_LANES
+#define PIPE_ROLE_FETCH (PIPE_MAX_LANES + 1)
+#define PIPE_ROLES (PIPE_MAX_LANES + 2)
+
 typedef struct {
+    /* Tensor Handshake door (zero mutex, 2026-11-26): every
+     * published change bumps it; every waiter opens it before
+     * evaluating its predicate. Replaces the lock and condvar. */
+    uint32_t door;
+    uint32_t exited;        /* worker exit ticks (Windows join) */
 #ifdef _WIN32
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE cv;
     HANDLE thread;
 #else
-    pthread_mutex_t lock;
-    pthread_cond_t cv;
     pthread_t thread;    /* fetch worker (triforce) */
     pthread_t lanes[PIPE_MAX_LANES]; /* unpack lanes (triforce) */
     int n_lanes;
 #endif
+    /* Pass-boundary handshake: the core loop asks for a boundary
+     * (boundary_req), every worker parks at its decision point
+     * with no claim held and acknowledges (ack_fetch, ack_lane),
+     * the core loop alone rebuilds the list, then opens the new
+     * pass (epoch_go). pass_consumed is the core loop's own
+     * "is it time?": it counts consume ticks since the last
+     * boundary, so the boundary runs exactly once per pass
+     * however many entry points ask for it. */
+    uint32_t boundary_req, epoch_go;
+    uint32_t ack_fetch;
+    uint32_t ack_lane[PIPE_MAX_LANES];
+    int pass_consumed;
     float **buf;
     size_t cap_elems;
     int *have;
@@ -1572,11 +1430,18 @@ typedef struct {
      * path's own cost. Loads are serialized by the busy flag, so
      * the last-load fields are safe. */
     double *ready_at;
-    double load_ms_last;
-    uint64_t load_bytes_last;
+    double load_ms_last[PIPE_ROLES];     /* per role */
+    uint64_t load_bytes_last[PIPE_ROLES];
+    double stat_load_ms_r[PIPE_ROLES];   /* per role, reduced */
+    uint64_t stat_bytes_r[PIPE_ROLES];
     double stat_stall_s, stat_slack_s, stat_load_ms;
     uint64_t stat_bytes;
     long stat_hits, stat_miss;
+    /* Hits that carry a ready-slack stamp (expanded ordinals):
+     * the slack mean divides by these, not by every hit, since a
+     * DTC consume has no expansion-ready stamp (Archie Round 5
+     * P2-PG2). */
+    long stat_slack_n;
     /* The Tensor Handshake layer counter (JD, 2026-11-25): the
      * consumer's committed position in the ordinal sequence,
      * and the consume tick of the stage-2 protocol (below):
@@ -1769,7 +1634,7 @@ static int validate_projection_shapes(void)
     return 0;
 }
 
-static void pipe_load(int slot, int ord)
+static void pipe_load(int slot, int ord, int role)
 {
     const TEnt *t = ord_ent(ord);
     if (!t || t->count > g_pipe.cap_elems) {
@@ -1781,8 +1646,8 @@ static void pipe_load(int slot, int ord)
         fprintf(stderr, "pipe: read failed for %s\n", t->name);
         exit(1);
     }
-    g_pipe.load_ms_last = (pipe_now() - t0) * 1000.0;
-    g_pipe.load_bytes_last = t->count * sizeof(float);
+    g_pipe.load_ms_last[role] = (pipe_now() - t0) * 1000.0;
+    g_pipe.load_bytes_last[role] = t->count * sizeof(float);
 }
 
 #ifndef _WIN32
@@ -1871,7 +1736,7 @@ static void pipe_fetch(int slot, int ord)
  * staged raw bytes (plus the staged packed prefix when
  * raw_elem0 > 0). Mode 3 is the legacy fused fallback and
  * still reads through the shared handles. */
-static void pipe_expand(int slot, int ord)
+static void pipe_expand(int slot, int ord, int role)
 {
     const TEnt *t = ord_ent(ord);
     Stage *s = &g_pipe.st[slot];
@@ -1897,229 +1762,272 @@ static void pipe_expand(int slot, int ord)
             exit(1);
         }
     }
-    g_pipe.load_ms_last = s->fetch_ms + (pipe_now() - t0) * 1000.0;
-    g_pipe.load_bytes_last = t->count * sizeof(float);
+    g_pipe.load_ms_last[role] = s->fetch_ms + (pipe_now() - t0) * 1000.0;
+    g_pipe.load_bytes_last[role] = t->count * sizeof(float);
     s->mode = 0;
 }
 #endif /* !_WIN32 */
 
-/* Called under the lock wherever an ordinal is marked ready. */
-static void pipe_mark_ready(int ord)
+/* Tensor Handshake helpers (zero mutex, 2026-11-26). */
+static void pipe_bump(void) { hs_door_bump(&g_pipe.door); }
+
+#ifndef _WIN32
+/* A worker's acknowledgement of the consumer's latest demand
+ * (Archie P1-1): raised monotonically, and a change is a list
+ * mutation that bumps the door (Sol H1); an unchanged value is
+ * not, so the generation counter stays an honest instrument. */
+static void pipe_ack_demand(void)
+{
+    if (hs_raise_long(&g_pipe.demand_seen, HS_LD(&g_pipe.demand_posted))) {
+        HS_ADD(&g_pipe.list_generation, 1);
+        pipe_bump();
+    }
+}
+
+/* A worker's pass-boundary check, made only at its decision
+ * point, where it holds no claim and no token: if the core loop
+ * has asked for a boundary, acknowledge it and park until the
+ * new pass opens (or the pipe stops). Returns 1 if it parked. */
+static int pipe_park_at_boundary(uint32_t *ack)
+{
+    uint32_t br = HS_LD(&g_pipe.boundary_req);
+    if (br == HS_LDX(ack)) return 0;
+    HS_ST(ack, br);
+    pipe_bump();
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop) || HS_LD(&g_pipe.epoch_go) == br)
+            return 1;
+        hs_door_wait(&g_pipe.door, d);
+    }
+}
+#endif
+
+/* Called by the holder of the ordinal's claim or load token (a
+ * lane, the fused worker or the consumer), or by the consumer
+ * alone inside a pass boundary, once the ordinal's buffer is
+ * complete. set_have publishes the slot's resident ordinal; the
+ * DTC consume path, which never fills the buffer, passes 0. */
+static void pipe_mark_ready(int ord, int role, int set_have)
 {
     /* Tensor Handshake stage 2: the ordinal joins the READY
      * set, its claim is released, and the list generation
-     * bumps so every waiter re-evaluates. Called under the
-     * lock wherever an ordinal is marked ready. The expansion
+     * bumps so every waiter re-evaluates. The expansion
      * tick counts each ordinal once per pass (ord_expand_counted):
      * an ordinal that stayed resident from the last pass is
      * counted at the restart, and if its slot is later reused
      * and it is expanded again, the re-mark must not count it
-     * twice. */
-    if (g_pipe.ord_state) g_pipe.ord_state[ord] = ORD_READY;
-    if (g_pipe.ord_expand_counted && !g_pipe.ord_expand_counted[ord]) {
-        g_pipe.ord_expand_counted[ord] = 1;
-        g_pipe.n_ready++;
-    }
-    if (g_pipe.ord_claim) g_pipe.ord_claim[ord] = -1;
-    g_pipe.list_generation++;
+     * twice. Zero mutex: everything this writes is owned by the
+     * claim holder until the claim is released, and the release
+     * (the store of -1) comes after every other write, so a
+     * thread that sees the claim free sees the whole result,
+     * and one that sees have[] name the ordinal sees its
+     * ready_at stamp. */
     g_pipe.ready_at[ord] = pipe_now();
-    g_pipe.stat_load_ms += g_pipe.load_ms_last;
-    g_pipe.stat_bytes += g_pipe.load_bytes_last;
-    g_pipe.fx_load_ms_sum[ord] += g_pipe.load_ms_last;
+    g_pipe.stat_load_ms_r[role] += g_pipe.load_ms_last[role];
+    g_pipe.stat_bytes_r[role] += g_pipe.load_bytes_last[role];
+    g_pipe.fx_load_ms_sum[ord] += g_pipe.load_ms_last[role];
     g_pipe.fx_load_count[ord]++;
+    if (set_have) HS_ST(&g_pipe.have[pslot(ord)], ord);
+    if (g_pipe.ord_state) HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_READY);
+    if (g_pipe.ord_expand_counted
+            && !HS_LDX(&g_pipe.ord_expand_counted[ord])) {
+        HS_STX(&g_pipe.ord_expand_counted[ord], (uint8_t)1);
+        HS_ADD(&g_pipe.n_ready, 1);
+    }
+    HS_ADD(&g_pipe.list_generation, 1);
+    if (g_pipe.ord_claim) HS_ST(&g_pipe.ord_claim[ord], -1);
 }
 
 #ifdef _WIN32
 /* Windows keeps the fused single worker in this variant; the
  * triforce split is implemented and measured on the POSIX
- * path. */
-static DWORD WINAPI pipe_worker(LPVOID unused)
+ * path. Zero mutex: the busy word is the load token, taken
+ * with compare-and-swap by the worker or by the consumer, and
+ * released by its holder after have[] is published. */
+static HS_THREAD_FN(pipe_worker, unused)
 {
     (void)unused;
     for (;;) {
-        EnterCriticalSection(&g_pipe.lock);
-        while (!g_pipe.stop
-               && !(g_pipe.want >= 0 && g_pipe.want <= g_pipe.max_ord
-                    && g_pipe.have[pslot(g_pipe.want)] != g_pipe.want
-                    && !g_pipe.busy))
-            SleepConditionVariableCS(&g_pipe.cv, &g_pipe.lock, INFINITE);
-        if (g_pipe.stop) { LeaveCriticalSection(&g_pipe.lock); return 0; }
-        int ord = g_pipe.want;
-        g_pipe.busy = 1;
-        LeaveCriticalSection(&g_pipe.lock);
-        pipe_load(pslot(ord), ord);
-        EnterCriticalSection(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        g_pipe.busy = 0;
-        WakeAllConditionVariable(&g_pipe.cv);
-        LeaveCriticalSection(&g_pipe.lock);
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) break;
+        int ord = HS_LD(&g_pipe.want);
+        if (ord >= 0 && ord <= g_pipe.max_ord
+                && HS_LD(&g_pipe.have[pslot(ord)]) != ord
+                && hs_cas_int(&g_pipe.busy, 0, 1)) {
+            /* Re-check under the token: the consumer may have
+             * loaded it between the read and the claim. want
+             * cannot move past ord until ord is resident. */
+            if (HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+                pipe_load(pslot(ord), ord, PIPE_ROLE_FETCH);
+                pipe_mark_ready(ord, PIPE_ROLE_FETCH, 1);
+            }
+            HS_ST(&g_pipe.busy, 0);
+            pipe_bump();
+            continue;
+        }
+        hs_door_wait(&g_pipe.door, d);
     }
+    hs_exit_tick(&g_pipe.exited);
+    HS_THREAD_RETURN;
 }
 #else
+/* The fetcher's slot-free predicate: the slot's staging is free
+ * when nothing is staged in it or its staged ordinal has been
+ * expanded into the slot's buffer. */
+static int pipe_stage_free(int c)
+{
+    int so = HS_LD(&g_pipe.st_owner[pslot(c)]);
+    return so == -1 || HS_LD(&g_pipe.have[pslot(c)]) == so;
+}
+
 /* Triforce fetch worker: owns the disc. Stages the next
  * ordinal after the highest ever staged, at most
  * --fetch-ahead ordinals ahead of the unpack demand (runtime
  * configured), and only into a staging slot whose previous
- * occupant has been fully expanded. */
+ * occupant has been fully expanded. Zero mutex: fetch_busy is
+ * the fetch token (compare-and-swap, cleared only by its
+ * holder); fetched_upto and st_owner[] are written only by the
+ * token holder, so the publication order below is the whole
+ * protocol: stage bytes, then st_owner (release), then the
+ * fetch tick. */
 static void *fetch_worker(void *unused)
 {
     (void)unused;
     for (;;) {
-        pthread_mutex_lock(&g_pipe.lock);
-        int c;
-        for (;;) {
-            if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
-            c = g_pipe.fetched_upto + 1;
-            if (c <= g_pipe.max_ord && g_pipe.have[pslot(c)] == c
-                    && (g_pipe.st_owner[pslot(c)] == -1
-                        || g_pipe.have[pslot(c)]
-                            == g_pipe.st_owner[pslot(c)])) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) return NULL;
+        if (pipe_park_at_boundary(&g_pipe.ack_fetch)) continue;
+        int c = HS_LD(&g_pipe.fetched_upto) + 1;
+        int resident = c <= g_pipe.max_ord
+            && HS_LD(&g_pipe.have[pslot(c)]) == c && pipe_stage_free(c);
+        int fetchable = c <= g_pipe.max_ord
+            && c <= HS_LD(&g_pipe.want_unpack) + g_fetch_ahead
+            && pipe_stage_free(c);
+        if ((resident || fetchable) && !HS_LD(&g_pipe.fetch_busy)
+                && hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+            /* Re-evaluate under the token: only the holder moves
+             * fetched_upto, so c is stable now. */
+            c = HS_LD(&g_pipe.fetched_upto) + 1;
+            if (c <= g_pipe.max_ord && HS_LD(&g_pipe.have[pslot(c)]) == c
+                    && pipe_stage_free(c)) {
                 /* Already resident from an earlier pass: mark it
                  * staged without re-reading it from disc (Archie
                  * P1-1; with slots > max_ord the fetcher used to
                  * re-read the whole model on every pass). The
                  * slot-free predicate is the same one the fetch
-                 * branch below uses (Sol H1): the shortcut used
-                 * to stamp the slot's owner unconditionally, so
-                 * when the slot still held an earlier ordinal's
-                 * staged, unexpanded sections, the stamp orphaned
-                 * them... the unpacker could never claim that
-                 * ordinal again, and at slots 8 / fetch-ahead 18
-                 * the consumer waited forever. Staged data and
+                 * branch below uses (Sol H1): staged data and
                  * resident data are separate fields and neither
                  * may overwrite the other's claim. */
-                g_pipe.st_owner[pslot(c)] = c;
-                g_pipe.fetched_upto = c;
-                g_pipe.list_generation++;
-                continue;
+                HS_ST(&g_pipe.st_owner[pslot(c)], c);
+                HS_ST(&g_pipe.fetched_upto, c);
+                HS_ADD(&g_pipe.list_generation, 1);
+            } else if (c <= g_pipe.max_ord
+                    && c <= HS_LD(&g_pipe.want_unpack) + g_fetch_ahead
+                    && pipe_stage_free(c)) {
+                HS_STX(&g_pipe.row_fetch, c);
+                HS_STX(&g_pipe.row_fetch_next,
+                       (c + 1 <= g_pipe.max_ord) ? c + 1 : -1);
+                pipe_fetch(pslot(c), c);
+                /* State before owner: once st_owner names c a lane
+                 * may claim it and mark it READY, which this store
+                 * must not overwrite. */
+                HS_ST(&g_pipe.ord_state[c],
+                      (uint8_t)((HS_LD(&g_pipe.have[pslot(c)]) == c)
+                                ? ORD_READY : ORD_STAGED));
+                HS_ST(&g_pipe.st_owner[pslot(c)], c);
+                HS_ST(&g_pipe.fetched_upto, c);
+                HS_ADD(&g_pipe.list_generation, 1);
             }
-            if (c <= g_pipe.max_ord && c <= g_pipe.want_unpack + g_fetch_ahead
-                    && !g_pipe.fetch_busy
-                    && (g_pipe.st_owner[pslot(c)] == -1
-                        || g_pipe.have[pslot(c)] == g_pipe.st_owner[pslot(c)]))
-                break;
-            /* Every predicate write broadcasts (Sol H1): the
-             * demand acknowledgement is a predicate other
-             * threads wait on, so when it CHANGES it bumps the
-             * list generation and wakes the door like every
-             * other list mutation. An unchanged acknowledgement
-             * is not a mutation: broadcasting it on every wait
-             * re-check cascaded wakeups between the workers
-             * (the generation counter spun into the tens of
-             * thousands per run, measured) and made the counter
-             * useless as an instrument. */
-            if (g_pipe.demand_seen != g_pipe.demand_posted) {
-                g_pipe.demand_seen = g_pipe.demand_posted;
-                g_pipe.list_generation++;
-                pthread_cond_broadcast(&g_pipe.cv);
-            }
-            g_pipe.row_fetch = -1;
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
+            HS_ST(&g_pipe.fetch_busy, 0);
+            pipe_bump();
+            continue;
         }
-        g_pipe.fetch_busy = 1;
-        g_pipe.row_fetch = c;
-        g_pipe.row_fetch_next = (c + 1 <= g_pipe.max_ord) ? c + 1 : -1;
-        int epoch = g_pipe.epoch;
-        pthread_mutex_unlock(&g_pipe.lock);
-        pipe_fetch(pslot(c), c);
-        pthread_mutex_lock(&g_pipe.lock);
-        if (epoch == g_pipe.epoch) {
-            g_pipe.st_owner[pslot(c)] = c;
-            g_pipe.fetched_upto = c;
-            g_pipe.ord_state[c] = (g_pipe.have[pslot(c)] == c)
-                                  ? ORD_READY : ORD_STAGED;
-            g_pipe.list_generation++;
-        }
-        g_pipe.fetch_busy = 0;
-        pthread_cond_broadcast(&g_pipe.cv);
-        pthread_mutex_unlock(&g_pipe.lock);
+        pipe_ack_demand();
+        HS_STX(&g_pipe.row_fetch, -1);
+        hs_door_wait(&g_pipe.door, d);
     }
 }
 
 /* Triforce unpack lane: owns reconstruction. Each lane
  * claims work from the shared prefetch priority list: the
  * lowest staged, unexpanded, unclaimed ordinal inside the
- * admission window (the consumer's demand plus fetch-ahead),
- * which is the demanded ordinal first by construction.
- * Claim exclusivity is a hard rule (JD, 2026-11-25): an
- * ordinal is claimed by exactly one lane by stamping
- * ord_claim under the lock, and no second lane can take it
- * while the stamp stands; the consumer's self-service path
- * honours the same stamp. A lane whose expansion finishes
- * out of ordinal order simply marks its ordinal ready;
- * consumption still commits in ordinal order. With one lane
- * configured this reduces to the original single unpack
- * worker's behaviour, except that the claim, not the busy
- * flag, is what serializes expansion. */
+ * expansion window, which is the demanded ordinal first by
+ * construction. Claim exclusivity is a hard rule (JD,
+ * 2026-11-25): an ordinal is claimed by exactly one lane, by
+ * compare-and-swap on ord_claim (zero mutex, 2026-11-26), and
+ * no second lane can take it while the claim stands; the
+ * consumer's self-service path takes the same claim the same
+ * way. Only the holder clears a claim, and always before it
+ * returns to its decision point, so no claim can be held
+ * across a pass boundary. A lane whose expansion finishes out
+ * of ordinal order simply marks its ordinal ready;
+ * consumption still commits in ordinal order. */
 static void *unpack_worker(void *arg)
 {
     int lane = (int)(intptr_t)arg;
     for (;;) {
-        pthread_mutex_lock(&g_pipe.lock);
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) return NULL;
+        if (pipe_park_at_boundary(&g_pipe.ack_lane[lane])) continue;
         int ord = -1;
-        for (;;) {
-            if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
-            ord = -1;
-            {
-                /* Priority: the lowest staged, unexpanded,
-                 * unclaimed ordinal inside the expansion
-                 * window. The window is bounded by buffer
-                 * lifetime (req_max + slots - 1, see the
-                 * req_max field), NOT by the fetch depth:
-                 * staging may run far ahead, expansion may
-                 * not. The demanded ordinal is always inside
-                 * the window (slots >= 2), so the consumer's
-                 * own demand can always be claimed. */
-                int hi = g_pipe.req_max + g_pipe.slots - 1;
-                if (hi > g_pipe.max_ord) hi = g_pipe.max_ord;
-                for (int o = 0; o <= hi; o++) {
-                    /* Precision Gate: a lane claims only an
-                     * ordinal the scorer finalized EXPAND. A
-                     * DTC ordinal's sections stay packed for
-                     * the consumer's table path; an UNDECIDED
-                     * one waits for the scorer, which always
-                     * finalizes ahead of this window. */
-                    if (g_pipe.st_owner[pslot(o)] == o
-                            && g_pipe.have[pslot(o)] != o
-                            && g_pipe.ord_claim[o] < 0
-                            && g_pipe.ord_mark[o] == MARK_EXPAND) {
-                        ord = o;
-                        break;
-                    }
+        {
+            /* Priority: the lowest staged, unexpanded,
+             * unclaimed ordinal inside the expansion
+             * window. The window is bounded by buffer
+             * lifetime (req_max + slots - 1, see the
+             * req_max field), NOT by the fetch depth:
+             * staging may run far ahead, expansion may
+             * not. The demanded ordinal is always inside
+             * the window (slots >= 2), so the consumer's
+             * own demand can always be claimed. */
+                /* Precision Gate: a lane claims only an
+                 * ordinal the scorer finalized EXPAND. A
+                 * DTC ordinal's sections stay packed for
+                 * the consumer's table path; an UNDECIDED
+                 * one waits for the scorer, which always
+                 * finalizes ahead of this window. */
+            int hi = HS_LD(&g_pipe.req_max) + g_pipe.slots - 1;
+            if (hi > g_pipe.max_ord) hi = g_pipe.max_ord;
+            for (int o = 0; o <= hi; o++) {
+                if (HS_LD(&g_pipe.st_owner[pslot(o)]) == o
+                        && HS_LD(&g_pipe.have[pslot(o)]) != o
+                        && HS_LD(&g_pipe.ord_claim[o]) < 0
+                    && HS_LD(&g_pipe.ord_mark[o]) == MARK_EXPAND) {
+                    ord = o;
+                    break;
                 }
             }
-            if (ord >= 0) break;
-            /* Demand acknowledgement: broadcasts when it
-             * changes, like the fetcher's (Sol H1; see there
-             * for why an unchanged value must not broadcast). */
-            if (g_pipe.demand_seen != g_pipe.demand_posted) {
-                g_pipe.demand_seen = g_pipe.demand_posted;
-                g_pipe.list_generation++;
-                pthread_cond_broadcast(&g_pipe.cv);
+        }
+        if (ord >= 0) {
+            if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, lane))
+                continue;           /* another owner won it */
+            /* Re-check under the claim: while it stands the
+             * stage cannot be re-staged (the slot is not free)
+             * and no one else may expand this ordinal. */
+            if (HS_LD(&g_pipe.st_owner[pslot(ord)]) != ord
+                    || HS_LD(&g_pipe.have[pslot(ord)]) == ord) {
+                HS_ST(&g_pipe.ord_claim[ord], -1);
+                pipe_bump();
+                continue;
             }
-            g_pipe.row_expand[lane] = -1;
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
+            HS_ADD(&g_pipe.expand_busy_n, 1);
+            HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+            HS_STX(&g_pipe.row_expand[lane], ord);
+            HS_STX(&g_pipe.row_expand_next[lane],
+                   (ord + 1 <= g_pipe.max_ord) ? ord + 1 : -1);
+            HS_ADD(&g_pipe.list_generation, 1);
+            pipe_expand(pslot(ord), ord, lane);
+            pipe_mark_ready(ord, lane, 1);
+            HS_SUB(&g_pipe.expand_busy_n, 1);
+            pipe_bump();
+            continue;
         }
-        g_pipe.ord_claim[ord] = lane;
-        g_pipe.ord_state[ord] = ORD_EXPANDING;
-        g_pipe.row_expand[lane] = ord;
-        g_pipe.row_expand_next[lane] =
-            (ord + 1 <= g_pipe.max_ord) ? ord + 1 : -1;
-        g_pipe.expand_busy_n++;
-        g_pipe.unpack_busy = 1;
-        g_pipe.list_generation++;
-        pthread_mutex_unlock(&g_pipe.lock);
-        pipe_expand(pslot(ord), ord);
-        pthread_mutex_lock(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        if (--g_pipe.expand_busy_n <= 0) {
-            g_pipe.expand_busy_n = 0;
-            g_pipe.unpack_busy = 0;
-        }
-        pthread_cond_broadcast(&g_pipe.cv);
-        pthread_mutex_unlock(&g_pipe.lock);
+        /* Demand acknowledgement: bumps only when it changes,
+         * like the fetcher's (Sol H1). */
+        pipe_ack_demand();
+        HS_STX(&g_pipe.row_expand[lane], -1);
+        hs_door_wait(&g_pipe.door, d);
     }
 }
 #endif
@@ -2283,6 +2191,7 @@ static void pipe_init(int layers)
     g_pipe.stat_stall_s = g_pipe.stat_slack_s = g_pipe.stat_load_ms = 0.0;
     g_pipe.stat_bytes = 0;
     g_pipe.stat_hits = g_pipe.stat_miss = 0;
+    g_pipe.stat_slack_n = 0;
     /* Tensor Handshake stage 2: the prefetch priority list
      * starts empty, every worker row idle. */
     g_pipe.ord_state = (uint8_t *)calloc((size_t)max_ord + 1, 1);
@@ -2444,16 +2353,12 @@ static void pipe_init(int layers)
     }
 #endif
 #ifdef _WIN32
-    InitializeCriticalSection(&g_pipe.lock);
-    InitializeConditionVariable(&g_pipe.cv);
     g_pipe.thread = CreateThread(NULL, 0, pipe_worker, NULL, 0, NULL);
     if (!g_pipe.thread) {
         fprintf(stderr, "pipe: cannot start the worker thread\n");
         exit(1);
     }
 #else
-    pthread_mutex_init(&g_pipe.lock, NULL);
-    pthread_cond_init(&g_pipe.cv, NULL);
     /* Sol M6: a worker that fails to start is a startup
      * failure, never a silent infinite wait downstream. */
     if (pthread_create(&g_pipe.thread, NULL, fetch_worker, NULL) != 0) {
@@ -2647,11 +2552,12 @@ static int gate_decide_layer(int l)
 }
 
 /* Finalize marks for layers up to `upto` (inclusive) that are
- * still undecided this pass. Runs under the pipe lock; the
- * generation bump and broadcast make newly finalized EXPAND
- * ordinals claimable by the lanes. Marks are immutable once
- * finalized within a pass. */
-static void gate_finalize_locked(int upto)
+ * still undecided this pass. Runs on the consumer only (the
+ * scorer's state is the consumer's); each mark is published
+ * with a release store, and the generation bump and door bump
+ * make newly finalized EXPAND ordinals claimable by the lanes.
+ * Marks are immutable once finalized within a pass. */
+static void gate_finalize_consumer(int upto)
 {
     if (upto > M_L - 1) upto = M_L - 1;
     int changed = 0;
@@ -2659,38 +2565,64 @@ static void gate_finalize_locked(int upto)
         int mark = gate_decide_layer(l);
         int base = l * SLOTS_PER_LAYER;
         for (int s = 0; s < SLOTS_PER_LAYER; s++)
-            g_pipe.ord_mark[base + s] = (uint8_t)mark;
+            HS_ST(&g_pipe.ord_mark[base + s], (uint8_t)mark);
         g_gate_finalized_upto = l;
         changed = 1;
     }
     if (changed) {
-        g_pipe.list_generation++;
-        pthread_cond_broadcast(&g_pipe.cv);
+        HS_ADD(&g_pipe.list_generation, 1);
+        pipe_bump();
     }
 }
 
-/* Lock-taking wrapper for the consumer's layer-top calls. */
+/* The consumer's layer-top entry. */
 static void gate_finalize_through(int upto)
 {
     if (upto <= g_gate_finalized_upto) return;
-    pthread_mutex_lock(&g_pipe.lock);
-    gate_finalize_locked(upto);
-    pthread_mutex_unlock(&g_pipe.lock);
+    gate_finalize_consumer(upto);
 }
 
 /* Tensor Handshake phase boundary, factored out of pipe_get
  * for the Precision Gate: the DTC consume entry point needs
  * the same rollover before it may read ordinal 0's mark, so
- * both routes call this. Runs under the pipe lock; a no-op
- * before the first pass (nothing has been fetched yet). The
- * tick check, the drain and the list rebuild below are the
- * original pipe_get block, verbatim. The gate adds its
- * per-pass step at the end: marks return to UNDECIDED and the
- * scorer finalizes the first lookahead window here, under
- * the lock, so no lane can claim an ordinal on a stale mark. */
+ * matmul_pipe calls this before routing, and pipe_get and
+ * dtc_consume call it again; the consume-tick count makes
+ * every call after the first in a pass a no-op. Runs on the
+ * consumer only. The gate adds its per-pass step at the end,
+ * inside the exclusive phase: marks return to UNDECIDED and
+ * the scorer finalizes the first lookahead window before the
+ * pass opens, so no lane can claim an ordinal on a stale
+ * mark. */
 static void pipe_pass_boundary(void)
 {
-    if (g_pipe.fetched_upto < 0) return;
+    /* Tensor Handshake phase boundary (zero mutex,
+     * 2026-11-26). "Is it time?": only if this pass consumed
+     * anything since the last boundary. The boundary used to
+     * run on every ordinal-0 entry point that asked for it, and
+     * in the Precision Gate both matmul_pipe and the consume
+     * path ask, so the second call found the fresh pass already
+     * in motion (a lane holding ordinal 0's claim, the consume
+     * tick still at the old pass's end) and faulted: "ordinal
+     * 0's slot is still claimed at the boundary". Counting the
+     * consume ticks makes the boundary exactly once per pass. */
+    if (g_pipe.pass_consumed == 0) return;
+    /* "Can I?": ask every worker to park. A worker acknowledges
+     * only at its decision point, after it has published its
+     * last result and released its claim or token, so once all
+     * acknowledgements are in, no claim is held anywhere and
+     * the consumer owns the whole list until it opens the next
+     * pass. */
+    uint32_t br = HS_LDX(&g_pipe.epoch_go) + 1;
+    HS_ST(&g_pipe.boundary_req, br);
+    pipe_bump();
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        int all = HS_LD(&g_pipe.ack_fetch) == br;
+        for (int i = 0; all && i < g_pipe.n_lanes; i++)
+            all = HS_LD(&g_pipe.ack_lane[i]) == br;
+        if (all) break;
+        hs_door_wait(&g_pipe.door, d);
+    }
     /* Tensor Handshake phase boundary (stage 2): the pass
      * may roll over only when all three ticks agree the
      * prior pass drained... the fetch tick (fetched_upto),
@@ -2699,8 +2631,8 @@ static void pipe_pass_boundary(void)
      * disagreement is a printed fault and a visible drain
      * through consumer self-service below, never a silent
      * wait; a claimed-but-unready ordinal at the boundary
-     * means a worker vanished mid-expansion and stops the
-     * run loudly rather than consuming a half-drained
+     * would mean a worker broke the park protocol, and stops
+     * the run loudly rather than consuming a half-drained
      * pipeline. */
     if (g_pipe.layer_counter >= 0
             && (g_pipe.fetched_upto != g_pipe.max_ord
@@ -2727,11 +2659,8 @@ static void pipe_pass_boundary(void)
             }
             g_pipe.ord_claim[o] = PIPE_MAX_LANES;
             g_pipe.ord_state[o] = ORD_EXPANDING;
-            pthread_mutex_unlock(&g_pipe.lock);
-            pipe_load(pslot(o), o);
-            pthread_mutex_lock(&g_pipe.lock);
-            g_pipe.have[pslot(o)] = o;
-            pipe_mark_ready(o);
+            pipe_load(pslot(o), o, PIPE_ROLE_CONSUMER);
+            pipe_mark_ready(o, PIPE_ROLE_CONSUMER, 1);
         }
         fprintf(stderr, "tensor handshake: boundary drain "
                 "complete; the pass restarts on a drained "
@@ -2742,10 +2671,11 @@ static void pipe_pass_boundary(void)
      * pass too (before this it silently died after pass 1,
      * leaving later passes to consumer self-service).
      * have[] stays: a marked buffer still holds its ordinal.
-     * In-flight fetches publish under the old epoch and are
-     * discarded by the fetcher's epoch check. The list is
-     * rebuilt from have[]: resident ordinals stay READY,
-     * everything else returns to IDLE, all claims clear. */
+     * No fetch is in flight here (the fetcher is parked), so
+     * nothing from the old pass can publish into the new one.
+     * The list is rebuilt from have[]: resident ordinals stay
+     * READY, everything else returns to IDLE, all claims
+     * clear. */
     g_pipe.epoch++;
     g_pipe.fetched_upto = -1;
     for (int s = 0; s < g_pipe.slots; s++)
@@ -2758,14 +2688,10 @@ static void pipe_pass_boundary(void)
          * low slots, but the new pass walks from ordinal 0
          * and overwrites slot s at request s, so a held
          * ordinal o >= slots is evicted before its turn
-         * comes. Counting it READY started n_ready ahead
-         * by up to slots and left the tail ordinals falsely
-         * READY mid-pass (cosmetic: the phase-boundary
-         * count still landed exact, because re-expansion
-         * is counted once). An ordinal survives the
-         * restart iff its own request finds it: o < slots
-         * (which also covers slots > max_ord, where every
-         * ordinal keeps its own slot all pass). */
+         * comes. An ordinal survives the restart iff its own
+         * request finds it: o < slots (which also covers
+         * slots > max_ord, where every ordinal keeps its own
+         * slot all pass). */
         int resident = (g_pipe.have[pslot(o)] == o)
                        && o < g_pipe.slots;
         g_pipe.ord_state[o] = resident ? ORD_READY : ORD_IDLE;
@@ -2775,13 +2701,18 @@ static void pipe_pass_boundary(void)
     }
     g_pipe.req_max = -1;    /* the new pass has requested nothing */
     g_pipe.list_generation++;
-    pthread_cond_broadcast(&g_pipe.cv);
     /* Precision Gate: per-pass mark reset, then the first
-     * lookahead window finalized under the lock. */
+     * lookahead window finalized before the pass opens. */
     for (int o = 0; o <= g_pipe.max_ord; o++)
-        g_pipe.ord_mark[o] = MARK_UNDECIDED;
+        HS_ST(&g_pipe.ord_mark[o], (uint8_t)MARK_UNDECIDED);
     g_gate_finalized_upto = -1;
-    gate_finalize_locked(g_gate_lookahead);
+    gate_finalize_consumer(g_gate_lookahead);
+    /* The new pass opens: every write above happens before
+     * the release of epoch_go, and every parked worker acquires
+     * it before it looks at the list again. */
+    g_pipe.pass_consumed = 0;
+    HS_ST(&g_pipe.epoch_go, br);
+    pipe_bump();
 }
 #endif /* !_WIN32 */
 
@@ -2791,35 +2722,40 @@ static void pipe_pass_boundary(void)
  * until the request for ord + pipe slots. */
 static const float *pipe_get(int ord)
 {
-    /* If the prefetch thread has not produced ord, claim the
-     * load (busy) before dropping the lock, so the prefetcher
-     * cannot start the same load into the same slot. */
+    /* If no worker has produced ord, the consumer takes the
+     * ordinal's claim (and, for a fused load, the fetch or load
+     * token) with compare-and-swap before it loads, so no worker
+     * can start the same load into the same slot. Zero mutex,
+     * 2026-11-26: every wait below is a door wait on published
+     * state. */
     double t_entry = pipe_now();
     int was_ready = 0;
     int self_loaded = 0;
 #ifdef _WIN32
-    EnterCriticalSection(&g_pipe.lock);
-    was_ready = (g_pipe.have[pslot(ord)] == ord);
+    was_ready = (HS_LD(&g_pipe.have[pslot(ord)]) == ord);
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
-    while (g_pipe.have[pslot(ord)] != ord && g_pipe.busy)
-        SleepConditionVariableCS(&g_pipe.cv, &g_pipe.lock, INFINITE);
-    if (g_pipe.have[pslot(ord)] != ord) {
-        g_pipe.busy = 1;
-        self_loaded = 1;
-        LeaveCriticalSection(&g_pipe.lock);
-        pipe_load(pslot(ord), ord);
-        EnterCriticalSection(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        g_pipe.busy = 0;
-        WakeAllConditionVariable(&g_pipe.cv);
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) break;
+        if (hs_cas_int(&g_pipe.busy, 0, 1)) {
+            if (HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+                self_loaded = 1;
+                pipe_load(pslot(ord), ord, PIPE_ROLE_CONSUMER);
+                pipe_mark_ready(ord, PIPE_ROLE_CONSUMER, 1);
+            }
+            HS_ST(&g_pipe.busy, 0);
+            pipe_bump();
+            break;
+        }
+        hs_door_wait(&g_pipe.door, d);
     }
     if (ord + 1 <= g_pipe.max_ord) {
-        g_pipe.want = ord + 1;
-        WakeAllConditionVariable(&g_pipe.cv);
+        HS_ST(&g_pipe.want, ord + 1);
+        pipe_bump();
     }
     if (!was_ready) {
         double wait_s = pipe_now() - t_entry;
@@ -2829,32 +2765,34 @@ static const float *pipe_get(int ord)
         g_pipe.fx_miss_wait_s[ord] += wait_s;
         if (self_loaded) g_pipe.fx_self_count[ord]++;
     }
-    LeaveCriticalSection(&g_pipe.lock);
 #else
-    pthread_mutex_lock(&g_pipe.lock);
     if (ord == 0) pipe_pass_boundary();
-    if (ord > g_pipe.req_max) g_pipe.req_max = ord;
-    was_ready = (g_pipe.have[pslot(ord)] == ord);
+    if (ord > HS_LDX(&g_pipe.req_max)) HS_ST(&g_pipe.req_max, ord);
+    was_ready = (HS_LD(&g_pipe.have[pslot(ord)]) == ord);
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
     if (!was_ready) {
         /* Demand ord from the triforce: the unpacker takes it,
          * the fetcher is already staging it or one past it. The
          * wait runs until a worker has evaluated THIS demand
          * (demand_seen) or is busy on the pipeline, not merely
-         * until the flags happen to read idle under the lock the
-         * broadcast was made under (Archie P1-1). */
-        g_pipe.want_unpack = ord;
-        long my_demand = ++g_pipe.demand_posted;
-        pthread_cond_broadcast(&g_pipe.cv);
-        while (g_pipe.have[pslot(ord)] != ord
-               && (g_pipe.fetch_busy || g_pipe.unpack_busy
-                   || g_pipe.ord_claim[ord] >= 0
-                   || g_pipe.demand_seen < my_demand))
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
-        if (g_pipe.have[pslot(ord)] != ord) {
+         * until the flags happen to read idle (Archie P1-1). */
+        HS_ST(&g_pipe.want_unpack, ord);
+        long my_demand = HS_ADD(&g_pipe.demand_posted, 1);
+        pipe_bump();
+        for (;;) {
+            uint32_t d = hs_door_open(&g_pipe.door);
+            if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) break;
+            if (HS_LD(&g_pipe.fetch_busy)
+                    || HS_LD(&g_pipe.expand_busy_n) > 0
+                    || HS_LD(&g_pipe.ord_claim[ord]) >= 0
+                    || HS_LD(&g_pipe.demand_seen) < my_demand) {
+                hs_door_wait(&g_pipe.door, d);
+                continue;
+            }
             /* Both stages idle, ord unclaimed and still not
              * ready: the consumer does the work itself, as the
              * fused pipe did... expanding staged sections if
@@ -2864,42 +2802,44 @@ static const float *pipe_get(int ord)
              * lanes honour its work exactly as they honour
              * each other's: claim exclusivity has no
              * exceptions. */
+            if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, PIPE_MAX_LANES))
+                continue;
+            if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) {
+                HS_ST(&g_pipe.ord_claim[ord], -1);
+                pipe_bump();
+                break;
+            }
+            int staged = HS_LD(&g_pipe.st_owner[pslot(ord)]) == ord;
+            if (!staged && !hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+                /* The fetcher took the token first: let it finish. */
+                HS_ST(&g_pipe.ord_claim[ord], -1);
+                pipe_bump();
+                continue;
+            }
             self_loaded = 1;
-            g_pipe.ord_claim[ord] = PIPE_MAX_LANES;
-            g_pipe.ord_state[ord] = ORD_EXPANDING;
-            g_pipe.row_expand[PIPE_MAX_LANES] = ord;
-            g_pipe.expand_busy_n++;
-            g_pipe.list_generation++;
-            if (g_pipe.st_owner[pslot(ord)] == ord) {
-                g_pipe.unpack_busy = 1;
-                pthread_mutex_unlock(&g_pipe.lock);
-                pipe_expand(pslot(ord), ord);
-                pthread_mutex_lock(&g_pipe.lock);
-                g_pipe.have[pslot(ord)] = ord;
-                pipe_mark_ready(ord);
+            HS_ADD(&g_pipe.expand_busy_n, 1);
+            HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+            HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
+            HS_ADD(&g_pipe.list_generation, 1);
+            if (staged) {
+                pipe_expand(pslot(ord), ord, PIPE_ROLE_CONSUMER);
+                pipe_mark_ready(ord, PIPE_ROLE_CONSUMER, 1);
             } else {
-                g_pipe.fetch_busy = 1;
-                g_pipe.unpack_busy = 1;
-                pthread_mutex_unlock(&g_pipe.lock);
-                pipe_load(pslot(ord), ord);
-                pthread_mutex_lock(&g_pipe.lock);
-                g_pipe.have[pslot(ord)] = ord;
-                if (g_pipe.fetched_upto < ord)
-                    g_pipe.fetched_upto = ord;
-                pipe_mark_ready(ord);
-                g_pipe.fetch_busy = 0;
+                pipe_load(pslot(ord), ord, PIPE_ROLE_CONSUMER);
+                if (HS_LD(&g_pipe.fetched_upto) < ord)
+                    HS_ST(&g_pipe.fetched_upto, ord);
+                pipe_mark_ready(ord, PIPE_ROLE_CONSUMER, 1);
+                HS_ST(&g_pipe.fetch_busy, 0);
             }
-            if (--g_pipe.expand_busy_n <= 0) {
-                g_pipe.expand_busy_n = 0;
-                g_pipe.unpack_busy = 0;
-            }
-            g_pipe.row_expand[PIPE_MAX_LANES] = -1;
-            pthread_cond_broadcast(&g_pipe.cv);
+            HS_SUB(&g_pipe.expand_busy_n, 1);
+            HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], -1);
+            pipe_bump();
+            break;
         }
     }
     if (ord + 1 <= g_pipe.max_ord) {
-        g_pipe.want_unpack = ord + 1;
-        pthread_cond_broadcast(&g_pipe.cv);
+        HS_ST(&g_pipe.want_unpack, ord + 1);
+        pipe_bump();
     }
     if (!was_ready) {
         double wait_s = pipe_now() - t_entry;
@@ -2909,15 +2849,15 @@ static const float *pipe_get(int ord)
         g_pipe.fx_miss_wait_s[ord] += wait_s;
         if (self_loaded) g_pipe.fx_self_count[ord]++;
     }
-    pthread_mutex_unlock(&g_pipe.lock);
 #endif
     /* Tensor Handshake: publish the committed position (the
      * consume tick). The consumer is the only writer; the
-     * prefetch priority list derives its horizon from this
-     * counter, and the phase-boundary check compares it
-     * against the fetch and expansion ticks. */
-    g_pipe.layer_counter = ord;
-    g_pipe.row_consume = ord;
+     * phase-boundary check compares it against the fetch and
+     * expansion ticks, and pass_consumed is what makes the
+     * next boundary due. */
+    HS_ST(&g_pipe.layer_counter, ord);
+    HS_STX(&g_pipe.row_consume, ord);
+    g_pipe.pass_consumed++;
     return g_pipe.buf[pslot(ord)];
 }
 
@@ -2970,70 +2910,101 @@ static void dtc_consume(int ord, const float *x, float *y,
     int slot = pslot(ord);
     double t_entry = pipe_now();
     int self_fetched = 0;
-    pthread_mutex_lock(&g_pipe.lock);
+    int demanded = 0;
+    long my_demand = 0;
+    double wait_s;                  /* the wait for the stage only */
     if (ord == 0) pipe_pass_boundary();
-    if (ord > g_pipe.req_max) g_pipe.req_max = ord;
-    if (g_pipe.have[slot] == ord || g_pipe.ord_claim[ord] >= 0) {
-        pthread_mutex_unlock(&g_pipe.lock);
-        { const float *w = pipe_get(ord); matmul(x, w, y, n, rows, cols); }
-        return;
-    }
-    if (g_pipe.st_owner[slot] != ord) {
-        /* Demand the staging with pipe_get's discipline
-         * (Archie P1-1): the consumer may self-serve only
-         * once a worker has had the chance to evaluate this
-         * demand. The lanes never claim a DTC ordinal, so the
-         * unpack flags here speak of other ordinals' work. */
-        g_pipe.want_unpack = ord;
-        long my_demand = ++g_pipe.demand_posted;
-        pthread_cond_broadcast(&g_pipe.cv);
-        while (g_pipe.st_owner[slot] != ord
-               && g_pipe.have[slot] != ord
-               && (g_pipe.fetch_busy || g_pipe.unpack_busy
-                   || g_pipe.ord_claim[ord] >= 0
-                   || g_pipe.demand_seen < my_demand))
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
-        if (g_pipe.have[slot] == ord || g_pipe.ord_claim[ord] >= 0) {
-            pthread_mutex_unlock(&g_pipe.lock);
-            { const float *w = pipe_get(ord); matmul(x, w, y, n, rows, cols); }
+    if (ord > HS_LDX(&g_pipe.req_max)) HS_ST(&g_pipe.req_max, ord);
+    /* Zero mutex (2026-11-26): the consumer takes the ordinal's
+     * claim with compare-and-swap before it touches the stage,
+     * exactly as a lane would; a lane that won the claim first,
+     * or a buffer already expanded, sends the ordinal down the
+     * dense route instead. */
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.have[slot]) == ord
+                || HS_LD(&g_pipe.ord_claim[ord]) >= 0) {
+            const float *w = pipe_get(ord);
+            matmul(x, w, y, n, rows, cols);
             return;
         }
-        if (g_pipe.st_owner[slot] != ord) {
-            /* Both stages idle and the ordinal never staged:
-             * the consumer fetches it itself, then consumes
-             * the stage it filled. */
-            self_fetched = 1;
-            g_pipe.ord_claim[ord] = PIPE_MAX_LANES;
-            g_pipe.ord_state[ord] = ORD_EXPANDING;
-            g_pipe.row_expand[PIPE_MAX_LANES] = ord;
-            g_pipe.expand_busy_n++;
-            g_pipe.fetch_busy = 1;
-            g_pipe.list_generation++;
-            pthread_mutex_unlock(&g_pipe.lock);
-            pipe_fetch(slot, ord);
-            pthread_mutex_lock(&g_pipe.lock);
-            g_pipe.st_owner[slot] = ord;
-            if (g_pipe.fetched_upto < ord) g_pipe.fetched_upto = ord;
-            g_pipe.ord_state[ord] = ORD_STAGED;
-            g_pipe.fetch_busy = 0;
+        if (HS_LD(&g_pipe.st_owner[slot]) == ord) {
+            if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, PIPE_MAX_LANES))
+                continue;
+            if (HS_LD(&g_pipe.have[slot]) == ord
+                    || HS_LD(&g_pipe.st_owner[slot]) != ord) {
+                HS_ST(&g_pipe.ord_claim[ord], -1);
+                pipe_bump();
+                continue;
+            }
+            break;                  /* staged, and the claim is ours */
         }
+        if (!demanded) {
+            /* Demand the staging with pipe_get's discipline
+             * (Archie P1-1): the consumer may self-serve only
+             * once a worker has had the chance to evaluate this
+             * demand. The lanes never claim a DTC ordinal, so the
+             * expansion count here speaks of other ordinals' work. */
+            HS_ST(&g_pipe.want_unpack, ord);
+            my_demand = HS_ADD(&g_pipe.demand_posted, 1);
+            demanded = 1;
+            pipe_bump();
+            continue;
+        }
+        if (HS_LD(&g_pipe.fetch_busy)
+                || HS_LD(&g_pipe.expand_busy_n) > 0
+                || HS_LD(&g_pipe.demand_seen) < my_demand) {
+            hs_door_wait(&g_pipe.door, d);
+            continue;
+        }
+        /* Both stages idle and the ordinal never staged: the
+         * consumer fetches it itself, holding the ordinal's
+         * claim and the fetch token, then consumes the stage it
+         * filled. */
+        if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, PIPE_MAX_LANES))
+            continue;
+        if (HS_LD(&g_pipe.have[slot]) == ord
+                || HS_LD(&g_pipe.st_owner[slot]) == ord
+                || !hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+            HS_ST(&g_pipe.ord_claim[ord], -1);
+            pipe_bump();
+            continue;
+        }
+        self_fetched = 1;
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+        HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
+        HS_ADD(&g_pipe.expand_busy_n, 1);
+        HS_ADD(&g_pipe.list_generation, 1);
+        pipe_fetch(slot, ord);
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_STAGED);
+        HS_ST(&g_pipe.st_owner[slot], ord);
+        if (HS_LD(&g_pipe.fetched_upto) < ord)
+            HS_ST(&g_pipe.fetched_upto, ord);
+        HS_ST(&g_pipe.fetch_busy, 0);
+        pipe_bump();
+        break;
     }
+    /* The wait for the stage ends here, before the table
+     * compute below (Archie Round 5 P2-PG2): stall telemetry
+     * charges only time spent waiting on the pipeline, never the
+     * consume's own arithmetic. A stage found waiting on the
+     * first look (no demand posted, no self-fetch) is a prefetch
+     * hit, as pipe_get counts a buffer found ready. */
+    wait_s = pipe_now() - t_entry;
     if (!self_fetched) {
-        g_pipe.ord_claim[ord] = PIPE_MAX_LANES;
-        g_pipe.ord_state[ord] = ORD_EXPANDING;
-        g_pipe.row_expand[PIPE_MAX_LANES] = ord;
-        g_pipe.expand_busy_n++;
-        g_pipe.list_generation++;
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+        HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
+        HS_ADD(&g_pipe.expand_busy_n, 1);
+        HS_ADD(&g_pipe.list_generation, 1);
     }
     Stage *s = &g_pipe.st[slot];
     double fetch_ms = s->fetch_ms;
     uint64_t nb = s->nb;
-    pthread_mutex_unlock(&g_pipe.lock);
     /* The stage is stable while st_owner names this ordinal
      * and its buffer was never expanded (the fetcher's
-     * slot-free predicate), and the lanes never read a DTC
-     * ordinal's stage, so the sections may be consumed
-     * unlocked. The shape is the eligibility invariant from
+     * slot-free predicate), and the consumer holds the
+     * ordinal's claim, so the sections may be consumed in
+     * place. The shape is the eligibility invariant from
      * pipe_init; anything else is a pipe fault, loudly. */
     if (s->mode != 1 || nb != t->nblocks || s->b0 != t->block0) {
         fprintf(stderr, "precision gate: ordinal %d staged in "
@@ -3058,32 +3029,34 @@ static void dtc_consume(int ord, const float *x, float *y,
         dc.n = n; dc.rows = rows; dc.cols = cols;
         pool_run(dtc_work, &dc);
     }
-    pthread_mutex_lock(&g_pipe.lock);
-    g_pipe.st_owner[slot] = -1;   /* stage consumed; slot free */
-    g_pipe.load_ms_last = fetch_ms;
-    g_pipe.load_bytes_last = nb * (uint64_t)(g_pk_idxw + 4);
-    pipe_mark_ready(ord);
-    if (--g_pipe.expand_busy_n <= 0) {
-        g_pipe.expand_busy_n = 0;
-        g_pipe.unpack_busy = 0;
-    }
-    g_pipe.row_expand[PIPE_MAX_LANES] = -1;
+    HS_ST(&g_pipe.st_owner[slot], -1);   /* stage consumed; slot free */
+    g_pipe.load_ms_last[PIPE_ROLE_CONSUMER] = fetch_ms;
+    g_pipe.load_bytes_last[PIPE_ROLE_CONSUMER] =
+        nb * (uint64_t)(g_pk_idxw + 4);
+    pipe_mark_ready(ord, PIPE_ROLE_CONSUMER, 0);
+    HS_SUB(&g_pipe.expand_busy_n, 1);
+    HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], -1);
     {
-        /* Miss accounting, mirroring pipe_get: the ordinal
-         * was not resident-expanded when demanded. */
-        double wait_s = pipe_now() - t_entry;
-        g_pipe.stat_miss++;
-        g_pipe.stat_stall_s += wait_s;
-        g_pipe.fx_miss_count[ord]++;
-        g_pipe.fx_miss_wait_s[ord] += wait_s;
-        if (self_fetched) g_pipe.fx_self_count[ord]++;
+        /* Hit/miss accounting, mirroring pipe_get: a stage
+         * already waiting when the consumer asked is a hit; one
+         * the consumer had to demand or fetch itself is a miss,
+         * charged the staging wait only. */
+        if (!demanded && !self_fetched) {
+            g_pipe.stat_hits++;
+        } else {
+            g_pipe.stat_miss++;
+            g_pipe.stat_stall_s += wait_s;
+            g_pipe.fx_miss_count[ord]++;
+            g_pipe.fx_miss_wait_s[ord] += wait_s;
+            if (self_fetched) g_pipe.fx_self_count[ord]++;
+        }
     }
-    if (ord + 1 <= g_pipe.max_ord) g_pipe.want_unpack = ord + 1;
-    pthread_cond_broadcast(&g_pipe.cv);
-    pthread_mutex_unlock(&g_pipe.lock);
+    if (ord + 1 <= g_pipe.max_ord) HS_ST(&g_pipe.want_unpack, ord + 1);
+    pipe_bump();
     /* The consume tick, as in pipe_get. */
-    g_pipe.layer_counter = ord;
-    g_pipe.row_consume = ord;
+    HS_ST(&g_pipe.layer_counter, ord);
+    HS_STX(&g_pipe.row_consume, ord);
+    g_pipe.pass_consumed++;
 }
 #endif /* !_WIN32 */
 
@@ -3098,12 +3071,11 @@ static void matmul_pipe(const float *x, int ord, float *y,
 #ifndef _WIN32
     if (ord == 0) {
         /* Ordinal 0's mark is decided by the boundary's
-         * finalize, so the rollover runs before the read. */
-        pthread_mutex_lock(&g_pipe.lock);
+         * finalize, so the rollover runs before the read. The
+         * consume path's own ordinal-0 call is then a no-op. */
         pipe_pass_boundary();
-        pthread_mutex_unlock(&g_pipe.lock);
     }
-    if (g_pipe.ord_mark[ord] == MARK_DTC) {
+    if (HS_LDX(&g_pipe.ord_mark[ord]) == MARK_DTC) {
         dtc_consume(ord, x, y, n, rows, cols);
         return;
     }
@@ -3113,6 +3085,14 @@ static void matmul_pipe(const float *x, int ord, float *y,
 
 static void pipe_report(void)
 {
+    /* Deterministic reduce after the join: per-role load
+     * telemetry summed in fixed role order. */
+    g_pipe.stat_load_ms = 0.0;
+    g_pipe.stat_bytes = 0;
+    for (int r = 0; r < PIPE_ROLES; r++) {
+        g_pipe.stat_load_ms += g_pipe.stat_load_ms_r[r];
+        g_pipe.stat_bytes += g_pipe.stat_bytes_r[r];
+    }
     long total = g_pipe.stat_hits + g_pipe.stat_miss;
     if (total == 0) return;
     printf("prefetch telemetry: %ld requests, %ld hits (%.1f%%), "
@@ -3132,8 +3112,9 @@ static void pipe_report(void)
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,
-           g_pipe.stat_hits
-               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_hits : 0.0);
+           g_pipe.stat_slack_n
+               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_slack_n
+               : 0.0);
     if (g_pipe.stat_load_ms > 0)
         printf("  load path (disc + reconstruct): %.1f ms for "
                "%.2f GB expanded, %.0f MB/sec\n",
@@ -3164,18 +3145,14 @@ static void pipe_report(void)
 
 static void pipe_shutdown(void)
 {
+    /* Stop is published, the door bumps, and each worker sees it
+     * at its next decision point (a parked worker too). */
+    HS_ST(&g_pipe.stop, 1);
+    pipe_bump();
 #ifdef _WIN32
-    EnterCriticalSection(&g_pipe.lock);
-    g_pipe.stop = 1;
-    WakeAllConditionVariable(&g_pipe.cv);
-    LeaveCriticalSection(&g_pipe.lock);
-    WaitForSingleObject(g_pipe.thread, INFINITE);
+    hs_wait_count(&g_pipe.exited, 1u);
     CloseHandle(g_pipe.thread);
 #else
-    pthread_mutex_lock(&g_pipe.lock);
-    g_pipe.stop = 1;
-    pthread_cond_broadcast(&g_pipe.cv);
-    pthread_mutex_unlock(&g_pipe.lock);
     pthread_join(g_pipe.thread, NULL);
     for (int i = 0; i < g_pipe.n_lanes; i++)
         pthread_join(g_pipe.lanes[i], NULL);
@@ -4353,8 +4330,8 @@ int main(int argc, char **argv)
                "%ld of %ld (fast posture)\n",
                g_gate_layers_dtc, g_gate_layers_total);
 #endif
-    pipe_report();
-    pipe_shutdown();
+    pipe_shutdown();     /* join first, then reduce and report */
     pool_shutdown();
+    pipe_report();
     return 0;
 }

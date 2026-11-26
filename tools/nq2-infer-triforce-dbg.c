@@ -71,6 +71,8 @@
 #include <pthread.h>
 #include <unistd.h>
 #endif
+#define NQ2HS_ENGINE_POOL
+#include "nq2-handshake.h" /* Tensor Handshake: zero mutex */
 
 /* ================= threads ================= */
 
@@ -86,174 +88,9 @@ static int cpu_count(void)
 #endif
 }
 
-typedef void (*work_fn)(void *ctx, int worker, int nworkers);
-
-typedef struct {
-#ifdef _WIN32
-    HANDLE *threads;
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE work_cv, done_cv;
-#else
-    pthread_t *threads;
-    pthread_mutex_t lock;
-    pthread_cond_t work_cv, done_cv;
-#endif
-    int nworkers;
-    int started;        /* threads actually launched (M-I5):
-                         * shutdown joins exactly these */
-    work_fn fn;
-    void *ctx;
-    int pending;        /* workers that still owe a completion */
-    uint64_t generation;
-    int stop;
-} Pool;
-
-static Pool g_pool;
-
-#ifdef _WIN32
-static DWORD WINAPI pool_worker(LPVOID arg)
-#else
-static void *pool_worker(void *arg)
-#endif
-{
-    int me = (int)(intptr_t)arg;
-    uint64_t seen = 0;
-    for (;;) {
-#ifdef _WIN32
-        EnterCriticalSection(&g_pool.lock);
-        while (!g_pool.stop && g_pool.generation == seen)
-            SleepConditionVariableCS(&g_pool.work_cv, &g_pool.lock, INFINITE);
-#else
-        pthread_mutex_lock(&g_pool.lock);
-        while (!g_pool.stop && g_pool.generation == seen)
-            pthread_cond_wait(&g_pool.work_cv, &g_pool.lock);
-#endif
-        if (g_pool.stop) {
-#ifdef _WIN32
-            LeaveCriticalSection(&g_pool.lock);
-            return 0;
-#else
-            pthread_mutex_unlock(&g_pool.lock);
-            return NULL;
-#endif
-        }
-        seen = g_pool.generation;
-        work_fn fn = g_pool.fn;
-        void *ctx = g_pool.ctx;
-        int nw = g_pool.nworkers;
-#ifdef _WIN32
-        LeaveCriticalSection(&g_pool.lock);
-#else
-        pthread_mutex_unlock(&g_pool.lock);
-#endif
-        fn(ctx, me, nw);
-#ifdef _WIN32
-        EnterCriticalSection(&g_pool.lock);
-        if (--g_pool.pending == 0) WakeConditionVariable(&g_pool.done_cv);
-        LeaveCriticalSection(&g_pool.lock);
-#else
-        pthread_mutex_lock(&g_pool.lock);
-        if (--g_pool.pending == 0) pthread_cond_signal(&g_pool.done_cv);
-        pthread_mutex_unlock(&g_pool.lock);
-#endif
-    }
-}
-
-static void pool_init(int nworkers)
-{
-    if (nworkers < 1) nworkers = 1;
-    g_pool.nworkers = nworkers;
-    /* Launch failures shrink the pool to the workers that
-     * actually started (Codex Astra review M-I5, 2026-11-25):
-     * launches are sequential, so the started set is always the
-     * contiguous prefix [0, started) and dispatch partitions
-     * stay exact. pool_run waits for g_pool.nworkers
-     * completions, so recording the requested count after a
-     * failed launch would hang the first projection forever.
-     * Zero started workers leaves nworkers at 1, which pool_run
-     * serves serially on the caller. */
-    int started = 0;
-#ifdef _WIN32
-    InitializeCriticalSection(&g_pool.lock);
-    InitializeConditionVariable(&g_pool.work_cv);
-    InitializeConditionVariable(&g_pool.done_cv);
-    g_pool.threads = (HANDLE *)malloc(sizeof(HANDLE) * nworkers);
-    for (int i = 0; i < nworkers; i++) {
-        g_pool.threads[i] = CreateThread(NULL, 0, pool_worker,
-                                         (LPVOID)(intptr_t)i, 0, NULL);
-        if (!g_pool.threads[i]) break;
-        started++;
-    }
-#else
-    pthread_mutex_init(&g_pool.lock, NULL);
-    pthread_cond_init(&g_pool.work_cv, NULL);
-    pthread_cond_init(&g_pool.done_cv, NULL);
-    g_pool.threads = (pthread_t *)malloc(sizeof(pthread_t) * nworkers);
-    for (int i = 0; i < nworkers; i++) {
-        if (pthread_create(&g_pool.threads[i], NULL, pool_worker,
-                           (void *)(intptr_t)i) != 0)
-            break;
-        started++;
-    }
-#endif
-    if (started < nworkers) {
-        fprintf(stderr, "pool: %d of %d workers started; "
-                "continuing with the smaller pool\n",
-                started, nworkers);
-        g_pool.started = started;
-        g_pool.nworkers = started > 0 ? started : 1;
-    } else {
-        g_pool.started = started;
-    }
-}
-
-/* Run fn(ctx, worker, nworkers) on every worker and wait. */
-static void pool_run(work_fn fn, void *ctx)
-{
-    if (g_pool.nworkers <= 1) { fn(ctx, 0, 1); return; }
-#ifdef _WIN32
-    EnterCriticalSection(&g_pool.lock);
-    g_pool.fn = fn;
-    g_pool.ctx = ctx;
-    g_pool.pending = g_pool.nworkers;
-    g_pool.generation++;
-    WakeAllConditionVariable(&g_pool.work_cv);
-    while (g_pool.pending > 0)
-        SleepConditionVariableCS(&g_pool.done_cv, &g_pool.lock, INFINITE);
-    LeaveCriticalSection(&g_pool.lock);
-#else
-    pthread_mutex_lock(&g_pool.lock);
-    g_pool.fn = fn;
-    g_pool.ctx = ctx;
-    g_pool.pending = g_pool.nworkers;
-    g_pool.generation++;
-    pthread_cond_broadcast(&g_pool.work_cv);
-    while (g_pool.pending > 0)
-        pthread_cond_wait(&g_pool.done_cv, &g_pool.lock);
-    pthread_mutex_unlock(&g_pool.lock);
-#endif
-}
-
-static void pool_shutdown(void)
-{
-#ifdef _WIN32
-    EnterCriticalSection(&g_pool.lock);
-    g_pool.stop = 1;
-    WakeAllConditionVariable(&g_pool.work_cv);
-    LeaveCriticalSection(&g_pool.lock);
-    for (int i = 0; i < g_pool.started; i++) {
-        WaitForSingleObject(g_pool.threads[i], INFINITE);
-        CloseHandle(g_pool.threads[i]);
-    }
-#else
-    pthread_mutex_lock(&g_pool.lock);
-    g_pool.stop = 1;
-    pthread_cond_broadcast(&g_pool.work_cv);
-    pthread_mutex_unlock(&g_pool.lock);
-    for (int i = 0; i < g_pool.started; i++)
-        pthread_join(g_pool.threads[i], NULL);
-#endif
-}
+/* The compute pool lives in nq2-handshake.h (Tensor Handshake,
+ * zero mutex): pool_init / pool_run / pool_shutdown and g_pool,
+ * same contract and partitions as before. */
 
 /* ================= small math ================= */
 
@@ -959,13 +796,18 @@ static double pipe_now(void)
 }
 
 typedef struct {
+    /* Tensor Handshake door (zero mutex, 2026-11-26): every
+     * published change bumps it; every waiter opens it before
+     * evaluating its predicate. Replaces the lock and condvar.
+     * The busy words are tokens: busy (fused worker, Windows),
+     * fetch_busy (the stage and fetched_upto) and unpack_busy
+     * (the slot buffer and its telemetry), each taken with
+     * compare-and-swap and cleared only by its holder. */
+    uint32_t door;
+    uint32_t exited;        /* worker exit tick (Windows join) */
 #ifdef _WIN32
-    CRITICAL_SECTION lock;
-    CONDITION_VARIABLE cv;
     HANDLE thread;
 #else
-    pthread_mutex_t lock;
-    pthread_cond_t cv;
     pthread_t thread;    /* fetch worker (triforce) */
     pthread_t thread2;   /* unpack worker (triforce) */
 #endif
@@ -1093,7 +935,8 @@ static void pipe_expand(int slot, int ord)
 }
 #endif /* !_WIN32 */
 
-/* Called under the lock wherever an ordinal is marked ready. */
+/* Called by the token holder once the ordinal's buffer is
+ * complete, before have[] is published. */
 static void pipe_mark_ready(int ord)
 {
     g_pipe.ready_at[ord] = pipe_now();
@@ -1107,30 +950,37 @@ static void pipe_mark_ready(int ord)
 /* Windows keeps the fused single worker in this variant; the
  * triforce split is implemented and measured on the POSIX
  * path. */
-static DWORD WINAPI pipe_worker(LPVOID unused)
+static HS_THREAD_FN(pipe_worker, unused)
 {
     (void)unused;
     for (;;) {
-        EnterCriticalSection(&g_pipe.lock);
-        while (!g_pipe.stop
-               && !(g_pipe.want >= 0 && g_pipe.want <= g_pipe.max_ord
-                    && g_pipe.have[pslot(g_pipe.want)] != g_pipe.want
-                    && !g_pipe.busy))
-            SleepConditionVariableCS(&g_pipe.cv, &g_pipe.lock, INFINITE);
-        if (g_pipe.stop) { LeaveCriticalSection(&g_pipe.lock); return 0; }
-        int ord = g_pipe.want;
-        g_pipe.busy = 1;
-        LeaveCriticalSection(&g_pipe.lock);
-        pipe_load(pslot(ord), ord);
-        EnterCriticalSection(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        g_pipe.busy = 0;
-        WakeAllConditionVariable(&g_pipe.cv);
-        LeaveCriticalSection(&g_pipe.lock);
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) break;
+        int ord = HS_LD(&g_pipe.want);
+        if (ord >= 0 && ord <= g_pipe.max_ord
+                && HS_LD(&g_pipe.have[pslot(ord)]) != ord
+                && hs_cas_int(&g_pipe.busy, 0, 1)) {
+            if (HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+                pipe_load(pslot(ord), ord);
+                pipe_mark_ready(ord);
+                HS_ST(&g_pipe.have[pslot(ord)], ord);
+            }
+            HS_ST(&g_pipe.busy, 0);
+            hs_door_bump(&g_pipe.door);
+            continue;
+        }
+        hs_door_wait(&g_pipe.door, d);
     }
+    hs_exit_tick(&g_pipe.exited);
+    HS_THREAD_RETURN;
 }
 #else
+static int pipe_stage_free(int c)
+{
+    int so = HS_LD(&g_pipe.st_owner[pslot(c)]);
+    return so == -1 || HS_LD(&g_pipe.have[pslot(c)]) == so;
+}
+
 /* Triforce fetch worker: owns the disc. Stages the next
  * ordinal after the highest ever staged, at most
  * --fetch-ahead ordinals ahead of the unpack demand (runtime
@@ -1140,27 +990,26 @@ static void *fetch_worker(void *unused)
 {
     (void)unused;
     for (;;) {
-        pthread_mutex_lock(&g_pipe.lock);
-        int c;
-        for (;;) {
-            if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
-            c = g_pipe.fetched_upto + 1;
-            if (c <= g_pipe.max_ord && c <= g_pipe.want_u + g_fetch_ahead
-                    && !g_pipe.fetch_busy
-                    && (g_pipe.st_owner[pslot(c)] == -1
-                        || g_pipe.have[pslot(c)] == g_pipe.st_owner[pslot(c)]))
-                break;
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) return NULL;
+        int c = HS_LD(&g_pipe.fetched_upto) + 1;
+        if (c <= g_pipe.max_ord && c <= HS_LD(&g_pipe.want_u) + g_fetch_ahead
+                && !HS_LD(&g_pipe.fetch_busy) && pipe_stage_free(c)
+                && hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+            /* Re-check under the token. */
+            c = HS_LD(&g_pipe.fetched_upto) + 1;
+            if (c <= g_pipe.max_ord
+                    && c <= HS_LD(&g_pipe.want_u) + g_fetch_ahead
+                    && pipe_stage_free(c)) {
+                pipe_fetch(pslot(c), c);
+                HS_ST(&g_pipe.st_owner[pslot(c)], c);
+                HS_ST(&g_pipe.fetched_upto, c);
+            }
+            HS_ST(&g_pipe.fetch_busy, 0);
+            hs_door_bump(&g_pipe.door);
+            continue;
         }
-        g_pipe.fetch_busy = 1;
-        pthread_mutex_unlock(&g_pipe.lock);
-        pipe_fetch(pslot(c), c);
-        pthread_mutex_lock(&g_pipe.lock);
-        g_pipe.st_owner[pslot(c)] = c;
-        g_pipe.fetched_upto = c;
-        g_pipe.fetch_busy = 0;
-        pthread_cond_broadcast(&g_pipe.cv);
-        pthread_mutex_unlock(&g_pipe.lock);
+        hs_door_wait(&g_pipe.door, d);
     }
 }
 
@@ -1170,24 +1019,27 @@ static void *unpack_worker(void *unused)
 {
     (void)unused;
     for (;;) {
-        pthread_mutex_lock(&g_pipe.lock);
-        while (!g_pipe.stop
-               && !(g_pipe.want_u >= 0 && g_pipe.want_u <= g_pipe.max_ord
-                    && g_pipe.st_owner[pslot(g_pipe.want_u)] == g_pipe.want_u
-                    && g_pipe.have[pslot(g_pipe.want_u)] != g_pipe.want_u
-                    && !g_pipe.unpack_busy))
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
-        if (g_pipe.stop) { pthread_mutex_unlock(&g_pipe.lock); return NULL; }
-        int ord = g_pipe.want_u;
-        g_pipe.unpack_busy = 1;
-        pthread_mutex_unlock(&g_pipe.lock);
-        pipe_expand(pslot(ord), ord);
-        pthread_mutex_lock(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        g_pipe.unpack_busy = 0;
-        pthread_cond_broadcast(&g_pipe.cv);
-        pthread_mutex_unlock(&g_pipe.lock);
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.stop)) return NULL;
+        int ord = HS_LD(&g_pipe.want_u);
+        if (ord >= 0 && ord <= g_pipe.max_ord
+                && HS_LD(&g_pipe.st_owner[pslot(ord)]) == ord
+                && HS_LD(&g_pipe.have[pslot(ord)]) != ord
+                && !HS_LD(&g_pipe.unpack_busy)
+                && hs_cas_int(&g_pipe.unpack_busy, 0, 1)) {
+            /* Re-check under the token: the stage cannot be
+             * re-staged while it is unexpanded. */
+            if (HS_LD(&g_pipe.st_owner[pslot(ord)]) == ord
+                    && HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+                pipe_expand(pslot(ord), ord);
+                pipe_mark_ready(ord);
+                HS_ST(&g_pipe.have[pslot(ord)], ord);
+            }
+            HS_ST(&g_pipe.unpack_busy, 0);
+            hs_door_bump(&g_pipe.door);
+            continue;
+        }
+        hs_door_wait(&g_pipe.door, d);
     }
 }
 #endif
@@ -1268,12 +1120,8 @@ static void pipe_init(int layers)
             setvbuf(g_pipe.pk_priv, NULL, _IOFBF, 1 << 18);
     }
 #ifdef _WIN32
-    InitializeCriticalSection(&g_pipe.lock);
-    InitializeConditionVariable(&g_pipe.cv);
     g_pipe.thread = CreateThread(NULL, 0, pipe_worker, NULL, 0, NULL);
 #else
-    pthread_mutex_init(&g_pipe.lock, NULL);
-    pthread_cond_init(&g_pipe.cv, NULL);
     pthread_create(&g_pipe.thread, NULL, fetch_worker, NULL);
     pthread_create(&g_pipe.thread2, NULL, unpack_worker, NULL);
 #endif
@@ -1288,57 +1136,65 @@ static const float *pipe_get(int ord)
      * the consumer load every tensor fused and synchronously,
      * ignoring the workers and stages entirely. If this matches
      * the anchors, every arithmetic path in the binary is sound
-     * and the defect lives in worker/stage delivery. */
+     * and the defect lives in worker/stage delivery. The
+     * consumer takes both tokens for the load, so the workers
+     * cannot touch the slot meanwhile. */
     if (getenv("NQ2_PIPE_SERIAL")) {
-        if (g_pipe.have[pslot(ord)] != ord) {
+        if (HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+            for (;;) {
+                uint32_t d = hs_door_open(&g_pipe.door);
+                if (hs_cas_int(&g_pipe.unpack_busy, 0, 1)) {
+                    if (hs_cas_int(&g_pipe.fetch_busy, 0, 1)) break;
+                    HS_ST(&g_pipe.unpack_busy, 0);
+                    hs_door_bump(&g_pipe.door);
+                    continue;
+                }
+                hs_door_wait(&g_pipe.door, d);
+            }
             pipe_load(pslot(ord), ord);
-            g_pipe.have[pslot(ord)] = ord;
             pipe_mark_ready(ord);
+            HS_ST(&g_pipe.have[pslot(ord)], ord);
+            HS_ST(&g_pipe.fetch_busy, 0);
+            HS_ST(&g_pipe.unpack_busy, 0);
+            hs_door_bump(&g_pipe.door);
         }
         return g_pipe.buf[pslot(ord)];
     }
-    /* If the prefetch thread has not produced ord, claim the
-     * load (busy) before dropping the lock, so the prefetcher
-     * cannot start the same load into the same slot. */
+    /* If no worker has produced ord, the consumer takes the
+     * needed tokens with compare-and-swap before it loads, so no
+     * worker can start the same load into the same slot. Zero
+     * mutex, 2026-11-26. */
     double t_entry = pipe_now();
     int was_ready = 0;
     int self_loaded = 0;
 #ifdef _WIN32
-    EnterCriticalSection(&g_pipe.lock);
-    was_ready = (g_pipe.have[pslot(ord)] == ord);
+    was_ready = (HS_LD(&g_pipe.have[pslot(ord)]) == ord);
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
     }
-    while (g_pipe.have[pslot(ord)] != ord && g_pipe.busy)
-        SleepConditionVariableCS(&g_pipe.cv, &g_pipe.lock, INFINITE);
-    if (g_pipe.have[pslot(ord)] != ord) {
-        g_pipe.busy = 1;
-        self_loaded = 1;
-        LeaveCriticalSection(&g_pipe.lock);
-        pipe_load(pslot(ord), ord);
-        EnterCriticalSection(&g_pipe.lock);
-        g_pipe.have[pslot(ord)] = ord;
-        pipe_mark_ready(ord);
-        g_pipe.busy = 0;
-        WakeAllConditionVariable(&g_pipe.cv);
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) break;
+        if (hs_cas_int(&g_pipe.busy, 0, 1)) {
+            if (HS_LD(&g_pipe.have[pslot(ord)]) != ord) {
+                self_loaded = 1;
+                pipe_load(pslot(ord), ord);
+                pipe_mark_ready(ord);
+                HS_ST(&g_pipe.have[pslot(ord)], ord);
+            }
+            HS_ST(&g_pipe.busy, 0);
+            hs_door_bump(&g_pipe.door);
+            break;
+        }
+        hs_door_wait(&g_pipe.door, d);
     }
     if (ord + 1 <= g_pipe.max_ord) {
-        g_pipe.want = ord + 1;
-        WakeAllConditionVariable(&g_pipe.cv);
+        HS_ST(&g_pipe.want, ord + 1);
+        hs_door_bump(&g_pipe.door);
     }
-    if (!was_ready) {
-        double wait_s = pipe_now() - t_entry;
-        g_pipe.stat_miss++;
-        g_pipe.stat_stall_s += wait_s;
-        g_pipe.fx_miss_count[ord]++;
-        g_pipe.fx_miss_wait_s[ord] += wait_s;
-        if (self_loaded) g_pipe.fx_self_count[ord]++;
-    }
-    LeaveCriticalSection(&g_pipe.lock);
 #else
-    pthread_mutex_lock(&g_pipe.lock);
-    was_ready = (g_pipe.have[pslot(ord)] == ord);
+    was_ready = (HS_LD(&g_pipe.have[pslot(ord)]) == ord);
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
@@ -1346,45 +1202,54 @@ static const float *pipe_get(int ord)
     if (!was_ready) {
         /* Demand ord from the triforce: the unpacker takes it,
          * the fetcher is already staging it or one past it. */
-        g_pipe.want_u = ord;
-        pthread_cond_broadcast(&g_pipe.cv);
-        while (g_pipe.have[pslot(ord)] != ord
-               && (g_pipe.fetch_busy || g_pipe.unpack_busy))
-            pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
-        if (g_pipe.have[pslot(ord)] != ord) {
+        HS_ST(&g_pipe.want_u, ord);
+        hs_door_bump(&g_pipe.door);
+        for (;;) {
+            uint32_t d = hs_door_open(&g_pipe.door);
+            if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) break;
+            if (HS_LD(&g_pipe.fetch_busy) || HS_LD(&g_pipe.unpack_busy)) {
+                hs_door_wait(&g_pipe.door, d);
+                continue;
+            }
             /* Both stages idle and ord still not ready: the
              * consumer does the work itself, as the fused pipe
              * did... expanding staged sections if it has them,
              * loading fused if it does not. */
-            self_loaded = 1;
-            if (g_pipe.st_owner[pslot(ord)] == ord) {
-                g_pipe.unpack_busy = 1;
-                pthread_mutex_unlock(&g_pipe.lock);
-                pipe_expand(pslot(ord), ord);
-                pthread_mutex_lock(&g_pipe.lock);
-                g_pipe.have[pslot(ord)] = ord;
-                pipe_mark_ready(ord);
-                g_pipe.unpack_busy = 0;
-            } else {
-                g_pipe.fetch_busy = 1;
-                g_pipe.unpack_busy = 1;
-                pthread_mutex_unlock(&g_pipe.lock);
-                pipe_load(pslot(ord), ord);
-                pthread_mutex_lock(&g_pipe.lock);
-                g_pipe.have[pslot(ord)] = ord;
-                if (g_pipe.fetched_upto < ord)
-                    g_pipe.fetched_upto = ord;
-                pipe_mark_ready(ord);
-                g_pipe.fetch_busy = 0;
-                g_pipe.unpack_busy = 0;
+            if (!hs_cas_int(&g_pipe.unpack_busy, 0, 1)) continue;
+            if (HS_LD(&g_pipe.have[pslot(ord)]) == ord) {
+                HS_ST(&g_pipe.unpack_busy, 0);
+                hs_door_bump(&g_pipe.door);
+                break;
             }
-            pthread_cond_broadcast(&g_pipe.cv);
+            if (HS_LD(&g_pipe.st_owner[pslot(ord)]) == ord) {
+                self_loaded = 1;
+                pipe_expand(pslot(ord), ord);
+                pipe_mark_ready(ord);
+                HS_ST(&g_pipe.have[pslot(ord)], ord);
+            } else {
+                if (!hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+                    HS_ST(&g_pipe.unpack_busy, 0);
+                    hs_door_bump(&g_pipe.door);
+                    continue;
+                }
+                self_loaded = 1;
+                pipe_load(pslot(ord), ord);
+                if (HS_LD(&g_pipe.fetched_upto) < ord)
+                    HS_ST(&g_pipe.fetched_upto, ord);
+                pipe_mark_ready(ord);
+                HS_ST(&g_pipe.have[pslot(ord)], ord);
+                HS_ST(&g_pipe.fetch_busy, 0);
+            }
+            HS_ST(&g_pipe.unpack_busy, 0);
+            hs_door_bump(&g_pipe.door);
+            break;
         }
     }
     if (ord + 1 <= g_pipe.max_ord) {
-        g_pipe.want_u = ord + 1;
-        pthread_cond_broadcast(&g_pipe.cv);
+        HS_ST(&g_pipe.want_u, ord + 1);
+        hs_door_bump(&g_pipe.door);
     }
+#endif
     if (!was_ready) {
         double wait_s = pipe_now() - t_entry;
         g_pipe.stat_miss++;
@@ -1393,8 +1258,6 @@ static const float *pipe_get(int ord)
         g_pipe.fx_miss_wait_s[ord] += wait_s;
         if (self_loaded) g_pipe.fx_self_count[ord]++;
     }
-    pthread_mutex_unlock(&g_pipe.lock);
-#endif
     return g_pipe.buf[pslot(ord)];
 }
 
@@ -1442,18 +1305,12 @@ static void pipe_report(void)
 
 static void pipe_shutdown(void)
 {
+    HS_ST(&g_pipe.stop, 1);
+    hs_door_bump(&g_pipe.door);
 #ifdef _WIN32
-    EnterCriticalSection(&g_pipe.lock);
-    g_pipe.stop = 1;
-    WakeAllConditionVariable(&g_pipe.cv);
-    LeaveCriticalSection(&g_pipe.lock);
-    WaitForSingleObject(g_pipe.thread, INFINITE);
+    hs_wait_count(&g_pipe.exited, 1u);
     CloseHandle(g_pipe.thread);
 #else
-    pthread_mutex_lock(&g_pipe.lock);
-    g_pipe.stop = 1;
-    pthread_cond_broadcast(&g_pipe.cv);
-    pthread_mutex_unlock(&g_pipe.lock);
     pthread_join(g_pipe.thread, NULL);
     pthread_join(g_pipe.thread2, NULL);
 #endif
@@ -2312,8 +2169,8 @@ int main(int argc, char **argv)
                nfe, (unsigned long long)seed);
     }
 
-    pipe_report();
-    pipe_shutdown();
+    pipe_shutdown();     /* join first, then report */
     pool_shutdown();
+    pipe_report();
     return 0;
 }

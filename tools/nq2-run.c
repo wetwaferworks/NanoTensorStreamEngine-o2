@@ -51,6 +51,20 @@ static uint64_t tell_of(FILE *f)
 #endif
 }
 
+/* 64-bit seek to the end, the same discipline as seek_to
+ * (Archie Round 5 P2-1): a plain fseek takes a long, and on a
+ * C runtime whose fseek narrows the result, a stream above
+ * 2 GiB would fail here and tell_of would then report the old
+ * position as the stream size. */
+static int seek_end(FILE *f)
+{
+#ifdef _WIN32
+    return _fseeki64(f, 0, SEEK_END);
+#else
+    return fseeko(f, 0, SEEK_END);
+#endif
+}
+
 static float half_to_float(uint16_t h)
 {
     uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
@@ -249,7 +263,10 @@ int main(int argc, char **argv)
     fclose(bf);
     size_t book_bytes = (version == 3 ? 28 : version == 2 ? 20 : 12)
                         + (size_t)stored_books * entries * block * sizeof(float);
-    fseek(sf, 0, SEEK_END);
+    if (seek_end(sf) != 0) {
+        fprintf(stderr, "cannot seek to the end of %s\n", stream_path);
+        return 1;
+    }
     uint64_t stream_bytes = tell_of(sf);
     seek_to(sf, header_bytes);
 

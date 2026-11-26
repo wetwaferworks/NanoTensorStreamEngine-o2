@@ -74,11 +74,17 @@ list, one row per layer: its state, which thread holds its
 claim, and each worker's current and next intended layer.
 Priority is derived from the consumer's counter, so the nearest
 unready layer is always next. A layer is claimed by exactly one
-thread, stamped under the lock; no two threads ever expand the
-same layer at the same time. Every change to the list bumps one
-generation counter and wakes the one wait point, so there is a
-single door for every waiter and the phase boundary is that
-door. The list governs scheduling only, never arithmetic or
+thread, taken with compare-and-swap and cleared only by its
+holder; no two threads ever expand the same layer at the same
+time. Every change to the list bumps one generation counter and
+the door word, so there is a single door for every waiter. The
+pass boundary is a handshake of its own: the consumer asks, every
+worker parks at its decision point with no claim held and says
+so, the consumer alone rebuilds the list, then opens the next
+pass. Since 2026-11-26 the whole engine is zero mutex: no lock,
+condition variable or critical section anywhere, only release /
+acquire publication, claim words, and futex / WaitOnAddress
+sleeps on the door (tools/nq2-handshake.h). The list governs scheduling only, never arithmetic or
 commit order: consumption still commits in ordinal order, which
 is why the anchors stay bit-identical at every width. Expansion
 width is its own runtime knob (expand lanes, 1 to 64), separate
