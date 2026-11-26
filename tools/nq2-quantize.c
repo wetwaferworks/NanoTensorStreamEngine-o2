@@ -37,10 +37,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
 #ifdef _WIN32
 #include <process.h>    /* _getpid */
+#include <windows.h>    /* threads (2026-11-26) */
 #else
 #include <unistd.h>     /* getpid */
+#include <pthread.h>    /* threads (2026-11-26) */
 #endif
 
 /* Seek to a 64-bit file offset. Plain fseek takes a long, which
@@ -72,7 +75,9 @@ static uint64_t file_size(FILE *f)
 
 /* ---------------- small utilities ---------------- */
 
-static uint64_t rng_state = 0x2545F4914F6CDD1Dull;
+/* Thread-local so parallel per-tensor workers each replay their own
+ * tensor's exact serial draws (see per_tensor_parallel). */
+static __thread uint64_t rng_state = 0x2545F4914F6CDD1Dull;
 static uint64_t rng_next(void)
 {
     uint64_t x = rng_state;
@@ -86,6 +91,90 @@ static double dsqrt(double x)  /* Newton; avoids libm entirely */
     double y = x > 1.0 ? x : 1.0;
     for (int i = 0; i < 60; i++) y = 0.5 * (y + x / y);
     return y;
+}
+
+/* ---------------- native threads, no mutexes ----------------
+ * Added 2026-11-26 (co-implemented by Cortana at JD's direction;
+ * the quantizer itself is Elfie's). Win32 threads on Windows,
+ * pthreads elsewhere. Work is handed out as disjoint chunks via a
+ * lock-free counter; nothing is ever locked. */
+static int g_threads = 1;   /* --threads N; main() sets logical CPUs if 0 */
+static int g_learn_threads = 0; /* 0 = g_threads; 1 inside per-tensor workers */
+
+static int cpu_count(void)
+{
+#ifdef _WIN32
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return si.dwNumberOfProcessors > 0 ? (int)si.dwNumberOfProcessors : 1;
+#else
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? (int)n : 1;
+#endif
+}
+
+static uint64_t atomic_next(uint64_t *p)
+{
+#if defined(__GNUC__)
+    return __atomic_fetch_add(p, 1, __ATOMIC_RELAXED);
+#else
+    return (uint64_t)InterlockedIncrement64((volatile LONG64 *)p) - 1;
+#endif
+}
+
+typedef void (*WorkFn)(int tid, void *shared);
+typedef struct { WorkFn fn; void *shared; int tid; } WorkArg;
+
+#ifdef _WIN32
+static DWORD WINAPI work_tramp(LPVOID p)
+{
+    WorkArg *a = (WorkArg *)p;
+    a->fn(a->tid, a->shared);
+    return 0;
+}
+#else
+static void *work_tramp(void *p)
+{
+    WorkArg *a = (WorkArg *)p;
+    a->fn(a->tid, a->shared);
+    return NULL;
+}
+#endif
+
+/* Run fn on n workers (worker 0 is the caller) and join them all.
+ * Workers claim chunks dynamically, so a thread that fails to start
+ * costs speed, never correctness. */
+static void run_parallel(int n, WorkFn fn, void *shared)
+{
+    if (n <= 1) { fn(0, shared); return; }
+    WorkArg *args = (WorkArg *)calloc((size_t)n, sizeof(WorkArg));
+#ifdef _WIN32
+    HANDLE *th = (HANDLE *)calloc((size_t)n, sizeof(HANDLE));
+#else
+    pthread_t *th = (pthread_t *)calloc((size_t)n, sizeof(pthread_t));
+    int *ok = (int *)calloc((size_t)n, sizeof(int));
+#endif
+    if (!args || !th) { fprintf(stderr, "out of memory\n"); exit(1); }
+    for (int t = 1; t < n; t++) {
+        args[t].fn = fn; args[t].shared = shared; args[t].tid = t;
+#ifdef _WIN32
+        th[t] = CreateThread(NULL, 0, work_tramp, &args[t], 0, NULL);
+#else
+        ok[t] = (pthread_create(&th[t], NULL, work_tramp, &args[t]) == 0);
+#endif
+    }
+    fn(0, shared);
+    for (int t = 1; t < n; t++) {
+#ifdef _WIN32
+        if (th[t]) { WaitForSingleObject(th[t], INFINITE); CloseHandle(th[t]); }
+#else
+        if (ok[t]) pthread_join(th[t], NULL);
+#endif
+    }
+    free(args); free(th);
+#ifndef _WIN32
+    free(ok);
+#endif
 }
 
 static uint16_t float_to_half(float f)
@@ -302,6 +391,19 @@ static int shard_open(Shard *sh, const char *path)
 
 /* Read count weights starting at weight index start from a tensor,
  * converting to float. Reads the raw bytes in one fread. */
+/* Per-thread shard handles for the parallel per-tensor path; the main
+ * thread (t_fh == NULL) keeps using sh->file as before. */
+static Shard *g_shards;
+static int g_n_shards;
+static __thread FILE **t_fh;
+static FILE *tensor_fh(Shard *sh)
+{
+    if (!t_fh) return sh->file;
+    int i = (int)(sh - g_shards);
+    if (!t_fh[i]) t_fh[i] = fopen(sh->path, "rb");
+    return t_fh[i];
+}
+
 static int tensor_read(Shard *sh, TensorInfo *t, uint64_t start,
                        uint64_t count, float *dst)
 {
@@ -309,8 +411,10 @@ static int tensor_read(Shard *sh, TensorInfo *t, uint64_t start,
     uint64_t byte_off = sh->data_start + t->begin + start * esz;
     uint8_t *raw = (uint8_t *)malloc(count * esz);
     if (!raw) return -1;
-    if (seek_to(sh->file, byte_off) != 0) { free(raw); return -1; }
-    if (fread(raw, esz, count, sh->file) != count) { free(raw); return -1; }
+    FILE *fh = tensor_fh(sh);
+    if (!fh) { free(raw); return -1; }
+    if (seek_to(fh, byte_off) != 0) { free(raw); return -1; }
+    if (fread(raw, esz, count, fh) != count) { free(raw); return -1; }
     for (uint64_t i = 0; i < count; i++) {
         if (t->dtype == DT_F32) {
             memcpy(&dst[i], raw + i * 4, 4);
@@ -429,12 +533,41 @@ static void normalize_block(const float *raw, uint32_t block,
     *sc_out = sc;
 }
 
+/* Nearest prototype by squared error. Four centroids are scored per
+ * pass over x, each in its own accumulator, so the four dependent
+ * double-add chains overlap in the core. Every centroid's sum is
+ * still accumulated in the original order i = 0..block-1 and the
+ * winner is chosen in ascending k with a strict <, so the result is
+ * bit-identical to the one-at-a-time loop (2026-11-26). */
 static int nearest_centroid(const float *cent, uint32_t entries,
                             uint32_t block, const float *x)
 {
     int best = 0;
     double best_err = 1e30;
-    for (uint32_t k = 0; k < entries; k++) {
+    uint32_t k = 0;
+    for (; k + 4 <= entries; k += 4) {
+        const float *c0 = cent + (size_t)k * block;
+        const float *c1 = c0 + block;
+        const float *c2 = c1 + block;
+        const float *c3 = c2 + block;
+        double e0 = 0.0, e1 = 0.0, e2 = 0.0, e3 = 0.0;
+        for (uint32_t i = 0; i < block; i++) {
+            double xi = (double)x[i];
+            double d0 = xi - c0[i];
+            double d1 = xi - c1[i];
+            double d2 = xi - c2[i];
+            double d3 = xi - c3[i];
+            e0 += d0 * d0;
+            e1 += d1 * d1;
+            e2 += d2 * d2;
+            e3 += d3 * d3;
+        }
+        if (e0 < best_err) { best_err = e0; best = (int)k; }
+        if (e1 < best_err) { best_err = e1; best = (int)(k + 1); }
+        if (e2 < best_err) { best_err = e2; best = (int)(k + 2); }
+        if (e3 < best_err) { best_err = e3; best = (int)(k + 3); }
+    }
+    for (; k < entries; k++) {
         const float *c = cent + (size_t)k * block;
         double err = 0.0;
         for (uint32_t i = 0; i < block; i++) {
@@ -444,6 +577,34 @@ static int nearest_centroid(const float *cent, uint32_t entries,
         if (err < best_err) { best_err = err; best = (int)k; }
     }
     return best;
+}
+
+/* Threaded assignment of sample blocks to prototypes (k-means). */
+typedef struct {
+    const float *cent;
+    uint32_t entries, block;
+    const float *x;
+    uint64_t n;
+    uint8_t *out;
+    uint64_t next;            /* lock-free chunk counter */
+} AssignJob;
+
+#define ASSIGN_CHUNK 64u
+
+static void assign_worker(int tid, void *vj)
+{
+    AssignJob *j = (AssignJob *)vj;
+    uint64_t nch = (j->n + ASSIGN_CHUNK - 1) / ASSIGN_CHUNK;
+    (void)tid;
+    for (;;) {
+        uint64_t c = atomic_next(&j->next);
+        if (c >= nch) break;
+        uint64_t b0 = c * ASSIGN_CHUNK, b1 = b0 + ASSIGN_CHUNK;
+        if (b1 > j->n) b1 = j->n;
+        for (uint64_t b = b0; b < b1; b++)
+            j->out[b] = (uint8_t)nearest_centroid(j->cent, j->entries,
+                                  j->block, j->x + b * j->block);
+    }
 }
 
 /* Walk the blocks of a single scope tensor (used by the
@@ -491,13 +652,27 @@ static void learn_book(const float *sample, uint64_t sample_n,
     }
     double *sums = (double *)calloc((size_t)entries * block, sizeof(double));
     uint64_t *counts = (uint64_t *)calloc(entries, sizeof(uint64_t));
-    if (!sums || !counts) { fprintf(stderr, "out of memory\n"); exit(1); }
+    uint8_t *assign = (uint8_t *)malloc((size_t)sample_n);
+    if (!sums || !counts || !assign) { fprintf(stderr, "out of memory\n"); exit(1); }
+    /* Threaded assignment (2026-11-26): the nearest-centroid search is
+     * the cost; it writes one byte per sample block. The accumulation
+     * below stays serial in sample order, so the double sums, and the
+     * book, are bit-identical to the single-threaded original. */
+    AssignJob job;
+    memset(&job, 0, sizeof(job));
+    job.cent = cent; job.entries = entries; job.block = block;
+    job.x = sample; job.n = sample_n; job.out = assign;
+    int lt = g_learn_threads ? g_learn_threads : g_threads;
+    int nt = sample_n >= 512 ? lt : 1;
+    if (nt < 1) nt = 1;
     for (int it = 0; it < iters; it++) {
         memset(sums, 0, (size_t)entries * block * sizeof(double));
         memset(counts, 0, entries * sizeof(uint64_t));
+        job.next = 0;
+        run_parallel(nt, assign_worker, &job);
         for (uint64_t b = 0; b < sample_n; b++) {
             const float *x = sample + b * block;
-            int k = nearest_centroid(cent, entries, block, x);
+            int k = assign[b];
             counts[k]++;
             double *sum = sums + (size_t)k * block;
             for (uint32_t i = 0; i < block; i++) sum[i] += x[i];
@@ -519,6 +694,7 @@ static void learn_book(const float *sample, uint64_t sample_n,
     }
     free(sums);
     free(counts);
+    free(assign);
 }
 
 /* ---------------- pass 1: reservoir sampling ---------------- */
@@ -611,6 +787,224 @@ static void pack_fn(const float *raw, void *vctx)
     }
 }
 
+/* ---------------- threaded global-book passes ----------------
+ * Added 2026-11-26 (co-implemented by Cortana at JD's direction).
+ * Output is byte-identical for any thread count:
+ *   - sampling keeps the single-threaded RNG; it replays the
+ *     reservoir decisions first (cheap, no I/O), then reads only
+ *     the blocks that survive into the sample,
+ *   - packing hands disjoint chunks of the global block range to
+ *     workers; every block writes only its own idx/mn/sc slots,
+ *   - fidelity sums are per chunk, reduced in chunk order after
+ *     the join.
+ * No mutexes: the only shared mutable word is a lock-free chunk
+ * counter. Each worker opens its own FILE per shard. */
+
+static Shard *g_shards;
+static int g_n_shards;
+
+typedef struct { uint64_t gidx; uint64_t slot; } SampEvt;
+
+static void sample_global_fast(SampleCtx *ctx)
+{
+    uint64_t N = g_total_blocks, cap = ctx->sample_cap;
+    size_t ecap = 1u << 20, en = 0;
+    SampEvt *ev = (SampEvt *)malloc(ecap * sizeof(SampEvt));
+    if (!ev) { fprintf(stderr, "out of memory sampling\n"); exit(1); }
+    /* Replay sample_offer(): same RNG calls in the same order. */
+    for (uint64_t seen = 0; seen < N; seen++) {
+        uint64_t slot;
+        if (seen < cap) slot = seen;
+        else {
+            uint64_t j = rng_next() % (seen + 1);
+            if (j >= cap) continue;
+            slot = j;
+        }
+        if (en == ecap) {
+            ecap *= 2;
+            ev = (SampEvt *)realloc(ev, ecap * sizeof(SampEvt));
+            if (!ev) { fprintf(stderr, "out of memory sampling\n"); exit(1); }
+        }
+        ev[en].gidx = seen; ev[en].slot = slot; en++;
+    }
+    ctx->sample_n = N < cap ? N : cap;
+    ctx->seen = N;
+    float *raw = (float *)malloc(ctx->block * sizeof(float));
+    if (!raw) { fprintf(stderr, "out of memory sampling\n"); exit(1); }
+    int s = 0;
+    uint64_t off = 0;
+    for (size_t e = 0; e < en; e++) {
+        while (s < g_n_scope
+               && ev[e].gidx >= off + g_scope[s].tensor->count / ctx->block) {
+            off += g_scope[s].tensor->count / ctx->block;
+            s++;
+        }
+        if (s >= g_n_scope) { fprintf(stderr, "sampling index out of range\n"); exit(1); }
+        if (tensor_read(g_scope[s].shard, g_scope[s].tensor,
+                        (ev[e].gidx - off) * ctx->block, ctx->block, raw) != 0) {
+            fprintf(stderr, "read failed on %s\n", g_scope[s].tensor->name);
+            exit(1);
+        }
+        float mn, sc;
+        normalize_block(raw, ctx->block,
+                        ctx->sample + ev[e].slot * ctx->block, &mn, &sc);
+    }
+    free(raw);
+    free(ev);
+}
+
+static int tensor_read_fh(FILE *f, const Shard *sh, const TensorInfo *t,
+                          uint64_t start, uint64_t count, float *dst,
+                          uint8_t *raw)
+{
+    uint64_t esz = t->dtype == DT_F32 ? 4 : 2;
+    uint64_t byte_off = sh->data_start + t->begin + start * esz;
+    if (seek_to(f, byte_off) != 0) return -1;
+    if (fread(raw, esz, count, f) != count) return -1;
+    for (uint64_t i = 0; i < count; i++) {
+        if (t->dtype == DT_F32) {
+            memcpy(&dst[i], raw + i * 4, 4);
+        } else {
+            uint16_t h = (uint16_t)(raw[i * 2] | (raw[i * 2 + 1] << 8));
+            dst[i] = t->dtype == DT_BF16 ? bf16_to_float(h) : f16_to_float(h);
+        }
+    }
+    return 0;
+}
+
+#define PACK_CHUNK 2048u
+
+typedef struct { int s; uint32_t n; uint64_t b0; uint64_t g0; } PackChunk;
+
+typedef struct {
+    PackCtx *pc;
+    PackChunk *chunks;
+    uint64_t nchunks;
+    uint64_t next;            /* lock-free chunk counter */
+    double *cerr, *cref;      /* per-chunk fidelity partials */
+    uint64_t *cbad;           /* per-chunk first bad frame (block+1) */
+    float *cbadv;
+    time_t t0;
+} PackJob;
+
+static void pack_worker(int tid, void *vj)
+{
+    PackJob *j = (PackJob *)vj;
+    PackCtx *pc = j->pc;
+    uint32_t block = pc->block;
+    (void)tid;
+    float *buf = (float *)malloc((size_t)PACK_CHUNK * block * sizeof(float));
+    uint8_t *raw = (uint8_t *)malloc((size_t)PACK_CHUNK * block * 4);
+    float *tmp = (float *)malloc(block * sizeof(float));
+    FILE **fh = (FILE **)calloc((size_t)g_n_shards, sizeof(FILE *));
+    if (!buf || !raw || !tmp || !fh) { fprintf(stderr, "out of memory packing\n"); exit(1); }
+    for (;;) {
+        uint64_t c = atomic_next(&j->next);
+        if (c >= j->nchunks) break;
+        PackChunk *ch = &j->chunks[c];
+        Shard *sh = g_scope[ch->s].shard;
+        TensorInfo *t = g_scope[ch->s].tensor;
+        int si = (int)(sh - g_shards);
+        if (!fh[si]) {
+            fh[si] = fopen(sh->path, "rb");
+            if (!fh[si]) { fprintf(stderr, "cannot open %s\n", sh->path); exit(1); }
+        }
+        if (tensor_read_fh(fh[si], sh, t, ch->b0 * block,
+                           (uint64_t)ch->n * block, buf, raw) != 0) {
+            fprintf(stderr, "read failed on %s\n", t->name);
+            exit(1);
+        }
+        double e2 = 0.0, r2 = 0.0;
+        for (uint32_t b = 0; b < ch->n; b++) {
+            const float *rw = buf + (size_t)b * block;
+            float mn, sc;
+            normalize_block(rw, block, tmp, &mn, &sc);
+            int k = nearest_centroid(pc->cent, pc->entries, block, tmp);
+            uint64_t at = ch->g0 + b;
+            pc->idx[at] = (uint8_t)k;
+            pc->mn_h[at] = float_to_half(mn);
+            pc->sc_h[at] = float_to_half(sc);
+            if (!j->cbad[c]
+                    && (((pc->mn_h[at] & 0x7c00u) == 0x7c00u)
+                        || ((pc->sc_h[at] & 0x7c00u) == 0x7c00u))) {
+                j->cbad[c] = at + 1;
+                j->cbadv[c] = ((pc->mn_h[at] & 0x7c00u) == 0x7c00u) ? mn : sc;
+            }
+            float rmn = f16_to_float(pc->mn_h[at]);
+            float rsc = f16_to_float(pc->sc_h[at]);
+            const float *cc = pc->cent + (size_t)k * block;
+            for (uint32_t i = 0; i < block; i++) {
+                double rec = (double)rmn + (double)rsc * cc[i];
+                double d = (double)rw[i] - rec;
+                e2 += d * d;
+                r2 += (double)rw[i] * rw[i];
+            }
+        }
+        j->cerr[c] = e2;
+        j->cref[c] = r2;
+        if (c != 0 && (c % 8192u) == 0) {
+            double el = difftime(time(NULL), j->t0);
+            double frac = (double)c / (double)j->nchunks;
+            printf("  pass 2: %llu / %llu chunks (%.1f%%), elapsed %.0f s, eta %.0f s\n",
+                   (unsigned long long)c, (unsigned long long)j->nchunks,
+                   frac * 100.0, el, frac > 0 ? el * (1.0 - frac) / frac : 0.0);
+            fflush(stdout);
+        }
+    }
+    for (int i = 0; i < g_n_shards; i++) if (fh[i]) fclose(fh[i]);
+    free(fh); free(tmp); free(raw); free(buf);
+}
+
+static void pack_parallel(PackCtx *pc)
+{
+    uint64_t nch = 0;
+    for (int s = 0; s < g_n_scope; s++) {
+        uint64_t tb = g_scope[s].tensor->count / pc->block;
+        nch += (tb + PACK_CHUNK - 1) / PACK_CHUNK;
+    }
+    PackJob job;
+    memset(&job, 0, sizeof(job));
+    job.pc = pc;
+    job.nchunks = nch;
+    job.chunks = (PackChunk *)malloc((nch ? nch : 1) * sizeof(PackChunk));
+    job.cerr = (double *)calloc(nch ? nch : 1, sizeof(double));
+    job.cref = (double *)calloc(nch ? nch : 1, sizeof(double));
+    job.cbad = (uint64_t *)calloc(nch ? nch : 1, sizeof(uint64_t));
+    job.cbadv = (float *)calloc(nch ? nch : 1, sizeof(float));
+    if (!job.chunks || !job.cerr || !job.cref || !job.cbad || !job.cbadv) {
+        fprintf(stderr, "out of memory packing\n");
+        exit(1);
+    }
+    uint64_t ci = 0, g0 = 0;
+    for (int s = 0; s < g_n_scope; s++) {
+        uint64_t tb = g_scope[s].tensor->count / pc->block;
+        for (uint64_t b0 = 0; b0 < tb; b0 += PACK_CHUNK) {
+            uint64_t n = tb - b0;
+            if (n > PACK_CHUNK) n = PACK_CHUNK;
+            job.chunks[ci].s = s;
+            job.chunks[ci].n = (uint32_t)n;
+            job.chunks[ci].b0 = b0;
+            job.chunks[ci].g0 = g0 + b0;
+            ci++;
+        }
+        g0 += tb;
+    }
+    job.t0 = time(NULL);
+    run_parallel(g_threads, pack_worker, &job);
+    /* Deterministic reduction in chunk order. */
+    for (uint64_t c = 0; c < nch; c++) {
+        pc->err2 += job.cerr[c];
+        pc->ref2 += job.cref[c];
+        if (!pc->frame_bad && job.cbad[c]) {
+            pc->frame_bad = 1;
+            pc->bad_block = job.cbad[c] - 1;
+            pc->bad_value = job.cbadv[c];
+        }
+    }
+    pc->cursor = g_total_blocks;
+    free(job.chunks); free(job.cerr); free(job.cref);
+    free(job.cbad); free(job.cbadv);
+}
 /* ---------------- residual stage (experimental) ----------------
  * A second book trained on the first stage's residuals, measured
  * only: the written stream stays single-stage, and the report
@@ -1186,6 +1580,379 @@ static int cmp_shard_arg(const void *a, const void *b)
     return c ? c : strcmp(pa, pb);
 }
 
+/* ---------------- parallel per-tensor books (2026-11-26) ----------------
+ * Co-implemented by Cortana at JD's direction; the quantizer is Elfie's.
+ * Used for --books per-tensor --format 3 without --pq/--budgets/--residual
+ * when --threads > 1. Output is byte-identical to the serial path:
+ *   - each tensor's RNG start state is precomputed from geometry (the
+ *     reservoir draws tb - cap values, learn_book draws `entries`), so
+ *     every worker reproduces the exact serial draws for its tensor;
+ *   - every byte's file offset is known before packing, so workers write
+ *     their tensor straight into disjoint regions of the staged files;
+ *   - the generation id is the same in-order FNV-1a, computed by reading
+ *     the staged files back in scope order after the join, then patched
+ *     into both headers;
+ *   - per-tensor error sums are reduced in scope order.
+ * No mutexes: tensors are claimed through one lock-free counter. At most
+ * one tensor per worker is in memory, so RAM stays bounded (the serial
+ * writer holds every book at once: about 11 GB for a 43k-tensor model). */
+
+static uint64_t xs_step(uint64_t x)
+{
+    x ^= x >> 12; x ^= x << 25; x ^= x >> 27;
+    return x;
+}
+
+typedef struct {
+    uint32_t block, entries;
+    int iters;
+    uint64_t cap;
+    const char *book_tmp, *stream_tmp;
+    int *is_raw;
+    uint64_t *nb, *rng0, *book_off, *idx_off, *mn_off, *sc_off, *raw_off;
+    double *err2, *ref2;
+    uint64_t *segd, *bookd;
+    int *frame_bad;  uint64_t *bad_block; float *bad_value;
+    int *fail;
+    int *tbad;            /* per worker */
+    uint64_t next;        /* lock-free tensor counter */
+    uint64_t done;        /* progress only (atomic) */
+    time_t t0;
+} PtJob;
+
+static int pt_write(FILE *f, uint64_t off, const void *p, size_t sz, size_t n)
+{
+    if (!n) return 0;
+    if (seek_to(f, off) != 0) return -1;
+    return fwrite(p, sz, n, f) == n ? 0 : -1;
+}
+
+static void pt_worker(int tid, void *vj)
+{
+    PtJob *j = (PtJob *)vj;
+    t_fh = (FILE **)calloc((size_t)g_n_shards, sizeof(FILE *));
+    FILE *bf = fopen(j->book_tmp, "r+b");
+    FILE *sf = fopen(j->stream_tmp, "r+b");
+    if (!t_fh || !bf || !sf) { j->tbad[tid] = 1; goto out; }
+    for (;;) {
+        uint64_t s64 = atomic_next(&j->next);
+        if (s64 >= (uint64_t)g_n_scope) break;
+        int s = (int)s64;
+        TOut o;
+        rng_state = j->rng0[s];
+        if (j->is_raw[s]) {
+            if (store_one_tensor_fp16(s, &o) != 0) { j->fail[s] = 1; continue; }
+            if (pt_write(sf, j->raw_off[s], o.raw, 2, (size_t)o.raw_count) != 0)
+                j->tbad[tid] = 1;
+            j->segd[s] = seg_digest_of(&o, 1);
+            j->bookd[s] = book_digest_of(NULL, j->entries, j->block);
+        } else {
+            if (pack_one_tensor(s, j->block, j->entries, j->iters, j->cap, &o) != 0) {
+                j->fail[s] = 1; continue;
+            }
+            if (pt_write(bf, j->book_off[s], o.book, sizeof(float),
+                         (size_t)j->entries * j->block) != 0) j->tbad[tid] = 1;
+            if (o.nblocks) {
+                if (pt_write(sf, j->idx_off[s], o.idx, 1, (size_t)o.nblocks) != 0
+                    || pt_write(sf, j->mn_off[s], o.mn_h, 2, (size_t)o.nblocks) != 0
+                    || pt_write(sf, j->sc_off[s], o.sc_h, 2, (size_t)o.nblocks) != 0)
+                    j->tbad[tid] = 1;
+            }
+            j->segd[s] = seg_digest_of(&o, 1);
+            j->bookd[s] = book_digest_of(o.book, j->entries, j->block);
+            j->frame_bad[s] = o.frame_bad;
+            j->bad_block[s] = o.bad_block;
+            j->bad_value[s] = o.bad_value;
+        }
+        j->err2[s] = o.err2;
+        j->ref2[s] = o.ref2;
+        tout_free(&o);
+        uint64_t d = atomic_next(&j->done) + 1;
+        if ((d % 500u) == 0 || d == (uint64_t)g_n_scope) {
+            double el = difftime(time(NULL), j->t0);
+            double fr = (double)d / (double)g_n_scope;
+            printf("  tensors %llu / %d (%.1f%%), elapsed %.0f s, eta %.0f s\n",
+                   (unsigned long long)d, g_n_scope, fr * 100.0, el,
+                   fr > 0 ? el * (1.0 - fr) / fr : 0.0);
+            fflush(stdout);
+        }
+    }
+out:
+    if (bf && fflush(bf) != 0) j->tbad[tid] = 1;
+    if (sf && fflush(sf) != 0) j->tbad[tid] = 1;
+    if (bf && fclose(bf) != 0) j->tbad[tid] = 1;
+    if (sf && fclose(sf) != 0) j->tbad[tid] = 1;
+    if (t_fh) {
+        for (int i = 0; i < g_n_shards; i++) if (t_fh[i]) fclose(t_fh[i]);
+        free(t_fh);
+        t_fh = NULL;
+    }
+}
+
+static int fnv_range(FILE *f, uint64_t off, uint64_t len, uint64_t *h,
+                     uint8_t *buf, size_t bufsz)
+{
+    if (!len) return 0;
+    if (seek_to(f, off) != 0) return -1;
+    while (len) {
+        size_t want = len > bufsz ? bufsz : (size_t)len;
+        if (fread(buf, 1, want, f) != want) return -1;
+        *h = fnv1a(buf, want, *h);
+        len -= want;
+    }
+    return 0;
+}
+
+static int per_tensor_parallel(const char *out_prefix, uint32_t block,
+                               uint32_t entries, int iters,
+                               uint64_t tensor_sample_cap)
+{
+    int n = g_n_scope;
+    PtJob j;
+    memset(&j, 0, sizeof(j));
+    j.block = block; j.entries = entries; j.iters = iters; j.cap = tensor_sample_cap;
+#define PT_ALLOC(p, T) do { p = (T *)calloc((size_t)(n ? n : 1), sizeof(T)); if (!p) { fprintf(stderr, "out of memory\n"); return 1; } } while (0)
+    PT_ALLOC(j.is_raw, int);   PT_ALLOC(j.nb, uint64_t);   PT_ALLOC(j.rng0, uint64_t);
+    PT_ALLOC(j.book_off, uint64_t); PT_ALLOC(j.idx_off, uint64_t);
+    PT_ALLOC(j.mn_off, uint64_t);   PT_ALLOC(j.sc_off, uint64_t); PT_ALLOC(j.raw_off, uint64_t);
+    PT_ALLOC(j.err2, double); PT_ALLOC(j.ref2, double);
+    PT_ALLOC(j.segd, uint64_t); PT_ALLOC(j.bookd, uint64_t);
+    PT_ALLOC(j.frame_bad, int); PT_ALLOC(j.bad_block, uint64_t); PT_ALLOC(j.bad_value, float);
+    PT_ALLOC(j.fail, int);
+    uint64_t *block0s; PT_ALLOC(block0s, uint64_t);
+#undef PT_ALLOC
+    j.tbad = (int *)calloc((size_t)g_threads + 1, sizeof(int));
+    if (!j.tbad) { fprintf(stderr, "out of memory\n"); return 1; }
+
+    /* Geometry, totals, and each tensor's RNG start state. */
+    uint64_t tot_blocks = 0, tot_weights = 0, tot_raw = 0, raw_acc = 0;
+    int n_books = 0, n_raw = 0;
+    uint64_t st = rng_state;
+    for (int s = 0; s < n; s++) {
+        TensorInfo *ti = g_scope[s].tensor;
+        j.is_raw[s] = g_embed_fp16 && strstr(ti->name, "embed_tokens") ? 1 : 0;
+        j.rng0[s] = st;
+        if (j.is_raw[s]) {
+            j.nb[s] = 0;
+            tot_raw += ti->count;
+            n_raw++;
+        } else {
+            uint64_t tb = ti->count / block;
+            j.nb[s] = tb;
+            n_books++;
+            uint64_t cap = tensor_sample_cap < tb ? tensor_sample_cap : tb;
+            uint64_t adv = (tb > cap ? tb - cap : 0) + (tb ? entries : 0);
+            for (uint64_t k = 0; k < adv; k++) st = xs_step(st);
+        }
+        block0s[s] = tot_blocks;
+        tot_blocks += j.nb[s];
+        tot_weights += j.nb[s] * block;
+    }
+    rng_state = st;
+    uint32_t flags = tot_raw ? 4u : 0u;
+    uint64_t bookbytes = (uint64_t)entries * block * 4;
+    uint64_t book_size = 28 + (uint64_t)n_books * bookbytes;
+    uint64_t H = 36 + (uint64_t)n * 8 + 8 + 4 + ((flags & 4u) ? 4 + (uint64_t)n_raw * 4 : 0);
+    uint64_t stream_size = H + tot_blocks * 5 + tot_raw * 2;
+    {
+        uint64_t bk = 0;
+        for (int s = 0; s < n; s++) {
+            if (!j.is_raw[s]) { j.book_off[s] = 28 + bk * bookbytes; bk++; }
+            j.idx_off[s] = H + block0s[s];
+            j.mn_off[s] = H + tot_blocks + block0s[s] * 2;
+            j.sc_off[s] = H + tot_blocks * 3 + block0s[s] * 2;
+            if (j.is_raw[s]) {
+                j.raw_off[s] = H + tot_blocks * 5 + raw_acc * 2;
+                raw_acc += g_scope[s].tensor->count;
+            }
+        }
+    }
+
+    /* Stage both files: headers with a zero generation id, sized in full. */
+    char book_tmp[1088], stream_tmp[1088];
+    snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.%ld.tmp", out_prefix, writer_pid());
+    snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.%ld.tmp", out_prefix, writer_pid());
+    int bad = 0;
+    uint64_t gen = 0;
+    uint32_t version = 3, nb32 = (uint32_t)n_books, nseg = (uint32_t)n;
+    {
+        FILE *bf = fopen(book_tmp, "wb");
+        if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
+        bad |= wr(bf, "NQ2B", 1, 4);
+        bad |= wr(bf, &version, 4, 1);
+        bad |= wr(bf, &block, 4, 1);
+        bad |= wr(bf, &entries, 4, 1);
+        bad |= wr(bf, &nb32, 4, 1);
+        bad |= wr(bf, &gen, 8, 1);
+        if (book_size > 28) { uint8_t z = 0; bad |= seek_to(bf, book_size - 1); bad |= wr(bf, &z, 1, 1); }
+        if (fclose(bf) != 0) bad = 1;
+        FILE *sf = fopen(stream_tmp, "wb");
+        if (!sf) { fprintf(stderr, "cannot write %s\n", stream_tmp); remove(book_tmp); return 1; }
+        bad |= wr(sf, "NQ2\0", 1, 4);
+        bad |= wr(sf, &version, 4, 1);
+        bad |= wr(sf, &block, 4, 1);
+        bad |= wr(sf, &entries, 4, 1);
+        bad |= wr(sf, &tot_weights, 8, 1);
+        bad |= wr(sf, &tot_blocks, 8, 1);
+        bad |= wr(sf, &nseg, 4, 1);
+        for (int s = 0; s < n; s++) bad |= wr(sf, &j.nb[s], 8, 1);
+        bad |= wr(sf, &gen, 8, 1);
+        bad |= wr(sf, &flags, 4, 1);
+        if (flags & 4u) {
+            uint32_t nr = (uint32_t)n_raw;
+            bad |= wr(sf, &nr, 4, 1);
+            for (int s = 0; s < n; s++)
+                if (j.is_raw[s]) { uint32_t ix = (uint32_t)s; bad |= wr(sf, &ix, 4, 1); }
+        }
+        if (stream_size > H) { uint8_t z = 0; bad |= seek_to(sf, stream_size - 1); bad |= wr(sf, &z, 1, 1); }
+        if (fclose(sf) != 0) bad = 1;
+    }
+    if (bad) { fprintf(stderr, "staging failed; nothing published\n"); remove(book_tmp); remove(stream_tmp); return 1; }
+
+    /* Pack every tensor in parallel. */
+    j.book_tmp = book_tmp; j.stream_tmp = stream_tmp;
+    g_learn_threads = 1;      /* no nested k-means threads inside workers */
+    g_kmeans_verbose = 0;
+    j.t0 = time(NULL);
+    printf("parallel per-tensor books: %d tensors on %d threads\n", n, g_threads);
+    fflush(stdout);
+    run_parallel(g_threads, pt_worker, &j);
+    printf("per-tensor pass (%d threads): %lld s\n", g_threads, (long long)(time(NULL) - j.t0));
+    fflush(stdout);
+
+    for (int t = 0; t <= g_threads; t++) if (j.tbad[t]) bad = 1;
+    for (int s = 0; s < n; s++) {
+        TensorInfo *ti = g_scope[s].tensor;
+        if (j.fail[s]) { fprintf(stderr, "tensor %s failed; nothing published\n", ti->name); bad = 1; break; }
+        if (j.frame_bad[s]) {
+            fprintf(stderr, "tensor %s, block %llu: frame value %g is not "
+                    "representable in float16; refusing to publish a pack "
+                    "with non-finite frames (Sol H8)\n", ti->name,
+                    (unsigned long long)j.bad_block[s], (double)j.bad_value[s]);
+            bad = 1; break;
+        }
+    }
+    if (bad) { remove(book_tmp); remove(stream_tmp); return 1; }
+    for (int s = 0; s < n; s++) {
+        TensorInfo *ti = g_scope[s].tensor;
+        printf("tensor %d/%d %s: %llu blocks\n", s + 1, n, ti->name,
+               (unsigned long long)(ti->count / block));
+        if (j.is_raw[s])
+            printf("  stored as raw float16 (no book, no blocks); round-trip relative L2 %.4f\n",
+                   j.ref2[s] > 0 ? dsqrt(j.err2[s] / j.ref2[s]) : 0.0);
+        else
+            printf("  tensor relative L2: %.4f\n",
+                   j.ref2[s] > 0 ? dsqrt(j.err2[s] / j.ref2[s]) : 0.0);
+    }
+    double tot_err2 = 0.0, tot_ref2 = 0.0;
+    for (int s = 0; s < n; s++) { tot_err2 += j.err2[s]; tot_ref2 += j.ref2[s]; }
+    double rel_l2 = tot_ref2 > 0 ? dsqrt(tot_err2 / tot_ref2) : 0.0;
+    printf("packed %llu blocks in %d per-tensor books; relative L2 error %.4f\n",
+           (unsigned long long)tot_blocks, n_books, rel_l2);
+
+    /* Generation id: the serial digest, in scope order, from the staged bytes. */
+    {
+        size_t bufsz = 1u << 22;
+        uint8_t *buf = (uint8_t *)malloc(bufsz);
+        FILE *bf = fopen(book_tmp, "rb"), *sf = fopen(stream_tmp, "rb");
+        if (!buf || !bf || !sf) { fprintf(stderr, "cannot re-read staged files\n"); remove(book_tmp); remove(stream_tmp); return 1; }
+        uint64_t h = NQ2_FNV_SEED;
+        h = fnv1a_u32(block, h);
+        h = fnv1a_u32(entries, h);
+        h = fnv1a_u32((uint32_t)n, h);
+        h = fnv1a_u32(flags, h);
+        h = fnv1a_u32((uint32_t)g_pq_d, h);
+        int rb = 0;
+        time_t tg = time(NULL);
+        for (int s = 0; s < n && !rb; s++) {
+            const char *nm = g_scope[s].tensor->name;
+            h = fnv1a(nm, strlen(nm), h);
+            if (!j.is_raw[s]) rb |= fnv_range(bf, j.book_off[s], bookbytes, &h, buf, bufsz);
+            if (j.nb[s]) {
+                rb |= fnv_range(sf, j.idx_off[s], j.nb[s], &h, buf, bufsz);
+                rb |= fnv_range(sf, j.mn_off[s], j.nb[s] * 2, &h, buf, bufsz);
+                rb |= fnv_range(sf, j.sc_off[s], j.nb[s] * 2, &h, buf, bufsz);
+            }
+            if (j.is_raw[s]) rb |= fnv_range(sf, j.raw_off[s], g_scope[s].tensor->count * 2, &h, buf, bufsz);
+        }
+        fclose(bf); fclose(sf); free(buf);
+        if (rb) { fprintf(stderr, "re-read of staged files failed; nothing published\n"); remove(book_tmp); remove(stream_tmp); return 1; }
+        gen = h;
+        printf("generation digest pass: %lld s\n", (long long)(time(NULL) - tg));
+        bf = fopen(book_tmp, "r+b"); sf = fopen(stream_tmp, "r+b");
+        if (!bf || !sf) { fprintf(stderr, "cannot patch staged headers\n"); remove(book_tmp); remove(stream_tmp); return 1; }
+        bad |= pt_write(bf, 20, &gen, 8, 1);
+        bad |= pt_write(sf, 36 + (uint64_t)n * 8, &gen, 8, 1);
+        if (fclose(bf) != 0) bad = 1;
+        if (fclose(sf) != 0) bad = 1;
+        if (bad) { fprintf(stderr, "header patch failed; nothing published\n"); remove(book_tmp); remove(stream_tmp); return 1; }
+    }
+
+    {
+        char book_dst[1024], stream_dst[1024];
+        snprintf(book_dst, sizeof(book_dst), "%s.nq2book", out_prefix);
+        snprintf(stream_dst, sizeof(stream_dst), "%s.nq2", out_prefix);
+        if (publish_pair(book_tmp, stream_tmp, book_dst, stream_dst) != 0) {
+            fprintf(stderr, "cannot publish %s pair\n", out_prefix);
+            remove(book_tmp); remove(stream_tmp);
+            return 1;
+        }
+    }
+    {
+        char pathbuf[1088];
+        snprintf(pathbuf, sizeof(pathbuf), "%s.nq2manifest", out_prefix);
+        FILE *mf = fopen(pathbuf, "w");
+        if (!mf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
+        fprintf(mf, "NQ2MANIFEST 1\n");
+        fprintf(mf, "generation %016llx\n", (unsigned long long)gen);
+        fprintf(mf, "tensors %d\n", n);
+        for (int s = 0; s < n; s++)
+            fprintf(mf, "tensor %s %llu %llu %u %016llx %016llx %s\n",
+                    g_scope[s].tensor->name, (unsigned long long)block0s[s],
+                    (unsigned long long)j.nb[s], block,
+                    (unsigned long long)j.segd[s], (unsigned long long)j.bookd[s],
+                    j.is_raw[s] ? "raw" : "packed");
+        fprintf(mf, "end\n");
+        if (fclose(mf) != 0) {
+            fprintf(stderr, "the pair is published but its manifest is not; the pack carries its generation pairing only\n");
+            return 1;
+        }
+        printf("manifest: %s\n", pathbuf);
+    }
+
+    uint64_t book_bytes = book_size;
+    uint64_t stream_bytes = stream_size;
+    uint64_t denom = tot_weights + tot_raw;
+    double rate = denom ? (double)stream_bytes * 8.0 / (double)denom : 0.0;
+    double crate = denom ? (double)(stream_bytes + book_bytes) * 8.0 / (double)denom : 0.0;
+    char pathbuf[1024];
+    snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
+    FILE *rf = fopen(pathbuf, "w");
+    if (!rf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
+    fprintf(rf, "NanoQuatTwo quantization report (per-tensor books, format v%u)\n", 3u);
+    fprintf(rf, "tensors packed: %d (one book each)\n", n);
+    fprintf(rf, "weights packed: %llu\n", (unsigned long long)tot_weights);
+    if (tot_raw)
+        fprintf(rf, "weights stored as raw float16: %llu\n", (unsigned long long)tot_raw);
+    fprintf(rf, "block size: %u, entries per book: %u\n", block, entries);
+    fprintf(rf, "generation id: %016llx (book and stream; manifest %s.nq2manifest)\n",
+            (unsigned long long)gen, out_prefix);
+    fprintf(rf, "normalization: %s\n", g_norm_rms ? "rms (no offset)" : "minmax");
+    fprintf(rf, "index stream (.nq2): %llu bytes\n", (unsigned long long)stream_bytes);
+    fprintf(rf, "memory file (.nq2book): %llu bytes\n", (unsigned long long)book_bytes);
+    fprintf(rf, "stream rate: %.4f bits per weight (stream only)\n", rate);
+    fprintf(rf, "complete rate: %.4f bits per weight (stream + book, two-part accounting)\n", crate);
+    fprintf(rf, "relative L2 error on real weights: %.4f\n", rel_l2);
+    fprintf(rf, "per-tensor relative L2:\n");
+    for (int s = 0; s < n; s++)
+        fprintf(rf, "  %s: %.4f\n", g_scope[s].tensor->name,
+                j.ref2[s] > 0 ? dsqrt(j.err2[s] / j.ref2[s]) : 0.0);
+    if (fclose(rf) != 0) { fprintf(stderr, "write failed for %s\n", pathbuf); return 1; }
+    printf("index stream: %llu bytes; memory file: %llu bytes\n",
+           (unsigned long long)stream_bytes, (unsigned long long)book_bytes);
+    printf("rate: %.4f bits per weight (stream only); complete %.4f (stream + book)\n", rate, crate);
+    return 0;
+}
 int main(int argc, char **argv)
 {
     const char *out_prefix = NULL;
@@ -1196,7 +1963,11 @@ int main(int argc, char **argv)
     uint64_t tensor_sample_cap = 8192;
     int books_mode = 0;   /* 0 = one global book (v1), 1 = per-tensor books (v2) */
     int iters = 8;
-    const char *shard_paths[16];
+    const char **shard_paths = (const char **)malloc(sizeof(char *) * (size_t)(argc + 1));
+    if (!shard_paths) { fprintf(stderr, "out of memory\n"); return 1; }
+#ifdef _WIN32
+    _setmaxstdio(2048);   /* one open FILE per shard; the CRT default is 512 */
+#endif
     int n_shard_paths = 0;
 
     for (int i = 1; i < argc; i++) {
@@ -1215,14 +1986,18 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--pq") == 0 && i + 1 < argc) g_pq_d = (int)strtol(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--budgets") == 0) g_budgets = 1;
         else if (strcmp(argv[i], "--embed-fp16") == 0) g_embed_fp16 = 1;
-        else if (argv[i][0] != '-' && n_shard_paths < 16) shard_paths[n_shard_paths++] = argv[i];
+        else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) g_threads = (int)strtol(argv[++i], NULL, 10);
+        else if (argv[i][0] != '-') shard_paths[n_shard_paths++] = argv[i];   /* no fixed cap: sized from argc */
         else { fprintf(stderr, "bad argument: %s\n", argv[i]); return 1; }
     }
+    if (g_threads <= 0) g_threads = cpu_count();
+    if (g_threads > 256) g_threads = 256;
     if (!out_prefix || n_shard_paths == 0) {
         fprintf(stderr,
             "usage: nq2-quantize --out PREFIX shard.safetensors [more shards]\n"
             "         [--block 256] [--entries 256] [--budget N]\n"
-            "         [--filter a,b] [--sample-blocks N] [--iters N]\n");
+            "         [--filter a,b] [--sample-blocks N] [--iters N]\n"
+            "         [--threads N]   (default: logical CPUs; output identical for any N)\n");
         return 1;
     }
     if (entries > 256) {
@@ -1302,6 +2077,7 @@ int main(int argc, char **argv)
     /* Open shards and build the scope: whole tensors, in order,
      * while the running weight total is under the budget. */
     Shard *shards = (Shard *)calloc(n_shard_paths, sizeof(Shard));
+    g_shards = shards; g_n_shards = n_shard_paths;
     int scope_cap = 256;
     g_scope = (ScopeItem *)malloc(sizeof(ScopeItem) * scope_cap);
     uint64_t scope_weights = 0;
@@ -1346,6 +2122,12 @@ int main(int argc, char **argv)
                     "have room to step down\n");
             return 1;
         }
+        /* Flat v3 per-tensor books on more than one thread: the
+         * parallel, byte-identical, RAM-bounded path. */
+        if (g_format == 3 && !g_pq_d && !g_budgets && !g_residual
+                && g_threads > 1)
+            return per_tensor_parallel(out_prefix, block, entries, iters,
+                                       tensor_sample_cap);
         uint32_t idxw = g_pq_d ? block / (uint32_t)g_pq_d : 1;
         TOut *outs = (TOut *)calloc((size_t)g_n_scope, sizeof(TOut));
         double *terr = (double *)calloc((size_t)g_n_scope, sizeof(double));
@@ -1815,7 +2597,7 @@ int main(int argc, char **argv)
     sctx.sample = (float *)malloc(sample_cap * block * sizeof(float));
     sctx.tmp = (float *)malloc(block * sizeof(float));
     if (!sctx.sample || !sctx.tmp) { fprintf(stderr, "out of memory sampling\n"); return 1; }
-    walk_blocks(block, sample_fn, &sctx);
+    { time_t t_a = time(NULL); sample_global_fast(&sctx); printf("pass 1 (sampling): %lld s\n", (long long)(time(NULL) - t_a)); fflush(stdout); }
     printf("sampled %llu blocks for k-means\n",
            (unsigned long long)sctx.sample_n);
 
@@ -1823,7 +2605,7 @@ int main(int argc, char **argv)
     float *cent = (float *)malloc((size_t)entries * block * sizeof(float));
     float *tmp = (float *)malloc(block * sizeof(float));
     if (!cent || !tmp) { fprintf(stderr, "out of memory learning\n"); return 1; }
-    learn_book(sctx.sample, sctx.sample_n, block, entries, iters, cent);
+    { time_t t_a = time(NULL); learn_book(sctx.sample, sctx.sample_n, block, entries, iters, cent); printf("k-means (%d threads): %lld s\n", g_threads, (long long)(time(NULL) - t_a)); fflush(stdout); }
     free(sctx.sample); free(sctx.tmp);
 
     /* Pass 2: pack every block and measure true fidelity. */
@@ -1840,7 +2622,7 @@ int main(int argc, char **argv)
         return 1;
     }
     pctx.tmp = tmp;
-    walk_blocks(block, pack_fn, &pctx);
+    { time_t t_a = time(NULL); pack_parallel(&pctx); printf("pass 2 (pack, %d threads): %lld s\n", g_threads, (long long)(time(NULL) - t_a)); fflush(stdout); }
     if (pctx.frame_bad) {
         fprintf(stderr, "block %llu: frame value %g is not "
                 "representable in float16; refusing to publish "
