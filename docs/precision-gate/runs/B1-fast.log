@@ -1,0 +1,14 @@
+notice: legacy pack (format v1): no generation identity; the stream and the book are bound by position, as before
+pipe: 2 slots (device), fetch-ahead 1 (default), prefetch distance 2 (default), expand lanes 2 (device), hardware ceiling 2 lanes
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: packed .nq2
+threads: 4 workers + fetch/unpack (triforce); derived budget: pipe 434.7 MB (incl. staging 218.7 MB), KV cache 4.3 MB, embedding matrix 8.0 MB
+precision gate: posture fast (cli), lookahead 2 (default), resync 32 (default), calibration: eps 3.5076e+01, budget 1.2770e+00
+generated token ids: 122388
+nfe: 4 (denoiser evaluations), seed 1234
+precision gate: layer consumptions via DTC 130 of 130 (fast posture)
+prefetch telemetry: 910 requests, 0 hits (0.0%), 910 misses
+  tensor handshake: layer counter 181 of 181 (consumer's committed ordinal)
+  tensor handshake ticks: fetch 181, expand 182 of 182 ready, consume 181; prefetch list generation 2912
+  consumer stall on misses: 32888.1 ms total; mean ready slack on hits: 0.0 ms
+  load path (disc + reconstruct): 3298.8 ms for 0.30 GB expanded, 90 MB/sec

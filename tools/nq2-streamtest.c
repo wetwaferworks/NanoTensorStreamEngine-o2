@@ -215,22 +215,67 @@ static int g_prefetch_dist = 2;
 static __thread uint32_t *g_bucket = NULL;
 static __thread uint64_t g_bucket_cap = 0;
 
-static void read_tensor_raw(int ord, uint8_t **idx_out, uint16_t **fr_out)
+/* Short-read policy (Codex Astra M-P8, re-raised as ChatGPT
+ * Sol M8; remedy taken under JD's 2026-11-25 delegation):
+ * a short read is a hard failure, never a zero-filled success.
+ * The old policy let a pack cut by 40 trailing bytes publish
+ * a stable-looking accumulator (138.46327352204358 instead of
+ * the complete file's value) and exit 0. Now the first short
+ * read records its shortfall here, stops the pipeline, and
+ * main exits nonzero without printing an accumulator. */
+static volatile int g_io_fail = 0;
+static char g_io_msg[512];
+
+static void io_fail(const char *plane, const char *tensor,
+                    uint64_t want, uint64_t got)
+{
+    if (!g_io_fail) {
+        snprintf(g_io_msg, sizeof(g_io_msg),
+                 "nq2-streamtest: short read on the %s (tensor "
+                 "%s): wanted %llu, got %llu; the pack is "
+                 "incomplete, no accumulator is published\n",
+                 plane, tensor,
+                 (unsigned long long)want,
+                 (unsigned long long)got);
+    }
+    g_io_fail = 1;
+}
+
+static int read_tensor_raw(int ord, uint8_t **idx_out, uint16_t **fr_out)
 {
     const TDir *t = g_demand[ord];
     uint64_t nb = t->nblocks, b0 = t->block0;
-    /* calloc, not malloc (CODE-REVIEW-2026-11-24, T8): the short
-     * read path below relies on unread bytes being zero. */
+    /* calloc, not malloc (CODE-REVIEW-2026-11-24, T8). The
+     * zeroed buffers are initialization discipline only: since
+     * the M-P8 remedy above, a short read fails the run before
+     * any unread byte can be consumed. */
     uint8_t *idx = (uint8_t *)calloc(nb, 1);
     uint16_t *fr = (uint16_t *)calloc(nb, 4);
+    size_t got;
     fseeko(g_stream, (off_t)(g_header + b0), SEEK_SET);
-    if (fread(idx, 1, nb, g_stream) != nb) { /* handled by caller via zeros */ }
+    got = fread(idx, 1, (size_t)nb, g_stream);
+    if (got != nb) {
+        io_fail("index plane", t->name, nb, (uint64_t)got);
+        free(idx); free(fr);
+        return -1;
+    }
     fseeko(g_stream, (off_t)(g_header + g_nb_total + 2 * b0), SEEK_SET);
-    if (fread(fr, 2, nb, g_stream) != nb) { }
+    got = fread(fr, 2, (size_t)nb, g_stream);
+    if (got != nb) {
+        io_fail("frame min plane", t->name, nb, (uint64_t)got);
+        free(idx); free(fr);
+        return -1;
+    }
     fseeko(g_stream, (off_t)(g_header + 3 * g_nb_total + 2 * b0), SEEK_SET);
-    if (fread(fr + nb, 2, nb, g_stream) != nb) { }
+    got = fread(fr + nb, 2, (size_t)nb, g_stream);
+    if (got != nb) {
+        io_fail("frame scale plane", t->name, nb, (uint64_t)got);
+        free(idx); free(fr);
+        return -1;
+    }
     *idx_out = idx;
     *fr_out = fr;
+    return 0;
 }
 
 static void unpack_tensor(int ord, const uint8_t *idx, const uint16_t *fr,
@@ -302,7 +347,15 @@ static void *disc_loop(void *unused)
         if (P.stop) return NULL;
         double t0 = now_s();
         uint8_t *idx; uint16_t *fr;
-        read_tensor_raw(ord, &idx, &fr);
+        if (read_tensor_raw(ord, &idx, &fr) != 0) {
+            /* M-P8: stop the whole pipeline; main reports the
+             * recorded shortfall and exits nonzero. */
+            pthread_mutex_lock(&P.lock);
+            P.stop = 1;
+            pthread_cond_broadcast(&P.cv);
+            pthread_mutex_unlock(&P.lock);
+            return NULL;
+        }
         double dt = now_s() - t0;
         pthread_mutex_lock(&P.lock);
         P.stage_idx[ord] = idx;
@@ -426,6 +479,29 @@ int main(int argc, char **argv)
     g_nb_total = rd64(hdr + 24);
     g_header = version == 2 ? 36 : 32;
     if (version != 1) { fprintf(stderr, "streamtest takes v1 packs\n"); return 1; }
+    /* M-P8, upfront: the stream must actually hold the bytes
+     * its header promises (header + 1 index byte and 2 frame
+     * halves of 2 bytes per block). A truncated pack fails
+     * here, by name and shortfall, before any tensor is read;
+     * the per-read checks in read_tensor_raw are the second
+     * line of the same policy. Trailing bytes past the
+     * promised extent are tolerated. */
+    {
+        fseeko(g_stream, 0, SEEK_END);
+        off_t psz = ftello(g_stream);
+        uint64_t want = g_header + 5 * g_nb_total;
+        if (psz < 0 || (uint64_t)psz < want) {
+            fprintf(stderr, "nq2-streamtest: pack file is %lld "
+                    "bytes but its header promises %llu (header "
+                    "%llu + 5 x %llu blocks); the pack is "
+                    "incomplete, no accumulator is published\n",
+                    (long long)psz, (unsigned long long)want,
+                    (unsigned long long)g_header,
+                    (unsigned long long)g_nb_total);
+            return 1;
+        }
+        fseeko(g_stream, 0, SEEK_SET);
+    }
     /* book (size kept in off_t: the old (long)ftello cast
      * narrows a book above 2 GiB on Windows; Codex Astra
      * review M-P7, 2026-11-25) */
@@ -509,7 +585,11 @@ int main(int argc, char **argv)
         for (int ord = 0; ord < g_nord; ord++) {
             uint8_t *idx; uint16_t *fr;
             double t0 = now_s();
-            read_tensor_raw(ord, &idx, &fr);
+            if (read_tensor_raw(ord, &idx, &fr) != 0) {
+                fprintf(stderr, "%s", g_io_msg);
+                free(buf);
+                return 1;
+            }
             P.disc_busy += now_s() - t0;
             t0 = now_s();
             /* unpack into buf via a one-off call shape */
@@ -547,8 +627,11 @@ int main(int argc, char **argv)
         for (int ord = 0; ord < g_nord; ord++) {
             double tw = now_s();
             pthread_mutex_lock(&P.lock);
-            while (!P.ready[ord]) pthread_cond_wait(&P.cv, &P.lock);
+            while (!P.ready[ord] && !P.stop)
+                pthread_cond_wait(&P.cv, &P.lock);
+            int have = P.ready[ord];
             pthread_mutex_unlock(&P.lock);
+            if (!have) break;   /* disc loop stopped: short read */
             P.main_stall += now_s() - tw;
             double t0 = now_s();
             /* Packed extent only, as in the serial path above
@@ -568,6 +651,10 @@ int main(int argc, char **argv)
         pthread_mutex_unlock(&P.lock);
         pthread_join(dth, NULL);
         for (int u = 0; u < unpackers && u < 4; u++) pthread_join(uth[u], NULL);
+    }
+    if (g_io_fail) {
+        fprintf(stderr, "%s", g_io_msg);
+        return 1;
     }
     double wall = now_s() - wall0;
     /* The expanded rate is computed from the packed extent

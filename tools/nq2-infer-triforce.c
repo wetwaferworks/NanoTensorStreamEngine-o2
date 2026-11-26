@@ -663,6 +663,156 @@ static int g_prefetch_dist = 2; /* --prefetch-dist N (>= 0) */
 static uint64_t g_pk_header = 0;        /* stream header bytes */
 static uint64_t g_pk_nblocks = 0;
 
+/* Format v3 identity and layouts (H3b, 2026-11-25): the
+ * generation id both v3 headers carry, the v3 flags, and the
+ * per-tensor tables the v3 layouts need. Legacy packs (v1/v2)
+ * leave all of these at their defaults and read exactly as
+ * before, with a notice at open. */
+static uint64_t g_pk_gen = 0;
+static uint32_t g_pk_flags = 0, g_pk_pq_d = 0, g_pk_idxw = 1;
+static uint32_t *g_pk_tblock = NULL;    /* per-tensor block sizes */
+static uint64_t *g_pk_book_off = NULL;  /* per-tensor book offset */
+static uint16_t *g_pk_rawdata = NULL;   /* fp16-raw section */
+static uint64_t *g_pk_raw_off = NULL;   /* per-tensor raw offset */
+
+static uint32_t pk_block_of(const TEnt *t)
+{
+    return g_pk_tblock ? g_pk_tblock[t - g_dir] : g_pk_block;
+}
+static const float *pk_book_of(const TEnt *t)
+{
+    return g_pk_book + g_pk_book_off[t - g_dir];
+}
+static int pk_is_raw(const TEnt *t)
+{
+    return g_pk_raw_off && g_pk_raw_off[t - g_dir] != ~(uint64_t)0;
+}
+#define PK_FNV_SEED 14695981039346656037ull
+static uint64_t pk_fnv(const void *data, size_t len, uint64_t h)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint64_t)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+static uint64_t pk_fnv_stream(uint64_t off, uint64_t len, uint64_t h)
+{
+    uint8_t buf[65536];
+    if (seek_to(g_pk_stream, off) != 0) return 0;
+    while (len) {
+        size_t want = len > sizeof(buf) ? sizeof(buf) : (size_t)len;
+        if (fread(buf, 1, want, g_pk_stream) != want) return 0;
+        h = pk_fnv(buf, want, h);
+        len -= want;
+    }
+    return h;
+}
+
+/* Verify the per-tensor digest manifest beside a v3 pack:
+ * the generation line must match the headers, the tensor
+ * lines must describe this directory in order, and every
+ * segment digest (over the stored stream bytes) and book
+ * digest (over the stored book floats) must recompute to
+ * the recorded value. A missing manifest is a notice, not a
+ * failure: the generation pairing still binds the pair. */
+static int pk_verify_manifest(const char *stream_path)
+{
+    char mpath[1200];
+    snprintf(mpath, sizeof(mpath), "%s", stream_path);
+    size_t L = strlen(mpath);
+    if (L > 4 && strcmp(mpath + L - 4, ".nq2") == 0)
+        strcpy(mpath + L - 4, ".nq2manifest");
+    else
+        strncat(mpath, ".nq2manifest", sizeof(mpath) - L - 1);
+    FILE *mf = fopen(mpath, "r");
+    if (!mf) {
+        fprintf(stderr, "notice: no manifest beside this pack; "
+                "generation pairing checked, per-tensor digests "
+                "not verified\n");
+        return 0;
+    }
+    char line[1200];
+    unsigned long long mgen = 0;
+    int nt = -1, bad = 1;
+    if (fgets(line, sizeof(line), mf)
+            && strcmp(line, "NQ2MANIFEST 1\n") == 0
+            && fgets(line, sizeof(line), mf)
+            && sscanf(line, "generation %llx", &mgen) == 1
+            && fgets(line, sizeof(line), mf)
+            && sscanf(line, "tensors %d", &nt) == 1)
+        bad = 0;
+    if (bad || mgen != g_pk_gen || nt != g_ndir) {
+        fprintf(stderr, "pack identity mismatch: the manifest "
+                "beside this pack does not describe it "
+                "(manifest generation %016llx, pack generation "
+                "%016llx); refusing to run\n",
+                mgen, (unsigned long long)g_pk_gen);
+        fclose(mf);
+        return -1;
+    }
+    for (int i = 0; i < g_ndir; i++) {
+        char name[256], kind[16];
+        unsigned long long b0, nb, segd, bookd;
+        unsigned blk;
+        if (!fgets(line, sizeof(line), mf)
+                || sscanf(line, "tensor %255s %llu %llu %u %llx "
+                          "%llx %15s", name, &b0, &nb, &blk,
+                          &segd, &bookd, kind) != 7
+                || strcmp(name, g_dir[i].name) != 0
+                || b0 != g_dir[i].block0 || nb != g_dir[i].nblocks
+                || blk != pk_block_of(&g_dir[i])) {
+            fprintf(stderr, "pack identity mismatch: manifest "
+                    "line %d does not describe tensor %s; "
+                    "refusing to run\n", i, g_dir[i].name);
+            fclose(mf);
+            return -1;
+        }
+        uint64_t h = PK_FNV_SEED;
+        if (pk_is_raw(&g_dir[i])) {
+            h = pk_fnv(g_pk_rawdata + g_pk_raw_off[i],
+                       g_dir[i].count * 2, h);
+        } else {
+            h = pk_fnv_stream(g_pk_header
+                    + g_dir[i].block0 * g_pk_idxw,
+                    g_dir[i].nblocks * g_pk_idxw, h);
+            h = pk_fnv_stream(g_pk_header
+                    + g_pk_nblocks * g_pk_idxw
+                    + 2 * g_dir[i].block0,
+                    2 * g_dir[i].nblocks, h);
+            h = pk_fnv_stream(g_pk_header
+                    + g_pk_nblocks * (g_pk_idxw + 2)
+                    + 2 * g_dir[i].block0,
+                    2 * g_dir[i].nblocks, h);
+        }
+        if (h != segd) {
+            fprintf(stderr, "pack identity mismatch: tensor %s "
+                    "fails its manifest segment digest; the "
+                    "pack has been altered or mispaired\n", name);
+            fclose(mf);
+            return -1;
+        }
+        uint64_t bh = PK_FNV_SEED;
+        if (!pk_is_raw(&g_dir[i]))
+            bh = pk_fnv(pk_book_of(&g_dir[i]),
+                        (size_t)g_pk_entries * pk_block_of(&g_dir[i])
+                            * sizeof(float), bh);
+        if (bh != bookd) {
+            fprintf(stderr, "pack identity mismatch: tensor %s "
+                    "fails its manifest book digest; the pack "
+                    "has been altered or mispaired\n", name);
+            fclose(mf);
+            return -1;
+        }
+    }
+    fclose(mf);
+    printf("pack identity: generation %016llx; manifest "
+           "verified for %d tensors\n",
+           (unsigned long long)g_pk_gen, g_ndir);
+    return 0;
+}
+
 static uint32_t pk_rd_u32(FILE *f)
 {
     uint8_t b[4];
@@ -690,26 +840,24 @@ static int packed_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
     /* Audit nit: a zero-length range would underflow
      * (elem0 + nelems - 1) below. No caller passes one. */
     if (nelems == 0) return -1;
-    uint32_t block = g_pk_block;
+    uint32_t block = pk_block_of(t);
     uint64_t b0 = t->block0 + elem0 / block;
     uint64_t b1 = t->block0 + (elem0 + nelems - 1) / block;
     uint64_t nb = b1 - b0 + 1;
-    uint8_t *idx = (uint8_t *)malloc(nb);
+    uint8_t *idx = (uint8_t *)malloc(nb * g_pk_idxw);
     uint8_t *fr = (uint8_t *)malloc(nb * 4);
     float *tmp = (float *)malloc(block * sizeof(float));
     if (!idx || !fr || !tmp) { free(idx); free(fr); free(tmp); return -1; }
-    if (seek_to(g_pk_stream, g_pk_header + b0) != 0
-            || fread(idx, 1, nb, g_pk_stream) != nb) goto fail;
-    if (seek_to(g_pk_stream, g_pk_header + g_pk_nblocks + 2 * b0) != 0
+    if (seek_to(g_pk_stream, g_pk_header + b0 * g_pk_idxw) != 0
+            || fread(idx, g_pk_idxw, nb, g_pk_stream) != nb) goto fail;
+    if (seek_to(g_pk_stream, g_pk_header + g_pk_nblocks * g_pk_idxw
+                + 2 * b0) != 0
             || fread(fr, 2, nb, g_pk_stream) != nb) goto fail;
-    if (seek_to(g_pk_stream, g_pk_header + 3 * g_pk_nblocks + 2 * b0) != 0
+    if (seek_to(g_pk_stream, g_pk_header
+                + g_pk_nblocks * (g_pk_idxw + 2) + 2 * b0) != 0
             || fread(fr + nb * 2, 2, nb, g_pk_stream) != nb) goto fail;
     {
-        const float *book = g_pk_book;
-        if (g_pk_version == 2) {
-            /* find the segment: segments are tensors in dir order */
-            book = g_pk_book + (size_t)(t - g_dir) * g_pk_entries * block;
-        }
+        const float *book = pk_book_of(t);
         for (uint64_t b = 0; b < nb; b++) {
             if (idx[b] >= g_pk_entries) goto fail;
             /* Book lookup optimization (streamtest variant 1,
@@ -797,15 +945,17 @@ typedef struct {
 static int packed_fetch_range(FILE *stream, const TEnt *t,
                               uint64_t elem0, uint64_t nelems, Stage *s)
 {
-    uint32_t block = g_pk_block;
+    uint32_t block = pk_block_of(t);
     uint64_t b0 = t->block0 + elem0 / block;
     uint64_t b1 = t->block0 + (elem0 + nelems - 1) / block;
     uint64_t nb = b1 - b0 + 1;
-    if (seek_to(stream, g_pk_header + b0) != 0
-            || fread(s->idx, 1, nb, stream) != nb) return -1;
-    if (seek_to(stream, g_pk_header + g_pk_nblocks + 2 * b0) != 0
+    if (seek_to(stream, g_pk_header + b0 * g_pk_idxw) != 0
+            || fread(s->idx, g_pk_idxw, nb, stream) != nb) return -1;
+    if (seek_to(stream, g_pk_header + g_pk_nblocks * g_pk_idxw
+                + 2 * b0) != 0
             || fread(s->fr, 2, nb, stream) != nb) return -1;
-    if (seek_to(stream, g_pk_header + 3 * g_pk_nblocks + 2 * b0) != 0
+    if (seek_to(stream, g_pk_header
+                + g_pk_nblocks * (g_pk_idxw + 2) + 2 * b0) != 0
             || fread(s->fr + nb * 2, 2, nb, stream) != nb) return -1;
     s->b0 = b0;
     s->nb = nb;
@@ -817,15 +967,13 @@ static int packed_expand_range(const TEnt *t, uint64_t elem0,
                                uint64_t nelems, const Stage *s,
                                float *out)
 {
-    uint32_t block = g_pk_block;
+    uint32_t block = pk_block_of(t);
     uint64_t b0 = s->b0, nb = s->nb;
     const uint8_t *idx = s->idx, *fr = s->fr;
     float *tmp = (float *)malloc(block * sizeof(float));
     if (!tmp) return -1;
     {
-        const float *book = g_pk_book;
-        if (g_pk_version == 2)
-            book = g_pk_book + (size_t)(t - g_dir) * g_pk_entries * block;
+        const float *book = pk_book_of(t);
         for (uint64_t b = 0; b < nb; b++) {
             if (idx[b] >= g_pk_entries) { free(tmp); return -1; }
             if (b + (uint64_t)g_prefetch_dist < nb) {
@@ -925,13 +1073,23 @@ static int src_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
      * re-checks it in raw_read_range. */
     if (elem0 > t->count || nelems > t->count - elem0) return -1;
     if (!g_use_packed) return raw_read_range(t, elem0, nelems, out);
+    if (pk_is_raw(t)) {
+        /* fp16-raw section (format v3): this tensor was
+         * stored unquantized; serve it from the section the
+         * pack carries, not from the shards. */
+        const uint16_t *sec = g_pk_rawdata
+            + g_pk_raw_off[t - g_dir] + elem0;
+        for (uint64_t i = 0; i < nelems; i++)
+            out[i] = f16_to_float(sec[i]);
+        return 0;
+    }
     /* The stream holds only whole blocks: elements past the last
      * packed block (tensors smaller than one block, and block
      * tails) were never packed. Serve the packed portion from
      * the stream and the remainder from the raw shards, which
      * are always open. Without this, a small tensor's read would
      * silently return the next tensor's first block. */
-    uint64_t packed_elems = t->nblocks * g_pk_block;
+    uint64_t packed_elems = t->nblocks * pk_block_of(t);
     if (elem0 >= packed_elems)
         return raw_read_range(t, elem0, nelems, out);
     uint64_t in = nelems;
@@ -972,11 +1130,74 @@ static int packed_open(const char *stream_path, const char *book_path)
     }
     uint32_t n_books = 1;
     uint64_t *seg = NULL;
+    uint32_t *raw_list = NULL, n_raw = 0;
+    uint64_t raw_bytes = 0;
     if (g_pk_version == 2) {
         n_books = pk_rd_u32(g_pk_stream);
         seg = (uint64_t *)malloc(sizeof(uint64_t) * n_books);
         if (!seg) return -1;
         for (uint32_t i = 0; i < n_books; i++) seg[i] = pk_rd_u64(g_pk_stream);
+    } else if (g_pk_version == 3) {
+        uint32_t n_seg = pk_rd_u32(g_pk_stream);
+        if ((int)n_seg != g_ndir) {
+            fprintf(stderr, "packed model has %u segments but "
+                    "the directory has %d tensors\n",
+                    n_seg, g_ndir);
+            return -1;
+        }
+        seg = (uint64_t *)malloc(sizeof(uint64_t) * n_seg);
+        if (!seg) return -1;
+        for (uint32_t i = 0; i < n_seg; i++)
+            seg[i] = pk_rd_u64(g_pk_stream);
+        g_pk_gen = pk_rd_u64(g_pk_stream);
+        g_pk_flags = pk_rd_u32(g_pk_stream);
+        if (g_pk_flags & 1u) {
+            fprintf(stderr, "PQ packs (format v3, sub-books) are "
+                    "expanded by nq2-infer and nq2-infer-lab in "
+                    "this pass; the triforce pipe does not read "
+                    "them yet\n");
+            return -1;
+        }
+        if (g_pk_flags & 1u) {
+            g_pk_pq_d = pk_rd_u32(g_pk_stream);
+            if (g_pk_pq_d == 0 || g_pk_block % g_pk_pq_d != 0) {
+                fprintf(stderr, "packed stream header has an "
+                        "invalid PQ subvector dim %u for block "
+                        "%u\n", g_pk_pq_d, g_pk_block);
+                return -1;
+            }
+            g_pk_idxw = g_pk_block / g_pk_pq_d;
+        }
+        if (g_pk_flags & 2u) {
+            g_pk_tblock = (uint32_t *)malloc(sizeof(uint32_t) * n_seg);
+            if (!g_pk_tblock) return -1;
+            for (uint32_t i = 0; i < n_seg; i++) {
+                g_pk_tblock[i] = pk_rd_u32(g_pk_stream);
+                if (g_pk_tblock[i] == 0 || g_pk_tblock[i] > 4096) {
+                    fprintf(stderr, "packed stream header has "
+                            "an unsupported per-tensor block %u\n",
+                            g_pk_tblock[i]);
+                    return -1;
+                }
+            }
+        }
+        if (g_pk_flags & 4u) {
+            n_raw = pk_rd_u32(g_pk_stream);
+            raw_list = (uint32_t *)malloc(sizeof(uint32_t)
+                                          * (n_raw ? n_raw : 1));
+            if (!raw_list) return -1;
+            for (uint32_t i = 0; i < n_raw; i++) {
+                raw_list[i] = pk_rd_u32(g_pk_stream);
+                if (raw_list[i] >= n_seg) {
+                    fprintf(stderr, "packed stream header names "
+                            "raw segment %u of %u\n",
+                            raw_list[i], n_seg);
+                    return -1;
+                }
+                raw_bytes += g_dir[raw_list[i]].count * 2;
+            }
+        }
+        n_books = n_seg;
     } else if (g_pk_version != 1) {
         return -1;
     }
@@ -984,13 +1205,15 @@ static int packed_open(const char *stream_path, const char *book_path)
         off_t hb = tell_of(g_pk_stream);
         g_pk_header = hb > 0 ? (uint64_t)hb : 0;
     }
-    /* Round 4 P0, read-integrity audit gap A: the header's
-     * block count must account for the stream's actual bytes
-     * exactly: header + 1 index byte + 2 frame-minimum bytes +
-     * 2 frame-scale bytes per block. A truncated or overstated
-     * stream is refused here, not discovered mid-read. */
+    /* Read-integrity (Round 4 P0 gap A, generalized): the
+     * header's block count must account for the stream's
+     * actual bytes exactly: header + index bytes + 2
+     * frame-minimum bytes + 2 frame-scale bytes per block,
+     * plus the fp16-raw section when present. A truncated or
+     * overstated stream is refused here, not discovered
+     * mid-read. */
     {
-        if (g_pk_nblocks > (UINT64_MAX - g_pk_header) / 5)
+        if (g_pk_nblocks > (UINT64_MAX - g_pk_header) / (g_pk_idxw + 4))
             return -1;      /* header arithmetic would overflow */
         off_t save = tell_of(g_pk_stream);
         if (save < 0 || seek_end(g_pk_stream) != 0)
@@ -998,7 +1221,8 @@ static int packed_open(const char *stream_path, const char *book_path)
         off_t fsz = tell_of(g_pk_stream);
         if (fsz < 0 || seek_to(g_pk_stream, (uint64_t)save) != 0)
             return -1;
-        uint64_t want = g_pk_header + 5 * g_pk_nblocks;
+        uint64_t want = g_pk_header
+            + (uint64_t)(g_pk_idxw + 4) * g_pk_nblocks + raw_bytes;
         if ((uint64_t)fsz != want) {
             fprintf(stderr, "packed stream size mismatch: file "
                     "has %lld bytes, header describes %llu\n",
@@ -1011,7 +1235,51 @@ static int packed_open(const char *stream_path, const char *book_path)
     if (fread(magic, 1, 4, bf) != 4 || memcmp(magic, "NQ2B", 4) != 0)
         return -1;
     uint64_t total_book_floats;
-    if (g_pk_version == 2) {
+    uint32_t stored_books = 1;
+    if (g_pk_version == 3) {
+        uint32_t bver = pk_rd_u32(bf);
+        uint32_t b_block = pk_rd_u32(bf);
+        uint32_t b_entries = pk_rd_u32(bf);
+        uint32_t b_books = pk_rd_u32(bf);
+        uint64_t b_gen = pk_rd_u64(bf);
+        if (g_pk_flags & 1u) {
+            uint32_t b_pq = pk_rd_u32(bf);
+            if (b_pq != g_pk_pq_d) {
+                fprintf(stderr, "stream and book disagree on "
+                        "the PQ subvector dim\n");
+                return -1;
+            }
+        }
+        if (bver != 3 || b_block != g_pk_block
+                || b_entries != g_pk_entries) {
+            fprintf(stderr, "stream and book disagree\n");
+            return -1;
+        }
+        if (b_gen != g_pk_gen) {
+            fprintf(stderr, "pack identity mismatch: the "
+                    "stream carries generation %016llx and the "
+                    "book carries generation %016llx; they were "
+                    "not packed together and will not be run "
+                    "together\n",
+                    (unsigned long long)g_pk_gen,
+                    (unsigned long long)b_gen);
+            return -1;
+        }
+        stored_books = b_books;
+        if (stored_books == 1) {
+            total_book_floats = (uint64_t)g_pk_entries * g_pk_block;
+        } else {
+            total_book_floats = 0;
+            for (int i = 0; i < g_ndir; i++) {
+                int is_raw = 0;
+                for (uint32_t r = 0; r < n_raw; r++)
+                    if (raw_list[r] == (uint32_t)i) is_raw = 1;
+                if (!is_raw)
+                    total_book_floats += (uint64_t)g_pk_entries
+                        * (g_pk_tblock ? g_pk_tblock[i] : g_pk_block);
+            }
+        }
+    } else if (g_pk_version == 2) {
         uint32_t bver = pk_rd_u32(bf);
         uint32_t b_block = pk_rd_u32(bf);
         uint32_t b_entries = pk_rd_u32(bf);
@@ -1021,6 +1289,7 @@ static int packed_open(const char *stream_path, const char *book_path)
             fprintf(stderr, "stream and book disagree\n");
             return -1;
         }
+        stored_books = n_books;
         total_book_floats = (uint64_t)n_books * g_pk_entries * g_pk_block;
     } else {
         uint32_t b_block = pk_rd_u32(bf);
@@ -1037,49 +1306,68 @@ static int packed_open(const char *stream_path, const char *book_path)
             != total_book_floats) return -1;
     fclose(bf);
 
-    uint64_t cursor = 0;
-    if (g_pk_version == 2) {
-        if ((int)n_books != g_ndir) {
-            fprintf(stderr, "packed model has %u books but the "
-                    "directory has %d tensors\n", n_books, g_ndir);
-            return -1;
+    /* Bind segments to directory tensors in directory order
+     * (the quantizer's packing order), assign each tensor
+     * its book offset, and account for the fp16-raw section. */
+    g_pk_book_off = (uint64_t *)calloc((size_t)g_ndir, sizeof(uint64_t));
+    g_pk_raw_off = (uint64_t *)malloc(sizeof(uint64_t) * (size_t)g_ndir);
+    if (!g_pk_book_off || !g_pk_raw_off) return -1;
+    for (int i = 0; i < g_ndir; i++) g_pk_raw_off[i] = ~(uint64_t)0;
+    {
+        uint64_t raw_cursor = 0;
+        for (uint32_t r = 0; r < n_raw; r++) {
+            g_pk_raw_off[raw_list[r]] = raw_cursor;
+            raw_cursor += g_dir[raw_list[r]].count;
         }
-        for (int i = 0; i < g_ndir; i++) {
-            /* The segment table must agree with the directory,
-             * tensor by tensor: a pack serialized in a different
-             * tensor order (or for a different directory) fails
-             * loudly here instead of binding stream segments to
-             * the wrong weights by position (Codex Astra
-             * review H1, 2026-11-25). */
-            if (seg[i] != g_dir[i].count / g_pk_block) {
-                fprintf(stderr, "packed segment %d holds %llu "
-                        "blocks but tensor %s has %llu (pack and "
-                        "directory do not match)\n", i,
-                        (unsigned long long)seg[i], g_dir[i].name,
-                        (unsigned long long)(g_dir[i].count
-                                             / g_pk_block));
+    }
+    uint64_t cursor = 0, book_cursor = 0;
+    uint32_t books_seen = 0;
+    for (int i = 0; i < g_ndir; i++) {
+        uint32_t bi = g_pk_tblock ? g_pk_tblock[i] : g_pk_block;
+        if (g_pk_raw_off[i] != ~(uint64_t)0) {
+            if (seg && seg[i] != 0) {
+                fprintf(stderr, "packed segment %d is marked "
+                        "raw but holds %llu blocks\n", i,
+                        (unsigned long long)seg[i]);
                 return -1;
             }
             g_dir[i].block0 = cursor;
-            g_dir[i].nblocks = seg[i];
-            cursor += seg[i];
+            g_dir[i].nblocks = 0;
+            continue;
         }
-    } else {
-        for (int i = 0; i < g_ndir; i++) {
-            g_dir[i].block0 = cursor;
-            g_dir[i].nblocks = g_dir[i].count / g_pk_block;
-            cursor += g_dir[i].nblocks;
+        uint64_t want_blocks;
+        if (g_pk_version == 1) {
+            want_blocks = g_dir[i].count / g_pk_block;
+        } else {
+            want_blocks = seg[i];
+            /* The segment table must agree with the directory,
+             * tensor by tensor: a pack serialized in a
+             * different tensor order (or for a different
+             * directory) fails loudly here instead of binding
+             * stream segments to the wrong weights by
+             * position (Codex Astra review H1, 2026-11-25). */
+            if (want_blocks != g_dir[i].count / bi) {
+                fprintf(stderr, "packed segment %d holds %llu "
+                        "blocks but tensor %s has %llu (pack and "
+                        "directory do not match)\n", i,
+                        (unsigned long long)want_blocks,
+                        g_dir[i].name,
+                        (unsigned long long)(g_dir[i].count / bi));
+                return -1;
+            }
         }
-        if (cursor != g_pk_nblocks) {
-            fprintf(stderr, "packed stream holds %llu blocks "
-                    "but the directory tensors cover %llu "
-                    "(pack and directory do not match)\n",
-                    (unsigned long long)g_pk_nblocks,
-                    (unsigned long long)cursor);
-            return -1;
+        g_dir[i].block0 = cursor;
+        g_dir[i].nblocks = want_blocks;
+        cursor += want_blocks;
+        if (stored_books == 1) {
+            g_pk_book_off[i] = 0;
+        } else {
+            g_pk_book_off[i] = book_cursor;
+            book_cursor += (uint64_t)g_pk_entries * bi;
+            books_seen++;
         }
     }
-    /* Round 4 P0, read-integrity audit gap B: the per-tensor
+    /* Read-integrity (Round 4 P0 gap B): the per-tensor
      * block walk must reconcile with the header's total. */
     if (cursor != g_pk_nblocks) {
         fprintf(stderr, "packed block walk mismatch: directory "
@@ -1089,7 +1377,37 @@ static int packed_open(const char *stream_path, const char *book_path)
         free(seg);
         return -1;
     }
+    if (stored_books != 1 && books_seen != stored_books) {
+        fprintf(stderr, "packed book holds %u books but %u "
+                "packed tensors need one\n",
+                stored_books, books_seen);
+        return -1;
+    }
+    if (book_cursor > total_book_floats
+            || (stored_books != 1
+                && book_cursor != total_book_floats)) {
+        fprintf(stderr, "packed book size mismatch\n");
+        return -1;
+    }
     free(seg);
+    free(raw_list);
+    if (raw_bytes) {
+        g_pk_rawdata = (uint16_t *)malloc(raw_bytes);
+        if (!g_pk_rawdata) return -1;
+        if (seek_to(g_pk_stream, g_pk_header
+                    + (uint64_t)(g_pk_idxw + 4) * g_pk_nblocks) != 0
+                || fread(g_pk_rawdata, 1, raw_bytes, g_pk_stream)
+                       != raw_bytes)
+            return -1;
+    }
+    if (g_pk_version == 3) {
+        if (pk_verify_manifest(stream_path) != 0) return -1;
+    } else {
+        fprintf(stderr, "notice: legacy pack (format v%u): no "
+                "generation identity; the stream and the book "
+                "are bound by position, as before\n",
+                g_pk_version);
+    }
     return 0;
 }
 
@@ -1181,7 +1499,7 @@ typedef struct {
      * serialized consumption: the Timing Handshake. */
     Stage *st;
     int *st_owner;          /* ordinal staged in st[slot]; -1 none */
-    int want_u;             /* unpack demand, set by the consumer */
+    int want_unpack;             /* unpack demand, set by the consumer */
     int fetched_upto;       /* highest ordinal staged this pass */
     int epoch;              /* bumped at each pass restart */
     int fetch_busy, unpack_busy;
@@ -1204,10 +1522,10 @@ typedef struct {
      * the lowest ordinal that is not READY is always the
      * highest-priority work, for the fetcher and for every
      * expansion lane alike, so work selection comes from the
-     * list, not from private arithmetic. The w_* fields are
+     * list, not from private arithmetic. The row_* fields are
      * the per-worker rows: each worker publishes the ordinal
      * it is working on and the next one it intends to claim,
-     * and writes only its own row. list_gen bumps on every
+     * and writes only its own row. list_generation bumps on every
      * list mutation and broadcasts with it: one door for
      * every waiter, and the generation counter is the phase
      * boundary mechanism. The three ticks are fetched_upto
@@ -1222,13 +1540,13 @@ typedef struct {
      * what keeps every output bit-identical. */
     uint8_t *ord_state;     /* [max_ord+1] ORD_* */
     int *ord_claim;         /* [max_ord+1] lane id, 32 = consumer, -1 none */
-    uint8_t *ord_counted;   /* [max_ord+1] expansion tick counted this pass */
+    uint8_t *ord_expand_counted;   /* [max_ord+1] expansion tick counted this pass */
     int n_ready;            /* ordinals whose expansion completed this pass */
-    long list_gen;          /* bumped on every list mutation */
+    long list_generation;          /* bumped on every list mutation */
     int expand_busy_n;      /* expansions in flight (lanes + consumer) */
-    int w_fetch, w_fetch_next;
-    int w_expand[PIPE_MAX_LANES + 1], w_expand_next[PIPE_MAX_LANES + 1];
-    int w_consume;
+    int row_fetch, row_fetch_next;
+    int row_expand[PIPE_MAX_LANES + 1], row_expand_next[PIPE_MAX_LANES + 1];
+    int row_consume;
     /* Highest ordinal the consumer has requested this pass.
      * The expansion window is bounded by buffer lifetime: an
      * ordinal x may be expanded into its slot only once the
@@ -1396,7 +1714,7 @@ static void pipe_fetch(int slot, int ord)
     s->raw_elem0 = 0;
     s->raw_nelems = 0;
     uint64_t packed_elems = (g_use_packed && g_pk_block)
-        ? t->nblocks * g_pk_block : 0;
+        ? t->nblocks * pk_block_of(t) : 0;
     if (packed_elems >= t->count && g_pipe.pk_priv) {
         if (packed_fetch_range(g_pipe.pk_priv, t, 0, t->count, s) != 0) {
             fprintf(stderr, "pipe: fetch failed for %s\n", t->name);
@@ -1471,18 +1789,18 @@ static void pipe_mark_ready(int ord)
      * set, its claim is released, and the list generation
      * bumps so every waiter re-evaluates. Called under the
      * lock wherever an ordinal is marked ready. The expansion
-     * tick counts each ordinal once per pass (ord_counted):
+     * tick counts each ordinal once per pass (ord_expand_counted):
      * an ordinal that stayed resident from the last pass is
      * counted at the restart, and if its slot is later reused
      * and it is expanded again, the re-mark must not count it
      * twice. */
     if (g_pipe.ord_state) g_pipe.ord_state[ord] = ORD_READY;
-    if (g_pipe.ord_counted && !g_pipe.ord_counted[ord]) {
-        g_pipe.ord_counted[ord] = 1;
+    if (g_pipe.ord_expand_counted && !g_pipe.ord_expand_counted[ord]) {
+        g_pipe.ord_expand_counted[ord] = 1;
         g_pipe.n_ready++;
     }
     if (g_pipe.ord_claim) g_pipe.ord_claim[ord] = -1;
-    g_pipe.list_gen++;
+    g_pipe.list_generation++;
     g_pipe.ready_at[ord] = pipe_now();
     g_pipe.stat_load_ms += g_pipe.load_ms_last;
     g_pipe.stat_bytes += g_pipe.load_bytes_last;
@@ -1552,10 +1870,10 @@ static void *fetch_worker(void *unused)
                  * may overwrite the other's claim. */
                 g_pipe.st_owner[pslot(c)] = c;
                 g_pipe.fetched_upto = c;
-                g_pipe.list_gen++;
+                g_pipe.list_generation++;
                 continue;
             }
-            if (c <= g_pipe.max_ord && c <= g_pipe.want_u + g_fetch_ahead
+            if (c <= g_pipe.max_ord && c <= g_pipe.want_unpack + g_fetch_ahead
                     && !g_pipe.fetch_busy
                     && (g_pipe.st_owner[pslot(c)] == -1
                         || g_pipe.have[pslot(c)] == g_pipe.st_owner[pslot(c)]))
@@ -1572,15 +1890,15 @@ static void *fetch_worker(void *unused)
              * useless as an instrument. */
             if (g_pipe.demand_seen != g_pipe.demand_posted) {
                 g_pipe.demand_seen = g_pipe.demand_posted;
-                g_pipe.list_gen++;
+                g_pipe.list_generation++;
                 pthread_cond_broadcast(&g_pipe.cv);
             }
-            g_pipe.w_fetch = -1;
+            g_pipe.row_fetch = -1;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         }
         g_pipe.fetch_busy = 1;
-        g_pipe.w_fetch = c;
-        g_pipe.w_fetch_next = (c + 1 <= g_pipe.max_ord) ? c + 1 : -1;
+        g_pipe.row_fetch = c;
+        g_pipe.row_fetch_next = (c + 1 <= g_pipe.max_ord) ? c + 1 : -1;
         int epoch = g_pipe.epoch;
         pthread_mutex_unlock(&g_pipe.lock);
         pipe_fetch(pslot(c), c);
@@ -1590,7 +1908,7 @@ static void *fetch_worker(void *unused)
             g_pipe.fetched_upto = c;
             g_pipe.ord_state[c] = (g_pipe.have[pslot(c)] == c)
                                   ? ORD_READY : ORD_STAGED;
-            g_pipe.list_gen++;
+            g_pipe.list_generation++;
         }
         g_pipe.fetch_busy = 0;
         pthread_cond_broadcast(&g_pipe.cv);
@@ -1649,20 +1967,20 @@ static void *unpack_worker(void *arg)
              * for why an unchanged value must not broadcast). */
             if (g_pipe.demand_seen != g_pipe.demand_posted) {
                 g_pipe.demand_seen = g_pipe.demand_posted;
-                g_pipe.list_gen++;
+                g_pipe.list_generation++;
                 pthread_cond_broadcast(&g_pipe.cv);
             }
-            g_pipe.w_expand[lane] = -1;
+            g_pipe.row_expand[lane] = -1;
             pthread_cond_wait(&g_pipe.cv, &g_pipe.lock);
         }
         g_pipe.ord_claim[ord] = lane;
         g_pipe.ord_state[ord] = ORD_EXPANDING;
-        g_pipe.w_expand[lane] = ord;
-        g_pipe.w_expand_next[lane] =
+        g_pipe.row_expand[lane] = ord;
+        g_pipe.row_expand_next[lane] =
             (ord + 1 <= g_pipe.max_ord) ? ord + 1 : -1;
         g_pipe.expand_busy_n++;
         g_pipe.unpack_busy = 1;
-        g_pipe.list_gen++;
+        g_pipe.list_generation++;
         pthread_mutex_unlock(&g_pipe.lock);
         pipe_expand(pslot(ord), ord);
         pthread_mutex_lock(&g_pipe.lock);
@@ -1818,7 +2136,7 @@ static void pipe_init(int layers)
 #endif
     g_pipe.layer_counter = -1;
     g_pipe.want = -1;
-    g_pipe.want_u = -1;
+    g_pipe.want_unpack = -1;
     g_pipe.fetched_upto = -1;
     g_pipe.fetch_busy = g_pipe.unpack_busy = 0;
     g_pipe.max_ord = max_ord;
@@ -1841,19 +2159,19 @@ static void pipe_init(int layers)
      * starts empty, every worker row idle. */
     g_pipe.ord_state = (uint8_t *)calloc((size_t)max_ord + 1, 1);
     g_pipe.ord_claim = (int *)malloc(sizeof(int) * ((size_t)max_ord + 1));
-    g_pipe.ord_counted = (uint8_t *)calloc((size_t)max_ord + 1, 1);
-    if (!g_pipe.ord_state || !g_pipe.ord_claim || !g_pipe.ord_counted) {
+    g_pipe.ord_expand_counted = (uint8_t *)calloc((size_t)max_ord + 1, 1);
+    if (!g_pipe.ord_state || !g_pipe.ord_claim || !g_pipe.ord_expand_counted) {
         fprintf(stderr, "pipe: out of memory\n");
         exit(1);
     }
     for (int o = 0; o <= max_ord; o++) g_pipe.ord_claim[o] = -1;
     g_pipe.n_ready = 0;
-    g_pipe.list_gen = 0;
+    g_pipe.list_generation = 0;
     g_pipe.expand_busy_n = 0;
-    g_pipe.w_fetch = g_pipe.w_fetch_next = -1;
+    g_pipe.row_fetch = g_pipe.row_fetch_next = -1;
     for (int i = 0; i <= PIPE_MAX_LANES; i++)
-        g_pipe.w_expand[i] = g_pipe.w_expand_next[i] = -1;
-    g_pipe.w_consume = -1;
+        g_pipe.row_expand[i] = g_pipe.row_expand_next[i] = -1;
+    g_pipe.row_consume = -1;
     g_pipe.req_max = -1;
     /* Triforce staging: raw packed sections for one whole
      * tensor per slot, sized from the largest tensor, plus the
@@ -1867,8 +2185,13 @@ static void pipe_init(int layers)
      * allocation). g_pipe_staging_bytes totals what was
      * actually allocated so the printed budget can say so. */
     {
-        uint64_t nb_max = g_pk_block
-            ? (uint64_t)max_elems / g_pk_block + 1 : 1;
+        uint32_t min_block = g_pk_block;
+        if (g_pk_tblock)
+            for (int i = 0; i < g_ndir; i++)
+                if (g_pk_tblock[i] < min_block)
+                    min_block = g_pk_tblock[i];
+        uint64_t nb_max = min_block
+            ? (uint64_t)max_elems / min_block + 1 : 1;
         for (int s = 0; s < g_pipe.slots; s++) {
             g_pipe.st[s].idx = (uint8_t *)malloc(nb_max);
             g_pipe.st[s].fr = (uint8_t *)malloc(nb_max * 4);
@@ -2046,14 +2369,29 @@ static const float *pipe_get(int ord)
             g_pipe.st_owner[s] = -1;
         g_pipe.n_ready = 0;
         for (int o = 0; o <= g_pipe.max_ord; o++) {
-            int resident = (g_pipe.have[pslot(o)] == o);
+            /* Residency that will actually be used (Archie
+             * Round 4 P2-1): have[] still holds the
+             * last slots ordinals of the previous pass in the
+             * low slots, but the new pass walks from ordinal 0
+             * and overwrites slot s at request s, so a held
+             * ordinal o >= slots is evicted before its turn
+             * comes. Counting it READY started n_ready ahead
+             * by up to slots and left the tail ordinals falsely
+             * READY mid-pass (cosmetic: the phase-boundary
+             * count still landed exact, because re-expansion
+             * is counted once). An ordinal survives the
+             * restart iff its own request finds it: o < slots
+             * (which also covers slots > max_ord, where every
+             * ordinal keeps its own slot all pass). */
+            int resident = (g_pipe.have[pslot(o)] == o)
+                           && o < g_pipe.slots;
             g_pipe.ord_state[o] = resident ? ORD_READY : ORD_IDLE;
             g_pipe.ord_claim[o] = -1;
-            g_pipe.ord_counted[o] = resident ? 1 : 0;
+            g_pipe.ord_expand_counted[o] = resident ? 1 : 0;
             if (resident) g_pipe.n_ready++;
         }
         g_pipe.req_max = -1;    /* the new pass has requested nothing */
-        g_pipe.list_gen++;
+        g_pipe.list_generation++;
         pthread_cond_broadcast(&g_pipe.cv);
     }
     if (ord > g_pipe.req_max) g_pipe.req_max = ord;
@@ -2069,7 +2407,7 @@ static const float *pipe_get(int ord)
          * (demand_seen) or is busy on the pipeline, not merely
          * until the flags happen to read idle under the lock the
          * broadcast was made under (Archie P1-1). */
-        g_pipe.want_u = ord;
+        g_pipe.want_unpack = ord;
         long my_demand = ++g_pipe.demand_posted;
         pthread_cond_broadcast(&g_pipe.cv);
         while (g_pipe.have[pslot(ord)] != ord
@@ -2090,9 +2428,9 @@ static const float *pipe_get(int ord)
             self_loaded = 1;
             g_pipe.ord_claim[ord] = PIPE_MAX_LANES;
             g_pipe.ord_state[ord] = ORD_EXPANDING;
-            g_pipe.w_expand[PIPE_MAX_LANES] = ord;
+            g_pipe.row_expand[PIPE_MAX_LANES] = ord;
             g_pipe.expand_busy_n++;
-            g_pipe.list_gen++;
+            g_pipe.list_generation++;
             if (g_pipe.st_owner[pslot(ord)] == ord) {
                 g_pipe.unpack_busy = 1;
                 pthread_mutex_unlock(&g_pipe.lock);
@@ -2116,12 +2454,12 @@ static const float *pipe_get(int ord)
                 g_pipe.expand_busy_n = 0;
                 g_pipe.unpack_busy = 0;
             }
-            g_pipe.w_expand[PIPE_MAX_LANES] = -1;
+            g_pipe.row_expand[PIPE_MAX_LANES] = -1;
             pthread_cond_broadcast(&g_pipe.cv);
         }
     }
     if (ord + 1 <= g_pipe.max_ord) {
-        g_pipe.want_u = ord + 1;
+        g_pipe.want_unpack = ord + 1;
         pthread_cond_broadcast(&g_pipe.cv);
     }
     if (!was_ready) {
@@ -2140,7 +2478,7 @@ static const float *pipe_get(int ord)
      * counter, and the phase-boundary check compares it
      * against the fetch and expansion ticks. */
     g_pipe.layer_counter = ord;
-    g_pipe.w_consume = ord;
+    g_pipe.row_consume = ord;
     return g_pipe.buf[pslot(ord)];
 }
 
@@ -2161,7 +2499,7 @@ static void pipe_report(void)
            "%ld\n",
            g_pipe.fetched_upto, g_pipe.n_ready,
            g_pipe.max_ord + 1, g_pipe.layer_counter,
-           g_pipe.list_gen);
+           g_pipe.list_generation);
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,

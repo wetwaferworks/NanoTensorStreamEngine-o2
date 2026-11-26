@@ -9,6 +9,15 @@
  * then measures. Verdicts print as HOLD or BREAK with the
  * numbers, so a failure is as visible as a pass.
  *
+ * The dictionary-compute build/apply under test is the ONE
+ * shared kernel in tools/nq2-dc-kernel.h, the same code the
+ * shipped probe calls (DTC code review P1-1, 2026-11-25: this
+ * suite previously carried a private copy of the algorithm,
+ * so its HOLDs certified the copy). Checks 9/10 also compare
+ * the lazy output they name (P1-2): the verdict value is the
+ * lazy path's own output against the oracle, not the eager
+ * path's.
+ *
  * Plain hosted C99. Build: cc -O2 -std=c99 -o nq2-dc-adv
  * tools/nq2-dc-adv.c -lm
  */
@@ -21,6 +30,8 @@
 #include <stdint.h>
 #include <math.h>
 #include <time.h>
+
+#include "nq2-dc-kernel.h"
 
 static uint64_t rng_state = 42;
 static uint64_t splitmix(void)
@@ -121,36 +132,17 @@ static void recon(const Fx *f, float *y)
         y[r] = acc;
     }
 }
-static void dc_build(const Fx *f, float *T, float *A)
-{
-    for (int j = 0; j < f->J; j++) {
-        float a = 0;
-        for (int i = 0; i < B; i++) a += f->x[j * B + i];
-        A[j] = a;
-        for (int k = 0; k < K; k++) {
-            float acc = 0;
-            const float *proto = f->C + (size_t)k * B;
-            for (int i = 0; i < B; i++) acc += proto[i] * f->x[j * B + i];
-            T[j * K + k] = acc;
-        }
-    }
-}
-static void dc_apply(const Fx *f, const float *T, const float *A, float *y)
-{
-    for (int r = 0; r < f->M; r++) {
-        float acc = 0;
-        for (int j = 0; j < f->J; j++)
-            acc += f->sc[r * f->J + j] * T[j * K + f->idx[r * f->J + j]]
-                 + f->mn[r * f->J + j] * A[j];
-        y[r] = acc;
-    }
-}
+/* The method under test: the shared kernel, nothing local.
+ * (The private dc_build/dc_apply copy that used to live here
+ * was deleted in the P1-1 fix, 2026-11-25.) */
 static void dc(const Fx *f, float *y)
 {
     float *T = (float *)malloc((size_t)f->J * K * 4);
     float *A = (float *)malloc((size_t)f->J * 4);
-    dc_build(f, T, A);
-    dc_apply(f, T, A, y);
+    nqdc_build(f->C, (uint32_t)K, (uint32_t)B, f->x,
+               (uint64_t)f->J, T, A);
+    nqdc_apply(f->idx, f->sc, f->mn, T, A, (uint32_t)K,
+               (uint64_t)f->J, (uint64_t)f->M, y);
     free(T); free(A);
 }
 static double dc_vs_oracle(Fx *f)   /* helper: returns rel L2 */
@@ -299,7 +291,14 @@ int main(void)
         verdict("fp16-max frames", v < 1e-4, buf);
         fx_free(&f);
     }
-    /* 9/10. reuse extremes under lazy build: timing contrast */
+    /* 9/10. reuse extremes under lazy build: timing contrast,
+     * and the lazy output itself decides the verdict (P1-2 fix,
+     * 2026-11-25: the verdict value used to come from the eager
+     * path via dc_vs_oracle while the lazy output went unread;
+     * now y, as the lazy loop left it, is compared against the
+     * oracle). The lazy entry build calls the shared kernel's
+     * nqdc_entry, so a lazily built entry is bit-identical to
+     * the eager one by construction. */
     {
         Fx f; fx_alloc(&f, 1024, 12);
         fx_random(&f, 19, 0.1, 0.01, 0.03, 0.005);
@@ -307,12 +306,15 @@ int main(void)
         float *A = (float *)malloc((size_t)f.J * 4);
         float *y = (float *)malloc((size_t)f.M * 4);
         uint8_t *built = (uint8_t *)malloc((size_t)f.J * K);
+        double *yo = (double *)malloc((size_t)f.M * 8);
+        double *dd = (double *)malloc((size_t)f.M * 8);
         /* all rows use prototype 7 in every segment */
         for (int i = 0; i < f.M * f.J; i++) f.idx[i] = 7;
         double best = 1e18;
         for (int rep = 0; rep < 15; rep++) {
             memset(built, 0, (size_t)f.J * K);
-            dc_build(&f, T, A);   /* A only; T rebuilt lazily below */
+            nqdc_build(f.C, (uint32_t)K, (uint32_t)B, f.x,
+                       (uint64_t)f.J, T, A);   /* A only; T rebuilt lazily below */
             memset(T, 0, (size_t)f.J * K * 4);
             double t0 = now_ms();
             for (int r = 0; r < f.M; r++) {
@@ -320,11 +322,9 @@ int main(void)
                 for (int j = 0; j < f.J; j++) {
                     int k = f.idx[r * f.J + j];
                     if (!built[j * K + k]) {
-                        float a2 = 0;
-                        const float *proto = f.C + (size_t)k * B;
-                        for (int i = 0; i < B; i++)
-                            a2 += proto[i] * f.x[j * B + i];
-                        T[j * K + k] = a2; built[j * K + k] = 1;
+                        T[j * K + k] = nqdc_entry(f.C, (uint32_t)B,
+                            f.x + (size_t)j * B, (uint32_t)k);
+                        built[j * K + k] = 1;
                     }
                     acc += f.sc[r * f.J + j] * T[j * K + k]
                          + f.mn[r * f.J + j] * A[j];
@@ -334,7 +334,9 @@ int main(void)
             double dt = now_ms() - t0;
             if (dt < best) best = dt;
         }
-        double v = dc_vs_oracle(&f);
+        oracle(&f, yo);
+        for (int r = 0; r < f.M; r++) dd[r] = y[r];
+        double v = rel_l2(dd, yo, f.M);
         snprintf(buf, sizeof buf, "lazy max-reuse %.3f ms, rel L2 %.2e",
                  best, v);
         verdict("max reuse (one prototype per segment)", v < 1e-5, buf);
@@ -352,11 +354,9 @@ int main(void)
                 for (int j = 0; j < f.J; j++) {
                     int k = f.idx[r * f.J + j];
                     if (!built[j * K + k]) {
-                        float a2 = 0;
-                        const float *proto = f.C + (size_t)k * B;
-                        for (int i = 0; i < B; i++)
-                            a2 += proto[i] * f.x[j * B + i];
-                        T[j * K + k] = a2; built[j * K + k] = 1;
+                        T[j * K + k] = nqdc_entry(f.C, (uint32_t)B,
+                            f.x + (size_t)j * B, (uint32_t)k);
+                        built[j * K + k] = 1;
                     }
                     acc += f.sc[r * f.J + j] * T[j * K + k]
                          + f.mn[r * f.J + j] * A[j];
@@ -366,11 +366,14 @@ int main(void)
             double dt = now_ms() - t0;
             if (dt < best) best = dt;
         }
-        v = dc_vs_oracle(&f);
+        oracle(&f, yo);
+        for (int r = 0; r < f.M; r++) dd[r] = y[r];
+        v = rel_l2(dd, yo, f.M);
         snprintf(buf, sizeof buf, "lazy min-reuse %.3f ms, rel L2 %.2e",
                  best, v);
         verdict("min reuse (full book per segment)", v < 1e-5, buf);
-        free(T); free(A); free(y); free(built); fx_free(&f);
+        free(T); free(A); free(y); free(built); free(yo); free(dd);
+        fx_free(&f);
     }
     /* 11. single row: correctness when reuse cannot pay */
     {
@@ -653,7 +656,8 @@ int main(void)
         fx_random(&f, 26, 0.1, 0.01, 0.03, 0.005);
         float *T = (float *)malloc((size_t)f.J * K * 4);
         float *A = (float *)malloc((size_t)f.J * 4);
-        dc_build(&f, T, A);
+        nqdc_build(f.C, (uint32_t)K, (uint32_t)B, f.x,
+                   (uint64_t)f.J, T, A);
         float *xsav = (float *)malloc((size_t)f.J * B * 4);
         memcpy(xsav, f.x, (size_t)f.J * B * 4);
         rng_state = 123;
@@ -666,7 +670,8 @@ int main(void)
             A2[j] = av;
         }
         float *y = (float *)malloc((size_t)f.M * 4);
-        dc_apply(&f, T, A2, y);
+        nqdc_apply(f.idx, f.sc, f.mn, T, A2, (uint32_t)K,
+                   (uint64_t)f.J, (uint64_t)f.M, y);
         double *yo = (double *)malloc((size_t)f.M * 8);
         double *dd = (double *)malloc((size_t)f.M * 8);
         oracle(&f, yo);

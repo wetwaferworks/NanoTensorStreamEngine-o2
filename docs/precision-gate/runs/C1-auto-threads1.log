@@ -1,0 +1,8 @@
+notice: legacy pack (format v1): no generation identity; the stream and the book are bound by position, as before
+tensor handshake: phase boundary fault at pass restart: ticks fetch 1, expand 0 of 182 ready, consume 181; the prior pass did not drain
+tensor handshake: ordinal 0's slot is still claimed at the boundary; cannot reconcile
+pipe: 2 slots (device), fetch-ahead 1 (default), prefetch distance 2 (default), expand lanes 2 (device), hardware ceiling 2 lanes
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: packed .nq2
+threads: 1 workers + fetch/unpack (triforce); derived budget: pipe 434.7 MB (incl. staging 218.7 MB), KV cache 4.3 MB, embedding matrix 8.0 MB
+precision gate: posture auto (cli), lookahead 2 (default), resync 32 (default), calibration: eps 3.5076e+01, budget 1.2770e+00

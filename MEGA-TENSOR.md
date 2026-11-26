@@ -1,8 +1,8 @@
 # Mega Tensor
 
 Mega Tensor is the name JD gave, on 2026-11-24, to the streaming
-system underneath the Nano Quant Engine: the layer that moves the
-tensors. A packed model is small enough to stream like media, but
+system underneath the Nano Tensor Stream Engine (NTSE-o2): the
+layer that moves the tensors. A packed model is small enough to stream like media, but
 only if something streams it well. Mega Tensor is that something.
 It fetches packed sections from disc, expands them back into
 weights, and feeds them to the compute loops in exactly one order,

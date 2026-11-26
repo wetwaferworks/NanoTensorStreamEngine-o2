@@ -1,0 +1,12 @@
+pipe: 2 slots (device), fetch-ahead 1 (default), prefetch distance 2 (default), expand lanes 2 (device), hardware ceiling 2 lanes
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: raw safetensors
+threads: 4 workers + fetch/unpack (triforce); derived budget: pipe 432.0 MB (incl. staging 216.0 MB), KV cache 4.3 MB, embedding matrix 8.0 MB
+precision gate: inert (raw run: every ordinal expands)
+generated token ids: 75768
+nfe: 4 (denoiser evaluations), seed 1234
+prefetch telemetry: 910 requests, 733 hits (80.5%), 177 misses
+  tensor handshake: layer counter 181 of 181 (consumer's committed ordinal)
+  tensor handshake ticks: fetch 181, expand 182 of 182 ready, consume 181; prefetch list generation 3031
+  consumer stall on misses: 20646.5 ms total; mean ready slack on hits: 917.6 ms
+  load path (disc + reconstruct): 167120.9 ms for 60.52 GB expanded, 362 MB/sec

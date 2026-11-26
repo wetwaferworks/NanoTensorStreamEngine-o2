@@ -1,5 +1,5 @@
 SHA-256 manifest, repo update package 2026-11-24
-Generated 2026-11-25, America/New_York (regenerated for the ChatGPT Sol fix pass and Tensor Handshake stage 2; dist binaries unchanged from the 2026-11-24 package)
+Generated 2026-11-25, America/New_York (regenerated for the DTC fix pass: P1-1/P1-2/P1-4 code fixes and the DICTIONARY-COMPUTE corrections; the dc sources are outside this manifest's established scope and no listed hash changed; hashes recomputed over the established scope)
 
 == dist/linux64 ==
 6dcccc3cf1b35ffb17378ef6101be0e099bda2388c8285d51bbfd4566f4baa2f  dist/linux64/nq2-additive
@@ -57,16 +57,16 @@ f948f0c63c5da10b946684a3af7b6d26073d03f2bbea27c3820a1b1f9d745797  tools/nq2-fram
 05fe504dda99be65d977fdca77318351ecdec87d4a82c3a30497c918f9ee9194  tools/nq2-frameprobe.c
 65a28c8deb693529727e7f7cfe8aee4546009f01378976ca1c2a161747be8358  tools/nq2-fused.c
 15d6c0b8dace2384bd48bd2daef1bc484cc1e894660630ee107fb1d0956894dd  tools/nq2-hadamard.c
-6883add8a11230ab359c1aa87dc391b6ad4c688e3da2a0e03443392e845d403f  tools/nq2-infer-lab.c
-57db33d7341d1903e7f15d09b7d4081bb282ed29e9ee4f4e2697e955061bc9c4  tools/nq2-infer-triforce-dbg.c
-961a15c462d32d4eb00ea6e79667276e97c23befe800bd1ee625f3813508f61f  tools/nq2-infer-triforce.c
-c2bcb020dafc3b194ce5fa6efdf7b5479235fbcc3b8692cf1021322392fe95d8  tools/nq2-infer.c
+5bcad4afef0bb90030511878c2b5553d6140449ea3d61dfe55d019ad1060360d  tools/nq2-infer-lab.c
+f09b813d32c201f609391f65de33e0547ef6a419357c6f73c0c6ef5d39f7c700  tools/nq2-infer-triforce-dbg.c
+8ac42e0756a4c91fe5648b59d1b3b6ca06bd38c3bca87b2be6256918c4262dd5  tools/nq2-infer-triforce.c
+17c9200e3fbe5ec4c85313c67e5f3753cbb16edfac49ff4f2f4f2fe87ca9e9c7  tools/nq2-infer.c
 9364ab4352ce330d853c153f5eb7577a72d9de177deb680545ef65683013b4b5  tools/nq2-logitcmp.c
 7d8d551b5bfd40c7d3aacf679306d97aa18a5dbc1bde21e0c8a3d5e067d6e6d0  tools/nq2-pq.c
-46a2d34e034888372aec28720f3b576ae530a486c130f1c23b98dc02c0d1526a  tools/nq2-quantize.c
+6f6c6ce1d0c870bf5565c03a8c5b3bb83bc10bcfececd4262103b40c167ef214  tools/nq2-quantize.c
 9fc02758a794aaefc1596b6ccf7ff4c43f09fc146e5f02c4c2a1cbfdb47d06d5  tools/nq2-rpq.c
 2fc9a092155f6f6f885ec0a9393f243be56fea08565e1cf600c122c4e19a4d7c  tools/nq2-rsqrtbench.c
-b7424803880c0079e7a287ea803ab645e3fa056fe215bbe70ab45897122c860d  tools/nq2-run.c
-ca20c1b7e05e1d6b77746ae60fc1dbaef259e3290d84c0c58d7491e62c988558  tools/nq2-streamtest.c
-ce2f4ee9f3c9f0a13b1f1d8c0b35a5917e8c91aaf9448c35a09e78ba5faab974  tools/nq2-tensorstat.c
+7c8dc9c80f68fe024fd630637bca969c3411e84f1a7113d53f12aa75292fe2cb  tools/nq2-run.c
+f5bbd7a82bb5028ef3624545d62ab697f85b6bdacd7fb9331d023e2137061dc0  tools/nq2-streamtest.c
+0a270a2ae86c864a3a7c163a1bcd950bedda0e9510315ab20792c65785a812a2  tools/nq2-tensorstat.c
 cada6f7fd33d7350b3bb4ac48552af1276d769dabc2a57b12b645bee8ab2cd06  tools/nq2-gui.py

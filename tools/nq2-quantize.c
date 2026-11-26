@@ -382,6 +382,10 @@ static void walk_blocks(uint32_t block, BlockFn fn, void *ctx)
  * format and its reconstruction min + scale * prototype are
  * unchanged and existing readers handle RMS packs unmodified). */
 static int g_norm_rms = 0;
+/* PQ book learning runs one k-means per subvector; the
+ * per-iteration line is noise at that multiplicity, so the
+ * PQ path quiets it and prints one summary per tensor. */
+static int g_kmeans_verbose = 1;
 
 /* Normalize one block into out; also returns the block's frame
  * (minimum and scale) through mn_out / sc_out. */
@@ -510,7 +514,8 @@ static void learn_book(const float *sample, uint64_t sample_n,
                 c[i] = (float)nv;
             }
         }
-        printf("  kmeans iter %d: max centroid shift %.5f\n", it, shift);
+        if (g_kmeans_verbose)
+            printf("  kmeans iter %d: max centroid shift %.5f\n", it, shift);
     }
     free(sums);
     free(counts);
@@ -694,6 +699,351 @@ static void res_fid_fn(const float *raw, void *vctx)
     }
 }
 
+
+/* ---------------- format v3: pack identity (H3b) ----------------
+ * Format v3 answers Codex Astra H3b as JD decided it
+ * (2026-11-25): generation pairing as the floor, plus a
+ * per-tensor digest manifest.
+ *
+ * Generation pairing: both v3 headers carry a 64-bit
+ * generation id. The id is not random: it is an FNV-1a digest
+ * of the pair's own content (geometry, tensor names, book
+ * bytes, index and frame bytes, raw-section bytes), computed
+ * before the headers are written. Two files packed together
+ * share it by construction; a stream and a book from
+ * different pack runs disagree, and every v3 reader refuses
+ * the pair with a plain message. Because the id is
+ * content-derived, re-packing the same model with the same
+ * options reproduces the same id: packs stay reproducible.
+ *
+ * Manifest: <prefix>.nq2manifest, a text sidecar listing,
+ * per tensor, its block range and two FNV-1a digests: one
+ * over the tensor's stored stream bytes (indices, then
+ * frame minima, then frame scales; the raw bytes for an
+ * fp16-raw tensor) and one over its book's stored floats.
+ * Readers verify both at open when the manifest is present.
+ *
+ * Legacy packs (v1/v2) carry no identity; readers bind them
+ * positionally, as before, and say so in a notice.
+ *
+ * v3-only writer options: --pq D (product quantization),
+ * --budgets (per-tensor block sizes by sensitivity), and
+ * --embed-fp16 (the embedding stored as raw float16). All
+ * three need per-tensor books. */
+
+static int g_format = 3;      /* --format 1|2|3 */
+static int g_pq_d = 0;        /* --pq D: subvector dim, 0 = flat */
+static int g_budgets = 0;     /* --budgets */
+static int g_embed_fp16 = 0;  /* --embed-fp16 */
+
+#define NQ2_FNV_SEED 14695981039346656037ull
+static uint64_t fnv1a(const void *data, size_t len, uint64_t h)
+{
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint64_t)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+static uint64_t fnv1a_u32(uint32_t v, uint64_t h)
+{
+    uint8_t b[4];
+    b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8);
+    b[2] = (uint8_t)(v >> 16); b[3] = (uint8_t)(v >> 24);
+    return fnv1a(b, 4, h);
+}
+
+/* One tensor's packed output, kept whole so the budget pass
+ * can re-pack a tensor at a different block size and so the
+ * v3 writer digests exactly the bytes it writes. */
+typedef struct {
+    float *book;          /* entries * block floats (PQ: same count) */
+    uint8_t *idx;         /* nblocks * idxw bytes */
+    uint16_t *mn_h, *sc_h;
+    uint64_t nblocks;
+    uint32_t block;
+    uint16_t *raw;        /* fp16-raw storage, or NULL */
+    uint64_t raw_count;
+    double err2, ref2;
+    int frame_bad;
+    float bad_value;
+    uint64_t bad_block;
+} TOut;
+
+static void tout_free(TOut *o)
+{
+    free(o->book); free(o->idx); free(o->mn_h); free(o->sc_h);
+    free(o->raw);
+    memset(o, 0, sizeof(*o));
+}
+
+/* PQ packing: each normalized block is split into nsub
+ * subvectors of dim d; each subvector is assigned to its own
+ * sub-book (the nq2-pq probe's scheme, K entries per sub-book,
+ * frame unchanged). Reconstruction the runner will see:
+ * mn + sc * subbook[sub][idx[sub]][i], measured here the same
+ * way pack_fn measures the flat path. */
+typedef struct {
+    uint32_t block, entries, d, nsub;
+    const float *books;   /* nsub * entries * d */
+    uint8_t *idx;         /* nblocks * nsub */
+    uint16_t *mn_h, *sc_h;
+    uint64_t cursor;
+    double err2, ref2;
+    float *tmp;
+    int frame_bad;
+    float bad_value;
+    uint64_t bad_block;
+} PqPackCtx;
+
+static void pq_pack_fn(const float *raw, void *vctx)
+{
+    PqPackCtx *ctx = (PqPackCtx *)vctx;
+    float mn, sc;
+    normalize_block(raw, ctx->block, ctx->tmp, &mn, &sc);
+    uint64_t at = ctx->cursor++;
+    ctx->mn_h[at] = float_to_half(mn);
+    ctx->sc_h[at] = float_to_half(sc);
+    if (!ctx->frame_bad
+            && (((ctx->mn_h[at] & 0x7c00u) == 0x7c00u)
+                || ((ctx->sc_h[at] & 0x7c00u) == 0x7c00u))) {
+        ctx->frame_bad = 1;
+        ctx->bad_block = at;
+        ctx->bad_value = ((ctx->mn_h[at] & 0x7c00u) == 0x7c00u)
+                         ? mn : sc;
+    }
+    float rmn = f16_to_float(ctx->mn_h[at]);
+    float rsc = f16_to_float(ctx->sc_h[at]);
+    for (uint32_t sub = 0; sub < ctx->nsub; sub++) {
+        const float *bk = ctx->books
+            + (size_t)sub * ctx->entries * ctx->d;
+        int k = nearest_centroid(bk, ctx->entries, ctx->d,
+                                 ctx->tmp + sub * ctx->d);
+        ctx->idx[at * ctx->nsub + sub] = (uint8_t)k;
+        const float *c = bk + (size_t)k * ctx->d;
+        for (uint32_t i = 0; i < ctx->d; i++) {
+            double rec = (double)rmn + (double)rsc * c[i];
+            double dd = (double)raw[sub * ctx->d + i] - rec;
+            ctx->err2 += dd * dd;
+            ctx->ref2 += (double)raw[sub * ctx->d + i]
+                       * (double)raw[sub * ctx->d + i];
+        }
+    }
+}
+
+/* Sample, learn, and pack one scope tensor at the given
+ * block size into o (flat or PQ according to g_pq_d).
+ * Returns 0 on success; on a non-finite frame the output is
+ * still produced and o->frame_bad is set, as pack_fn does. */
+static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
+                           int iters, uint64_t sample_cap, TOut *o)
+{
+    TensorInfo *ti = g_scope[s].tensor;
+    uint64_t tb = ti->count / block;
+    memset(o, 0, sizeof(*o));
+    o->block = block;
+    o->nblocks = tb;
+    o->book = (float *)calloc((size_t)entries * block, sizeof(float));
+    if (!o->book) { fprintf(stderr, "out of memory\n"); return 1; }
+    if (tb == 0) return 0;
+    uint64_t cap = sample_cap;
+    if (cap > tb) cap = tb;
+    SampleCtx sctx;
+    memset(&sctx, 0, sizeof(sctx));
+    sctx.block = block;
+    sctx.sample_cap = cap;
+    sctx.sample = (float *)malloc(cap * block * sizeof(float));
+    sctx.tmp = (float *)malloc(block * sizeof(float));
+    if (!sctx.sample || !sctx.tmp) {
+        fprintf(stderr, "out of memory sampling\n");
+        return 1;
+    }
+    walk_one_tensor(s, block, sample_fn, &sctx);
+    if (g_pq_d) {
+        /* One k-means per subvector position, over the
+         * sampled blocks' subvectors. */
+        uint32_t d = (uint32_t)g_pq_d, nsub = block / d;
+        float *sub_sample = (float *)malloc(
+            (size_t)sctx.sample_n * d * sizeof(float));
+        if (!sub_sample) { fprintf(stderr, "out of memory\n"); return 1; }
+        g_kmeans_verbose = 0;
+        for (uint32_t sub = 0; sub < nsub; sub++) {
+            for (uint64_t b = 0; b < sctx.sample_n; b++)
+                memcpy(sub_sample + b * d,
+                       sctx.sample + b * block + sub * d,
+                       d * sizeof(float));
+            learn_book(sub_sample, sctx.sample_n, d, entries, iters,
+                       o->book + (size_t)sub * entries * d);
+        }
+        g_kmeans_verbose = 1;
+        free(sub_sample);
+        PqPackCtx pctx;
+        memset(&pctx, 0, sizeof(pctx));
+        pctx.block = block; pctx.entries = entries;
+        pctx.d = d; pctx.nsub = nsub;
+        pctx.books = o->book;
+        pctx.idx = (uint8_t *)malloc(tb * nsub);
+        pctx.mn_h = (uint16_t *)malloc(tb * 2);
+        pctx.sc_h = (uint16_t *)malloc(tb * 2);
+        pctx.tmp = (float *)malloc(block * sizeof(float));
+        if (!pctx.idx || !pctx.mn_h || !pctx.sc_h || !pctx.tmp) {
+            fprintf(stderr, "out of memory packing\n");
+            return 1;
+        }
+        walk_one_tensor(s, block, pq_pack_fn, &pctx);
+        o->idx = pctx.idx; o->mn_h = pctx.mn_h; o->sc_h = pctx.sc_h;
+        o->err2 = pctx.err2; o->ref2 = pctx.ref2;
+        o->frame_bad = pctx.frame_bad;
+        o->bad_value = pctx.bad_value;
+        o->bad_block = pctx.bad_block;
+        free(pctx.tmp);
+    } else {
+        learn_book(sctx.sample, sctx.sample_n, block, entries,
+                   iters, o->book);
+        PackCtx pctx;
+        memset(&pctx, 0, sizeof(pctx));
+        pctx.block = block;
+        pctx.entries = entries;
+        pctx.cent = o->book;
+        pctx.idx = (uint8_t *)malloc(tb);
+        pctx.mn_h = (uint16_t *)malloc(tb * 2);
+        pctx.sc_h = (uint16_t *)malloc(tb * 2);
+        pctx.tmp = (float *)malloc(block * sizeof(float));
+        if (!pctx.idx || !pctx.mn_h || !pctx.sc_h || !pctx.tmp) {
+            fprintf(stderr, "out of memory packing\n");
+            return 1;
+        }
+        walk_one_tensor(s, block, pack_fn, &pctx);
+        o->idx = pctx.idx; o->mn_h = pctx.mn_h; o->sc_h = pctx.sc_h;
+        o->err2 = pctx.err2; o->ref2 = pctx.ref2;
+        o->frame_bad = pctx.frame_bad;
+        o->bad_value = pctx.bad_value;
+        o->bad_block = pctx.bad_block;
+        free(pctx.tmp);
+    }
+    free(sctx.sample); free(sctx.tmp);
+    return 0;
+}
+
+/* Store one scope tensor as raw float16 (--embed-fp16): no
+ * book, no blocks; fidelity is the fp16 round-trip itself. */
+static int store_one_tensor_fp16(int s, TOut *o)
+{
+    TensorInfo *ti = g_scope[s].tensor;
+    Shard *sh = g_scope[s].shard;
+    memset(o, 0, sizeof(*o));
+    o->raw_count = ti->count;
+    o->raw = (uint16_t *)malloc(ti->count * sizeof(uint16_t));
+    if (!o->raw) { fprintf(stderr, "out of memory\n"); return 1; }
+    const uint64_t SLAB = 1ull << 20;
+    float *buf = (float *)malloc(SLAB * sizeof(float));
+    if (!buf) { fprintf(stderr, "out of memory\n"); return 1; }
+    for (uint64_t base = 0; base < ti->count; base += SLAB) {
+        uint64_t want = ti->count - base;
+        if (want > SLAB) want = SLAB;
+        if (tensor_read(sh, ti, base, want, buf) != 0) {
+            fprintf(stderr, "read failed on %s\n", ti->name);
+            free(buf);
+            return 1;
+        }
+        for (uint64_t i = 0; i < want; i++) {
+            uint16_t h = float_to_half(buf[i]);
+            o->raw[base + i] = h;
+            double d = (double)buf[i] - (double)f16_to_float(h);
+            o->err2 += d * d;
+            o->ref2 += (double)buf[i] * (double)buf[i];
+        }
+    }
+    free(buf);
+    return 0;
+}
+
+/* The generation id over a set of per-tensor outputs:
+ * geometry first, then per tensor its name, book bytes,
+ * index bytes, frame bytes, and raw bytes, in scope order. */
+static uint64_t generation_of(uint32_t block, uint32_t entries,
+                              uint32_t flags, const TOut *outs)
+{
+    uint64_t h = NQ2_FNV_SEED;
+    h = fnv1a_u32(block, h);
+    h = fnv1a_u32(entries, h);
+    h = fnv1a_u32((uint32_t)g_n_scope, h);
+    h = fnv1a_u32(flags, h);
+    h = fnv1a_u32((uint32_t)g_pq_d, h);
+    uint32_t idxw = g_pq_d ? block / (uint32_t)g_pq_d : 1;
+    for (int s = 0; s < g_n_scope; s++) {
+        const char *nm = g_scope[s].tensor->name;
+        h = fnv1a(nm, strlen(nm), h);
+        if (outs[s].book)
+            h = fnv1a(outs[s].book,
+                      (size_t)entries * outs[s].block * sizeof(float), h);
+        if (outs[s].nblocks)
+            h = fnv1a(outs[s].idx,
+                      (size_t)outs[s].nblocks * idxw, h);
+        if (outs[s].nblocks) {
+            h = fnv1a(outs[s].mn_h, (size_t)outs[s].nblocks * 2, h);
+            h = fnv1a(outs[s].sc_h, (size_t)outs[s].nblocks * 2, h);
+        }
+        if (outs[s].raw)
+            h = fnv1a(outs[s].raw, (size_t)outs[s].raw_count * 2, h);
+    }
+    return h;
+}
+
+static uint64_t seg_digest_of(const TOut *o, uint32_t idxw)
+{
+    uint64_t h = NQ2_FNV_SEED;
+    if (o->raw) return fnv1a(o->raw, (size_t)o->raw_count * 2, h);
+    h = fnv1a(o->idx, (size_t)o->nblocks * idxw, h);
+    h = fnv1a(o->mn_h, (size_t)o->nblocks * 2, h);
+    h = fnv1a(o->sc_h, (size_t)o->nblocks * 2, h);
+    return h;
+}
+
+static uint64_t book_digest_of(const float *book, uint32_t entries,
+                               uint32_t block)
+{
+    if (!book) return NQ2_FNV_SEED;
+    return fnv1a(book, (size_t)entries * block * sizeof(float),
+                 NQ2_FNV_SEED);
+}
+
+/* Write the manifest beside a published pair. Returns 0 on
+ * success. block0s are cumulative block offsets in scope
+ * order. */
+static int write_manifest(const char *out_prefix, uint64_t gen,
+                          const TOut *outs, const uint64_t *block0s,
+                          uint32_t idxw, uint32_t entries)
+{
+    char pathbuf[1088];
+    snprintf(pathbuf, sizeof(pathbuf), "%s.nq2manifest", out_prefix);
+    FILE *mf = fopen(pathbuf, "w");
+    if (!mf) { fprintf(stderr, "cannot write %s\n", pathbuf); return 1; }
+    fprintf(mf, "NQ2MANIFEST 1\n");
+    fprintf(mf, "generation %016llx\n", (unsigned long long)gen);
+    fprintf(mf, "tensors %d\n", g_n_scope);
+    for (int s = 0; s < g_n_scope; s++) {
+        fprintf(mf, "tensor %s %llu %llu %u %016llx %016llx %s\n",
+                g_scope[s].tensor->name,
+                (unsigned long long)block0s[s],
+                (unsigned long long)outs[s].nblocks,
+                outs[s].block,
+                (unsigned long long)seg_digest_of(&outs[s], idxw),
+                (unsigned long long)book_digest_of(outs[s].book,
+                                                   entries,
+                                                   outs[s].block),
+                outs[s].raw ? "raw" : "packed");
+    }
+    fprintf(mf, "end\n");
+    if (fclose(mf) != 0) {
+        fprintf(stderr, "write failed for %s\n", pathbuf);
+        return 1;
+    }
+    printf("manifest: %s\n", pathbuf);
+    return 0;
+}
+
 /* ---------------- main ---------------- */
 
 /* Checked write for the artifact writers (Codex Astra review
@@ -861,6 +1211,10 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--iters") == 0 && i + 1 < argc) iters = (int)strtol(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--norm") == 0 && i + 1 < argc) { const char *m = argv[++i]; if (strcmp(m, "rms") == 0) g_norm_rms = 1; else if (strcmp(m, "minmax") == 0) g_norm_rms = 0; else fprintf(stderr, "warning: unknown --norm mode '%s', using minmax\n", m); }
         else if (strcmp(argv[i], "--residual") == 0) g_residual = 1;
+        else if (strcmp(argv[i], "--format") == 0 && i + 1 < argc) g_format = (int)strtol(argv[++i], NULL, 10);
+        else if (strcmp(argv[i], "--pq") == 0 && i + 1 < argc) g_pq_d = (int)strtol(argv[++i], NULL, 10);
+        else if (strcmp(argv[i], "--budgets") == 0) g_budgets = 1;
+        else if (strcmp(argv[i], "--embed-fp16") == 0) g_embed_fp16 = 1;
         else if (argv[i][0] != '-' && n_shard_paths < 16) shard_paths[n_shard_paths++] = argv[i];
         else { fprintf(stderr, "bad argument: %s\n", argv[i]); return 1; }
     }
@@ -894,6 +1248,50 @@ int main(int argc, char **argv)
     if (sample_cap == 0 || tensor_sample_cap == 0) {
         fprintf(stderr, "--sample-blocks and "
                 "--tensor-sample-blocks must be at least 1\n");
+        return 1;
+    }
+    /* Format v3 option discipline: the v3-only options need
+     * per-tensor books (their layouts are per-tensor), and a
+     * legacy format cannot express them. */
+    if (g_format != 1 && g_format != 2 && g_format != 3) {
+        fprintf(stderr, "--format must be 1, 2, or 3\n");
+        return 1;
+    }
+    if ((g_pq_d || g_budgets || g_embed_fp16) && books_mode != 1) {
+        fprintf(stderr, "--pq, --budgets, and --embed-fp16 need "
+                "--books per-tensor\n");
+        return 1;
+    }
+    if ((g_pq_d || g_budgets || g_embed_fp16) && g_format != 3) {
+        fprintf(stderr, "--pq, --budgets, and --embed-fp16 are "
+                "format v3 options\n");
+        return 1;
+    }
+    if (books_mode == 1 && g_format == 1) {
+        fprintf(stderr, "per-tensor books are format 2 or 3\n");
+        return 1;
+    }
+    if (books_mode == 0 && g_format == 2) {
+        fprintf(stderr, "the global-book layout is format 1 or 3\n");
+        return 1;
+    }
+    if (g_pq_d && (g_pq_d != 4 && g_pq_d != 8)) {
+        fprintf(stderr, "--pq subvector dim must be 4 or 8\n");
+        return 1;
+    }
+    if (g_pq_d && block != 256) {
+        fprintf(stderr, "--pq is defined at block 256 (the frame "
+                "the probe measured)\n");
+        return 1;
+    }
+    if (g_pq_d && g_budgets) {
+        fprintf(stderr, "--pq and --budgets are not supported "
+                "together (one index width per pack)\n");
+        return 1;
+    }
+    if (g_budgets && g_residual) {
+        fprintf(stderr, "--budgets and --residual are not "
+                "supported together\n");
         return 1;
     }
     /* Serialize in canonical order regardless of argv order
@@ -931,131 +1329,266 @@ int main(int argc, char **argv)
     if (g_total_blocks == 0) { fprintf(stderr, "nothing in scope\n"); return 1; }
 
     if (books_mode == 1) {
-        /* Per-tensor books (format version 2). Each tensor is
-         * sampled, learned, and packed with its own codebook, so
-         * every book speaks only its own tensor's language. The
-         * stream gains a tensor table (blocks per tensor) so the
-         * runner knows which book each block belongs to. */
-        float *books = (float *)calloc((size_t)g_n_scope * entries * block,
-                                       sizeof(float));
-        if (!books) { fprintf(stderr, "out of memory\n"); return 1; }
-        uint64_t *tblocks = (uint64_t *)malloc(sizeof(uint64_t) * g_n_scope);
-        double *terr = (double *)calloc(g_n_scope, sizeof(double));
-        double *tref = (double *)calloc(g_n_scope, sizeof(double));
-        double res_err2 = 0.0;
-        if (!tblocks || !terr || !tref) { fprintf(stderr, "out of memory\n"); return 1; }
-        PackCtx pctx;
-        memset(&pctx, 0, sizeof(pctx));
-        pctx.block = block;
-        pctx.entries = entries;
-        pctx.idx = (uint8_t *)malloc(g_total_blocks);
-        pctx.mn_h = (uint16_t *)malloc(g_total_blocks * 2);
-        pctx.sc_h = (uint16_t *)malloc(g_total_blocks * 2);
-        pctx.tmp = (float *)malloc(block * sizeof(float));
-        if (!pctx.idx || !pctx.mn_h || !pctx.sc_h || !pctx.tmp) {
-            fprintf(stderr, "out of memory packing\n");
+        /* Per-tensor books. Each tensor is sampled, learned,
+         * and packed with its own codebook, so every book
+         * speaks only its own tensor's language.
+         * Format 2 (legacy, --format 2) writes the v2 layout:
+         * a tensor table of blocks per tensor at one shared
+         * block size. Format 3 (the default) keeps that layout
+         * and adds the H3b identity: the generation id in both
+         * headers and the per-tensor digest manifest beside
+         * the pair. Format 3 is also the only format that can
+         * express --pq (per-tensor sub-books), --budgets
+         * (per-tensor block sizes), and --embed-fp16 (a raw
+         * float16 section in place of one tensor's blocks). */
+        if (g_budgets && block < 128) {
+            fprintf(stderr, "--budgets needs block >= 128 to "
+                    "have room to step down\n");
             return 1;
         }
+        uint32_t idxw = g_pq_d ? block / (uint32_t)g_pq_d : 1;
+        TOut *outs = (TOut *)calloc((size_t)g_n_scope, sizeof(TOut));
+        double *terr = (double *)calloc((size_t)g_n_scope, sizeof(double));
+        double *tref = (double *)calloc((size_t)g_n_scope, sizeof(double));
+        uint32_t *tblock_sz = (uint32_t *)malloc(
+            sizeof(uint32_t) * (size_t)g_n_scope);
+        double res_err2 = 0.0;
+        if (!outs || !terr || !tref || !tblock_sz) {
+            fprintf(stderr, "out of memory\n");
+            return 1;
+        }
+        for (int s = 0; s < g_n_scope; s++) tblock_sz[s] = block;
+
+        /* First pass at the base block: every tensor packed
+         * with its own book (or stored raw, for the embedding
+         * under --embed-fp16). The budget pass below re-packs
+         * the sensitive tensors at smaller blocks. */
         for (int s = 0; s < g_n_scope; s++) {
             TensorInfo *ti = g_scope[s].tensor;
-            tblocks[s] = ti->count / block;
-            float *cent = books + (size_t)s * entries * block;
             printf("tensor %d/%d %s: %llu blocks\n", s + 1, g_n_scope,
-                   ti->name, (unsigned long long)tblocks[s]);
-            if (tblocks[s] == 0) continue;
-            uint64_t cap = tensor_sample_cap;
-            if (cap > tblocks[s]) cap = tblocks[s];
-            SampleCtx sctx;
-            memset(&sctx, 0, sizeof(sctx));
-            sctx.block = block;
-            sctx.sample_cap = cap;
-            sctx.sample = (float *)malloc(cap * block * sizeof(float));
-            sctx.tmp = (float *)malloc(block * sizeof(float));
-            if (!sctx.sample || !sctx.tmp) { fprintf(stderr, "out of memory sampling\n"); return 1; }
-            walk_one_tensor(s, block, sample_fn, &sctx);
-            learn_book(sctx.sample, sctx.sample_n, block, entries, iters, cent);
-            free(sctx.sample); free(sctx.tmp);
-            pctx.cent = cent;
-            double e0 = pctx.err2, r0 = pctx.ref2;
-            walk_one_tensor(s, block, pack_fn, &pctx);
-            if (pctx.frame_bad) {
-                fprintf(stderr, "tensor %s, block %llu: frame "
-                        "value %g is not representable in "
-                        "float16; refusing to publish a pack "
-                        "with non-finite frames (Sol H8)\n",
-                        ti->name,
-                        (unsigned long long)pctx.bad_block,
-                        (double)pctx.bad_value);
-                return 1;
-            }
-            terr[s] = pctx.err2 - e0;
-            tref[s] = pctx.ref2 - r0;
-            printf("  tensor relative L2: %.4f\n",
-                   tref[s] > 0 ? dsqrt(terr[s] / tref[s]) : 0.0);
-            if (g_residual) {
-                ResSampleCtx rctx;
-                memset(&rctx, 0, sizeof(rctx));
-                rctx.block = block;
-                rctx.entries = entries;
-                rctx.cent1 = cent;
-                rctx.inner.block = block;
-                rctx.inner.sample_cap = cap;
-                rctx.inner.sample = (float *)malloc(cap * block * sizeof(float));
-                rctx.inner.tmp = (float *)malloc(block * sizeof(float));
-                rctx.tmp = (float *)malloc(block * sizeof(float));
-                rctx.recon = (float *)malloc(block * sizeof(float));
-                rctx.resid = (float *)malloc(block * sizeof(float));
-                rctx.ntmp = (float *)malloc(block * sizeof(float));
-                if (!rctx.inner.sample || !rctx.tmp || !rctx.recon
-                        || !rctx.resid || !rctx.ntmp) {
-                    fprintf(stderr, "out of memory (residual)\n");
+                   ti->name, (unsigned long long)(ti->count / block));
+            if (g_embed_fp16 && strstr(ti->name, "embed_tokens")) {
+                if (store_one_tensor_fp16(s, &outs[s]) != 0) return 1;
+                outs[s].block = block;
+                printf("  stored as raw float16 (no book, no "
+                       "blocks); round-trip relative L2 %.4f\n",
+                       outs[s].ref2 > 0
+                           ? dsqrt(outs[s].err2 / outs[s].ref2) : 0.0);
+            } else {
+                if (pack_one_tensor(s, block, entries, iters,
+                                    tensor_sample_cap, &outs[s]) != 0)
+                    return 1;
+                if (outs[s].frame_bad) {
+                    fprintf(stderr, "tensor %s, block %llu: frame "
+                            "value %g is not representable in "
+                            "float16; refusing to publish a pack "
+                            "with non-finite frames (Sol H8)\n",
+                            ti->name,
+                            (unsigned long long)outs[s].bad_block,
+                            (double)outs[s].bad_value);
                     return 1;
                 }
-                walk_one_tensor(s, block, res_sample_fn, &rctx);
-                float *cent2 = (float *)malloc((size_t)entries * block * sizeof(float));
-                if (!cent2) { fprintf(stderr, "out of memory (residual)\n"); return 1; }
-                learn_book(rctx.inner.sample, rctx.inner.sample_n,
-                           block, entries, iters, cent2);
-                free(rctx.inner.sample); free(rctx.inner.tmp);
-                ResFidCtx fctx;
-                memset(&fctx, 0, sizeof(fctx));
-                fctx.block = block;
-                fctx.entries = entries;
-                fctx.cent1 = cent;
-                fctx.cent2 = cent2;
-                fctx.tmp = rctx.tmp;
-                fctx.recon = rctx.recon;
-                fctx.resid = rctx.resid;
-                fctx.ntmp = rctx.ntmp;
-                walk_one_tensor(s, block, res_fid_fn, &fctx);
-                res_err2 += fctx.err2;
-                printf("  residual stage: two-stage relative L2 %.4f\n",
-                       fctx.ref2 > 0 ? dsqrt(fctx.err2 / fctx.ref2) : 0.0);
-                free(cent2);
-                free(rctx.tmp); free(rctx.recon);
-                free(rctx.resid); free(rctx.ntmp);
+                printf("  tensor relative L2: %.4f\n",
+                       outs[s].ref2 > 0
+                           ? dsqrt(outs[s].err2 / outs[s].ref2) : 0.0);
+                if (g_residual && outs[s].nblocks) {
+                    /* Residual stage (experimental, measured
+                     * only), as before: a second book trained
+                     * on this tensor's stage-1 residuals. */
+                    ResSampleCtx rctx;
+                    memset(&rctx, 0, sizeof(rctx));
+                    rctx.block = block;
+                    rctx.entries = entries;
+                    rctx.cent1 = outs[s].book;
+                    rctx.inner.block = block;
+                    uint64_t cap = tensor_sample_cap;
+                    if (cap > outs[s].nblocks) cap = outs[s].nblocks;
+                    rctx.inner.sample_cap = cap;
+                    rctx.inner.sample = (float *)malloc(
+                        cap * block * sizeof(float));
+                    rctx.inner.tmp = (float *)malloc(
+                        block * sizeof(float));
+                    rctx.tmp = (float *)malloc(block * sizeof(float));
+                    rctx.recon = (float *)malloc(block * sizeof(float));
+                    rctx.resid = (float *)malloc(block * sizeof(float));
+                    rctx.ntmp = (float *)malloc(block * sizeof(float));
+                    if (!rctx.inner.sample || !rctx.tmp || !rctx.recon
+                            || !rctx.resid || !rctx.ntmp) {
+                        fprintf(stderr, "out of memory (residual)\n");
+                        return 1;
+                    }
+                    walk_one_tensor(s, block, res_sample_fn, &rctx);
+                    float *cent2 = (float *)malloc(
+                        (size_t)entries * block * sizeof(float));
+                    if (!cent2) {
+                        fprintf(stderr, "out of memory (residual)\n");
+                        return 1;
+                    }
+                    learn_book(rctx.inner.sample, rctx.inner.sample_n,
+                               block, entries, iters, cent2);
+                    free(rctx.inner.sample); free(rctx.inner.tmp);
+                    ResFidCtx fctx;
+                    memset(&fctx, 0, sizeof(fctx));
+                    fctx.block = block;
+                    fctx.entries = entries;
+                    fctx.cent1 = outs[s].book;
+                    fctx.cent2 = cent2;
+                    fctx.tmp = rctx.tmp;
+                    fctx.recon = rctx.recon;
+                    fctx.resid = rctx.resid;
+                    fctx.ntmp = rctx.ntmp;
+                    walk_one_tensor(s, block, res_fid_fn, &fctx);
+                    res_err2 += fctx.err2;
+                    printf("  residual stage: two-stage relative "
+                           "L2 %.4f\n",
+                           fctx.ref2 > 0
+                               ? dsqrt(fctx.err2 / fctx.ref2) : 0.0);
+                    free(cent2);
+                    free(rctx.tmp); free(rctx.recon);
+                    free(rctx.resid); free(rctx.ntmp);
+                }
             }
+            terr[s] = outs[s].err2;
+            tref[s] = outs[s].ref2;
         }
-        double rel_l2 = pctx.ref2 > 0 ? dsqrt(pctx.err2 / pctx.ref2) : 0.0;
+
+        if (g_budgets) {
+            /* Sensitivity weighting (format v3): rank tensors
+             * by their share of the total squared error at the
+             * base block (the concentration the errprobe
+             * measured: the top 10 of 241 tensors held 54.6
+             * percent of the squared error in the frozen
+             * pack). Tensors carrying the first half of the
+             * squared error are re-packed at block/4, the next
+             * 30 percent at block/2, the rest keep the base
+             * block; books are re-learned at the new size. */
+            double tot_err = 0.0;
+            for (int s = 0; s < g_n_scope; s++) tot_err += outs[s].err2;
+            int *order = (int *)malloc(sizeof(int) * (size_t)g_n_scope);
+            if (!order) { fprintf(stderr, "out of memory\n"); return 1; }
+            for (int s = 0; s < g_n_scope; s++) order[s] = s;
+            for (int a = 1; a < g_n_scope; a++) {
+                int v = order[a], b = a - 1;
+                while (b >= 0 && outs[order[b]].err2 < outs[v].err2) {
+                    order[b + 1] = order[b];
+                    b--;
+                }
+                order[b + 1] = v;
+            }
+            uint32_t q_blk = block / 4, h_blk = block / 2;
+            if (q_blk < 32) q_blk = 32;
+            if (h_blk < 32) h_blk = 32;
+            double cum = 0.0;
+            int n_q = 0, n_h = 0;
+            for (int oi = 0; oi < g_n_scope; oi++) {
+                int s = order[oi];
+                uint32_t want = block;
+                if (tot_err > 0 && !outs[s].raw && outs[s].nblocks) {
+                    double share_before = cum / tot_err;
+                    if (share_before < 0.50) want = q_blk;
+                    else if (share_before < 0.80) want = h_blk;
+                }
+                cum += outs[s].err2;
+                tblock_sz[s] = want;
+                if (want == q_blk && want != block) n_q++;
+                else if (want == h_blk && want != block) n_h++;
+            }
+            free(order);
+            for (int s = 0; s < g_n_scope; s++) {
+                if (tblock_sz[s] == block || outs[s].raw) continue;
+                printf("budget: %s re-packed at block %u (was "
+                       "%u); squared-error share %.4f\n",
+                       g_scope[s].tensor->name, tblock_sz[s], block,
+                       tot_err > 0 ? outs[s].err2 / tot_err : 0.0);
+                tout_free(&outs[s]);
+                if (pack_one_tensor(s, tblock_sz[s], entries, iters,
+                                    tensor_sample_cap, &outs[s]) != 0)
+                    return 1;
+                if (outs[s].frame_bad) {
+                    fprintf(stderr, "tensor %s, block %llu: frame "
+                            "value %g is not representable in "
+                            "float16; refusing to publish (Sol "
+                            "H8)\n", g_scope[s].tensor->name,
+                            (unsigned long long)outs[s].bad_block,
+                            (double)outs[s].bad_value);
+                    return 1;
+                }
+                terr[s] = outs[s].err2;
+                tref[s] = outs[s].ref2;
+                printf("  tensor relative L2 at block %u: %.4f\n",
+                       tblock_sz[s],
+                       tref[s] > 0 ? dsqrt(terr[s] / tref[s]) : 0.0);
+            }
+            printf("budgets: %d tensors at block %u, %d at block "
+                   "%u, %d at block %u\n",
+                   n_q, q_blk, n_h, h_blk,
+                   g_n_scope - n_q - n_h, block);
+        }
+
+        /* Totals over what will actually be written. */
+        uint64_t tot_blocks = 0, tot_weights = 0, tot_raw = 0;
+        uint64_t *block0s = (uint64_t *)malloc(
+            sizeof(uint64_t) * (size_t)g_n_scope);
+        int n_books_stored = 0;
+        if (!block0s) { fprintf(stderr, "out of memory\n"); return 1; }
+        for (int s = 0; s < g_n_scope; s++) {
+            block0s[s] = tot_blocks;
+            tot_blocks += outs[s].nblocks;
+            tot_weights += outs[s].nblocks * outs[s].block;
+            if (outs[s].raw) tot_raw += outs[s].raw_count;
+            else n_books_stored++;
+        }
+        double tot_err2 = 0.0, tot_ref2 = 0.0;
+        for (int s = 0; s < g_n_scope; s++) {
+            tot_err2 += terr[s];
+            tot_ref2 += tref[s];
+        }
+        double rel_l2 = tot_ref2 > 0 ? dsqrt(tot_err2 / tot_ref2) : 0.0;
         printf("packed %llu blocks in %d per-tensor books; "
                "relative L2 error %.4f\n",
-               (unsigned long long)pctx.cursor, g_n_scope, rel_l2);
+               (unsigned long long)tot_blocks, n_books_stored, rel_l2);
+
+        uint32_t flags = 0;
+        if (g_pq_d) flags |= 1u;
+        if (g_budgets) flags |= 2u;
+        if (tot_raw) flags |= 4u;
+        uint64_t gen = 0;
+        if (g_format == 3)
+            gen = generation_of(block, entries, flags, outs);
 
         char pathbuf[1024], book_tmp[1088], stream_tmp[1088];
-        uint32_t version = 2;
-        uint32_t n_books = (uint32_t)g_n_scope;
         int bad = 0;
         snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.%ld.tmp",
                  out_prefix, writer_pid());
         FILE *bf = fopen(book_tmp, "wb");
         if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
-        bad |= wr(bf, "NQ2B", 1, 4);
-        bad |= wr(bf, &version, 4, 1);
-        bad |= wr(bf, &block, 4, 1);
-        bad |= wr(bf, &entries, 4, 1);
-        bad |= wr(bf, &n_books, 4, 1);
-        bad |= wr(bf, books, sizeof(float),
-                  (size_t)g_n_scope * entries * block);
+        if (g_format == 3) {
+            uint32_t version = 3;
+            uint32_t nb32 = (uint32_t)n_books_stored;
+            bad |= wr(bf, "NQ2B", 1, 4);
+            bad |= wr(bf, &version, 4, 1);
+            bad |= wr(bf, &block, 4, 1);
+            bad |= wr(bf, &entries, 4, 1);
+            bad |= wr(bf, &nb32, 4, 1);
+            bad |= wr(bf, &gen, 8, 1);
+            if (flags & 1u) {
+                uint32_t d32 = (uint32_t)g_pq_d;
+                bad |= wr(bf, &d32, 4, 1);
+            }
+        } else {
+            uint32_t version = 2;
+            uint32_t nb32 = (uint32_t)g_n_scope;
+            bad |= wr(bf, "NQ2B", 1, 4);
+            bad |= wr(bf, &version, 4, 1);
+            bad |= wr(bf, &block, 4, 1);
+            bad |= wr(bf, &entries, 4, 1);
+            bad |= wr(bf, &nb32, 4, 1);
+        }
+        for (int s = 0; s < g_n_scope; s++) {
+            if (outs[s].raw) continue;
+            bad |= wr(bf, outs[s].book, sizeof(float),
+                      (size_t)entries * outs[s].block);
+        }
         if (fclose(bf) != 0) bad = 1;
         if (bad) {
             fprintf(stderr, "write failed for %s.nq2book; "
@@ -1072,17 +1605,67 @@ int main(int argc, char **argv)
             remove(book_tmp);
             return 1;
         }
-        bad |= wr(sf, "NQ2\0", 1, 4);
-        bad |= wr(sf, &version, 4, 1);
-        bad |= wr(sf, &block, 4, 1);
-        bad |= wr(sf, &entries, 4, 1);
-        bad |= wr(sf, &g_total_weights, 8, 1);
-        bad |= wr(sf, &g_total_blocks, 8, 1);
-        bad |= wr(sf, &n_books, 4, 1);
-        bad |= wr(sf, tblocks, 8, g_n_scope);
-        bad |= wr(sf, pctx.idx, 1, g_total_blocks);
-        bad |= wr(sf, pctx.mn_h, 2, g_total_blocks);
-        bad |= wr(sf, pctx.sc_h, 2, g_total_blocks);
+        if (g_format == 3) {
+            uint32_t version = 3;
+            uint32_t nseg = (uint32_t)g_n_scope;
+            bad |= wr(sf, "NQ2\0", 1, 4);
+            bad |= wr(sf, &version, 4, 1);
+            bad |= wr(sf, &block, 4, 1);
+            bad |= wr(sf, &entries, 4, 1);
+            bad |= wr(sf, &tot_weights, 8, 1);
+            bad |= wr(sf, &tot_blocks, 8, 1);
+            bad |= wr(sf, &nseg, 4, 1);
+            for (int s = 0; s < g_n_scope; s++)
+                bad |= wr(sf, &outs[s].nblocks, 8, 1);
+            bad |= wr(sf, &gen, 8, 1);
+            bad |= wr(sf, &flags, 4, 1);
+            if (flags & 1u) {
+                uint32_t d32 = (uint32_t)g_pq_d;
+                bad |= wr(sf, &d32, 4, 1);
+            }
+            if (flags & 2u)
+                for (int s = 0; s < g_n_scope; s++)
+                    bad |= wr(sf, &tblock_sz[s], 4, 1);
+            if (flags & 4u) {
+                uint32_t n_raw = 0;
+                for (int s = 0; s < g_n_scope; s++)
+                    if (outs[s].raw) n_raw++;
+                bad |= wr(sf, &n_raw, 4, 1);
+                for (int s = 0; s < g_n_scope; s++)
+                    if (outs[s].raw) {
+                        uint32_t ix = (uint32_t)s;
+                        bad |= wr(sf, &ix, 4, 1);
+                    }
+            }
+        } else {
+            uint32_t version = 2;
+            uint32_t nb32 = (uint32_t)g_n_scope;
+            uint64_t tw = tot_weights, tb = tot_blocks;
+            bad |= wr(sf, "NQ2\0", 1, 4);
+            bad |= wr(sf, &version, 4, 1);
+            bad |= wr(sf, &block, 4, 1);
+            bad |= wr(sf, &entries, 4, 1);
+            bad |= wr(sf, &tw, 8, 1);
+            bad |= wr(sf, &tb, 8, 1);
+            bad |= wr(sf, &nb32, 4, 1);
+            for (int s = 0; s < g_n_scope; s++)
+                bad |= wr(sf, &outs[s].nblocks, 8, 1);
+        }
+        for (int s = 0; s < g_n_scope; s++)
+            if (outs[s].nblocks)
+                bad |= wr(sf, outs[s].idx, 1,
+                          (size_t)outs[s].nblocks * idxw);
+        for (int s = 0; s < g_n_scope; s++)
+            if (outs[s].nblocks)
+                bad |= wr(sf, outs[s].mn_h, 2, (size_t)outs[s].nblocks);
+        for (int s = 0; s < g_n_scope; s++)
+            if (outs[s].nblocks)
+                bad |= wr(sf, outs[s].sc_h, 2, (size_t)outs[s].nblocks);
+        if (flags & 4u)
+            for (int s = 0; s < g_n_scope; s++)
+                if (outs[s].raw)
+                    bad |= wr(sf, outs[s].raw, 2,
+                              (size_t)outs[s].raw_count);
         if (fclose(sf) != 0) bad = 1;
         if (bad) {
             fprintf(stderr, "write failed for %s.nq2; "
@@ -1108,13 +1691,41 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        if (g_format == 3
+                && write_manifest(out_prefix, gen, outs, block0s,
+                                  idxw, entries) != 0) {
+            fprintf(stderr, "the pair is published but its "
+                    "manifest is not; the pack carries its "
+                    "generation pairing only\n");
+            return 1;
+        }
 
-        uint64_t book_bytes = 20 + (uint64_t)g_n_scope * entries * block * 4;
-        uint64_t stream_bytes = 36 + (uint64_t)g_n_scope * 8 +
-                                g_total_blocks * 5;
-        double rate = (double)stream_bytes * 8.0 / (double)g_total_weights;
-        double crate = (double)(stream_bytes + book_bytes) * 8.0
-                       / (double)g_total_weights;
+        uint64_t book_floats = 0;
+        for (int s = 0; s < g_n_scope; s++)
+            if (!outs[s].raw)
+                book_floats += (uint64_t)entries * outs[s].block;
+        uint64_t book_bytes = (g_format == 3 ? 28 : 20)
+            + ((flags & 1u) ? 4 : 0) + book_floats * 4;
+        uint64_t stream_header = (g_format == 3)
+            ? 48 + (uint64_t)g_n_scope * 8
+              + ((flags & 1u) ? 4 : 0)
+              + ((flags & 2u) ? (uint64_t)g_n_scope * 4 : 0)
+              + ((flags & 4u) ? 4 + (uint64_t)(g_n_scope) * 0 : 0)
+            : 36 + (uint64_t)g_n_scope * 8;
+        if ((flags & 4u) && g_format == 3) {
+            uint64_t n_raw = 0;
+            for (int s = 0; s < g_n_scope; s++)
+                if (outs[s].raw) n_raw++;
+            stream_header += 4 + n_raw * 4 - 4;
+        }
+        uint64_t stream_bytes = stream_header
+            + tot_blocks * idxw + tot_blocks * 4 + tot_raw * 2;
+        uint64_t denom = tot_weights + tot_raw;
+        double rate = denom
+            ? (double)stream_bytes * 8.0 / (double)denom : 0.0;
+        double crate = denom
+            ? (double)(stream_bytes + book_bytes) * 8.0
+              / (double)denom : 0.0;
         snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
         FILE *rf = fopen(pathbuf, "w");
         if (!rf) {
@@ -1122,26 +1733,56 @@ int main(int argc, char **argv)
             return 1;
         }
         {
-            fprintf(rf, "NanoQuatTwo quantization report (per-tensor books, format v2)\n");
-            fprintf(rf, "tensors packed: %d (one book each)\n", g_n_scope);
-            fprintf(rf, "weights packed: %llu\n", (unsigned long long)g_total_weights);
-            fprintf(rf, "block size: %u, entries per book: %u\n", block, entries);
-            fprintf(rf, "normalization: %s\n", g_norm_rms ? "rms (no offset)" : "minmax");
-            fprintf(rf, "index stream (.nq2): %llu bytes\n", (unsigned long long)stream_bytes);
-            fprintf(rf, "memory file (.nq2book): %llu bytes\n", (unsigned long long)book_bytes);
-            fprintf(rf, "stream rate: %.4f bits per weight (stream only)\n", rate);
-            fprintf(rf, "complete rate: %.4f bits per weight (stream + book, two-part accounting)\n", crate);
-            fprintf(rf, "relative L2 error on real weights: %.4f\n", rel_l2);
+            fprintf(rf, "NanoQuatTwo quantization report "
+                    "(per-tensor books, format v%u)\n",
+                    g_format == 3 ? 3u : 2u);
+            fprintf(rf, "tensors packed: %d (one book each)\n",
+                    g_n_scope);
+            fprintf(rf, "weights packed: %llu\n",
+                    (unsigned long long)tot_weights);
+            if (tot_raw)
+                fprintf(rf, "weights stored as raw float16: %llu\n",
+                        (unsigned long long)tot_raw);
+            fprintf(rf, "block size: %u, entries per book: %u\n",
+                    block, entries);
+            if (g_pq_d)
+                fprintf(rf, "product quantization: subvector dim "
+                        "%d, %u sub-books per tensor\n",
+                        g_pq_d, block / (uint32_t)g_pq_d);
+            if (g_budgets)
+                fprintf(rf, "per-tensor bit budgets: squared-error "
+                        "shares decide block size (block/4 for the "
+                        "first 50 percent of squared error, block/2 "
+                        "for the next 30 percent)\n");
+            if (g_format == 3)
+                fprintf(rf, "generation id: %016llx (book and "
+                        "stream; manifest %s.nq2manifest)\n",
+                        (unsigned long long)gen, out_prefix);
+            fprintf(rf, "normalization: %s\n",
+                    g_norm_rms ? "rms (no offset)" : "minmax");
+            fprintf(rf, "index stream (.nq2): %llu bytes\n",
+                    (unsigned long long)stream_bytes);
+            fprintf(rf, "memory file (.nq2book): %llu bytes\n",
+                    (unsigned long long)book_bytes);
+            fprintf(rf, "stream rate: %.4f bits per weight "
+                    "(stream only)\n", rate);
+            fprintf(rf, "complete rate: %.4f bits per weight "
+                    "(stream + book, two-part accounting)\n", crate);
+            fprintf(rf, "relative L2 error on real weights: %.4f\n",
+                    rel_l2);
             if (g_residual) {
-                double two_l2 = pctx.ref2 > 0
-                    ? dsqrt(res_err2 / pctx.ref2) : 0.0;
-                uint64_t stream2 = stream_bytes + g_total_blocks * 5;
+                double two_l2 = tot_ref2 > 0
+                    ? dsqrt(res_err2 / tot_ref2) : 0.0;
+                uint64_t stream2 = stream_bytes
+                    + tot_blocks * (idxw + 4);
                 uint64_t book2 = book_bytes
-                    + (uint64_t)g_n_scope * entries * block * 4;
-                double crate2 = (double)(stream2 + book2) * 8.0
-                    / (double)g_total_weights;
-                fprintf(rf, "residual stage (experimental, measured only; "
-                        "the written stream is single-stage):\n");
+                    + (uint64_t)n_books_stored * entries * block * 4;
+                double crate2 = denom
+                    ? (double)(stream2 + book2) * 8.0 / (double)denom
+                    : 0.0;
+                fprintf(rf, "residual stage (experimental, measured "
+                        "only; the written stream is "
+                        "single-stage):\n");
                 fprintf(rf, "  two-stage relative L2: %.4f\n", two_l2);
                 fprintf(rf, "  two-stage complete rate would be: "
                         "%.4f bits per weight\n", crate2);
@@ -1211,6 +1852,157 @@ int main(int argc, char **argv)
     double rel_l2 = pctx.ref2 > 0 ? dsqrt(pctx.err2 / pctx.ref2) : 0.0;
     printf("packed %llu blocks; relative L2 error %.4f\n",
            (unsigned long long)pctx.cursor, rel_l2);
+
+    if (g_format == 3) {
+        /* Format v3, global book: the v1 layout plus the
+         * segment table, the generation id in both headers,
+         * and the digest manifest (H3b). The book stays
+         * shared; every tensor's manifest line carries the
+         * shared book's digest. */
+        TOut *outs = (TOut *)calloc((size_t)g_n_scope, sizeof(TOut));
+        uint64_t *block0s = (uint64_t *)malloc(
+            sizeof(uint64_t) * (size_t)g_n_scope);
+        if (!outs || !block0s) {
+            fprintf(stderr, "out of memory\n");
+            return 1;
+        }
+        uint64_t off = 0;
+        for (int s = 0; s < g_n_scope; s++) {
+            uint64_t tb = g_scope[s].tensor->count / block;
+            block0s[s] = off;
+            outs[s].book = cent;
+            outs[s].idx = pctx.idx + off;
+            outs[s].mn_h = pctx.mn_h + off;
+            outs[s].sc_h = pctx.sc_h + off;
+            outs[s].nblocks = tb;
+            outs[s].block = block;
+            off += tb;
+        }
+        uint64_t gen = generation_of(block, entries, 0, outs);
+        char pathbuf[1024], book_tmp[1088], stream_tmp[1088];
+        int bad = 0;
+        uint32_t version = 3, one = 1, flags = 0;
+        snprintf(book_tmp, sizeof(book_tmp), "%s.nq2book.%ld.tmp",
+                 out_prefix, writer_pid());
+        FILE *bf = fopen(book_tmp, "wb");
+        if (!bf) { fprintf(stderr, "cannot write %s\n", book_tmp); return 1; }
+        bad |= wr(bf, "NQ2B", 1, 4);
+        bad |= wr(bf, &version, 4, 1);
+        bad |= wr(bf, &block, 4, 1);
+        bad |= wr(bf, &entries, 4, 1);
+        bad |= wr(bf, &one, 4, 1);
+        bad |= wr(bf, &gen, 8, 1);
+        bad |= wr(bf, cent, sizeof(float), (size_t)entries * block);
+        if (fclose(bf) != 0) bad = 1;
+        if (bad) {
+            fprintf(stderr, "write failed for %s.nq2book; "
+                    "nothing published\n", out_prefix);
+            remove(book_tmp);
+            return 1;
+        }
+        snprintf(stream_tmp, sizeof(stream_tmp), "%s.nq2.%ld.tmp",
+                 out_prefix, writer_pid());
+        FILE *sf = fopen(stream_tmp, "wb");
+        if (!sf) {
+            fprintf(stderr, "cannot write %s\n", stream_tmp);
+            remove(book_tmp);
+            return 1;
+        }
+        {
+            uint32_t nseg = (uint32_t)g_n_scope;
+            bad |= wr(sf, "NQ2\0", 1, 4);
+            bad |= wr(sf, &version, 4, 1);
+            bad |= wr(sf, &block, 4, 1);
+            bad |= wr(sf, &entries, 4, 1);
+            bad |= wr(sf, &g_total_weights, 8, 1);
+            bad |= wr(sf, &g_total_blocks, 8, 1);
+            bad |= wr(sf, &nseg, 4, 1);
+            for (int s = 0; s < g_n_scope; s++)
+                bad |= wr(sf, &outs[s].nblocks, 8, 1);
+            bad |= wr(sf, &gen, 8, 1);
+            bad |= wr(sf, &flags, 4, 1);
+        }
+        bad |= wr(sf, pctx.idx, 1, g_total_blocks);
+        bad |= wr(sf, pctx.mn_h, 2, g_total_blocks);
+        bad |= wr(sf, pctx.sc_h, 2, g_total_blocks);
+        if (fclose(sf) != 0) bad = 1;
+        if (bad) {
+            fprintf(stderr, "write failed for %s.nq2; "
+                    "nothing published\n", out_prefix);
+            remove(stream_tmp);
+            remove(book_tmp);
+            return 1;
+        }
+        {
+            char book_dst[1024], stream_dst[1024];
+            snprintf(book_dst, sizeof(book_dst), "%s.nq2book",
+                     out_prefix);
+            snprintf(stream_dst, sizeof(stream_dst), "%s.nq2",
+                     out_prefix);
+            if (publish_pair(book_tmp, stream_tmp,
+                             book_dst, stream_dst) != 0) {
+                fprintf(stderr, "cannot publish %s pair\n",
+                        out_prefix);
+                remove(book_tmp);
+                remove(stream_tmp);
+                return 1;
+            }
+        }
+        if (write_manifest(out_prefix, gen, outs, block0s, 1,
+                           entries) != 0) {
+            fprintf(stderr, "the pair is published but its "
+                    "manifest is not; the pack carries its "
+                    "generation pairing only\n");
+            return 1;
+        }
+        uint64_t book_bytes = 28 + (uint64_t)entries * block * 4;
+        uint64_t stream_bytes = 48 + (uint64_t)g_n_scope * 8
+                                + g_total_blocks * 5;
+        double rate = (double)stream_bytes * 8.0
+                      / (double)g_total_weights;
+        double crate = (double)(stream_bytes + book_bytes) * 8.0
+                       / (double)g_total_weights;
+        snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
+        FILE *rf = fopen(pathbuf, "w");
+        if (!rf) {
+            fprintf(stderr, "cannot write %s\n", pathbuf);
+            return 1;
+        }
+        {
+            fprintf(rf, "NanoQuatTwo quantization report "
+                    "(format v3, global book)\n");
+            fprintf(rf, "tensors packed: %d\n", g_n_scope);
+            fprintf(rf, "weights packed: %llu\n",
+                    (unsigned long long)g_total_weights);
+            fprintf(rf, "block size: %u, entries: %u\n",
+                    block, entries);
+            fprintf(rf, "generation id: %016llx (book and stream; "
+                    "manifest %s.nq2manifest)\n",
+                    (unsigned long long)gen, out_prefix);
+            fprintf(rf, "normalization: %s\n",
+                    g_norm_rms ? "rms (no offset)" : "minmax");
+            fprintf(rf, "index stream (.nq2): %llu bytes\n",
+                    (unsigned long long)stream_bytes);
+            fprintf(rf, "memory file (.nq2book): %llu bytes\n",
+                    (unsigned long long)book_bytes);
+            fprintf(rf, "stream rate: %.4f bits per weight "
+                    "(stream only)\n", rate);
+            fprintf(rf, "complete rate: %.4f bits per weight "
+                    "(stream + book, two-part accounting)\n", crate);
+            fprintf(rf, "relative L2 error on real weights: "
+                    "%.4f\n", rel_l2);
+            if (fclose(rf) != 0) {
+                fprintf(stderr, "write failed for %s\n", pathbuf);
+                return 1;
+            }
+        }
+        printf("index stream: %llu bytes; memory file: %llu "
+               "bytes\n", (unsigned long long)stream_bytes,
+               (unsigned long long)book_bytes);
+        printf("rate: %.4f bits per weight (stream only); "
+               "complete %.4f (stream + book)\n", rate, crate);
+        return 0;
+    }
 
     /* Write the memory file and the index stream, staged and
      * checked (H6; see wr() above). */

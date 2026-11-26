@@ -1,0 +1,32 @@
+Little Nemo full-depth logit capture, 2026-11-25
+(Boardy review item, 2026-11-25: forward depth)
+
+Checkpoint: nemotron-nano-9b-v2 (complete local checkpoint,
+56 layers + untied head, vocab 131072). The bench partial
+checkpoint assembles only 15 of 56 layers; this capture ran
+the complete checkpoint through the Little Nemo C engine
+(scratch-built capture tool driving nemo_model_step over the
+checkpoint's own tokenizer).
+
+Prompt: "What is the capital of France?"
+Prompt tokens: 7493 1395 1278 8961 1307 5498 1063
+Geometry validated: full 56-layer stack + head.
+Logits finite: yes.
+First 8 logits of the final position:
+  -3.012787 -0.098331 5.376278 -2.796762
+  -2.692724 -3.014087 -3.020434 -3.013171
+Argmax: 1349 (logit 15.690172)
+Full-vector hash (FNV-1a 64 over the 131072 float32 logits):
+  ea501f74b959b77d
+
+Determinism: the capture was run a second time in a fresh
+process. First 8 logits, argmax, and the full-vector hash
+are identical: ea501f74b959b77d. The full-depth forward is
+bit-stable across processes on this bench.
+
+Scope statement, plainly: this pins OUR engine's full-depth
+output. An external cross-check against the Hugging Face
+reference implementation remains undone; it is
+workstation-only work (this bench cannot hold the full
+checkpoint inside that framework) and its timing is JD's
+open decision.

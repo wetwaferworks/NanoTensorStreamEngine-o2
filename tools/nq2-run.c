@@ -141,12 +141,36 @@ int main(int argc, char **argv)
         return 1;
     }
     uint32_t n_books = 1;
-    uint64_t *seg_blocks = NULL;   /* v2 only: blocks per tensor */
+    uint64_t *seg_blocks = NULL;   /* v2/v3: blocks per tensor */
+    uint64_t gen_id = 0;
+    uint32_t v3_flags = 0;
+    int per_tensor_books = 0;
     if (version == 2) {
         n_books = rd_u32(sf);
         seg_blocks = (uint64_t *)malloc(sizeof(uint64_t) * n_books);
         if (!seg_blocks) { fprintf(stderr, "out of memory\n"); return 1; }
         for (uint32_t i = 0; i < n_books; i++) seg_blocks[i] = rd_u64(sf);
+        per_tensor_books = 1;
+    } else if (version == 3) {
+        /* Format v3 (H3b): segment table, generation id, and
+         * the flags word; the v3-only layouts behind the
+         * flags are consumed here so the header size is
+         * right, then refused plainly below: this runner
+         * verifies flat packs, and the engines read the
+         * rest. */
+        n_books = rd_u32(sf);
+        seg_blocks = (uint64_t *)malloc(sizeof(uint64_t) * n_books);
+        if (!seg_blocks) { fprintf(stderr, "out of memory\n"); return 1; }
+        for (uint32_t i = 0; i < n_books; i++) seg_blocks[i] = rd_u64(sf);
+        gen_id = rd_u64(sf);
+        v3_flags = rd_u32(sf);
+        if (v3_flags & 1u) (void)rd_u32(sf);          /* PQ dim */
+        if (v3_flags & 2u)
+            for (uint32_t i = 0; i < n_books; i++) (void)rd_u32(sf);
+        if (v3_flags & 4u) {
+            uint32_t n_raw = rd_u32(sf);
+            for (uint32_t i = 0; i < n_raw; i++) (void)rd_u32(sf);
+        }
     } else if (version != 1) {
         fprintf(stderr, "unsupported format version %u\n", version);
         return 1;
@@ -160,7 +184,42 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: not a NanoQuatTwo memory file\n", book_path);
         return 1;
     }
-    if (version == 2) {
+    uint32_t stored_books = n_books;
+    if (version == 3) {
+        uint32_t bver = rd_u32(bf);
+        uint32_t b_block = rd_u32(bf);
+        uint32_t b_entries = rd_u32(bf);
+        uint32_t b_books = rd_u32(bf);
+        uint64_t b_gen = rd_u64(bf);
+        if (v3_flags & 1u) (void)rd_u32(bf);          /* PQ dim */
+        if (bver != 3 || b_block != block || b_entries != entries) {
+            fprintf(stderr, "stream and book disagree\n");
+            return 1;
+        }
+        if (b_gen != gen_id) {
+            fprintf(stderr, "pack identity mismatch: the "
+                    "stream carries generation %016llx and the "
+                    "book carries generation %016llx; they were "
+                    "not packed together and will not be run "
+                    "together\n",
+                    (unsigned long long)gen_id,
+                    (unsigned long long)b_gen);
+            return 1;
+        }
+        if (v3_flags != 0) {
+            fprintf(stderr, "this pack uses format v3 options "
+                    "(flags %u: PQ sub-books, per-tensor block "
+                    "sizes, or an fp16-raw section) that the "
+                    "streaming runner does not expand; "
+                    "nq2-infer and nq2-infer-lab read it. "
+                    "Refusing rather than misreading.\n",
+                    v3_flags);
+            return 1;
+        }
+        stored_books = b_books;
+        per_tensor_books = (b_books != 1);
+        if (!per_tensor_books) n_books = 1;
+    } else if (version == 2) {
         uint32_t bver = rd_u32(bf);
         uint32_t b_block = rd_u32(bf);
         uint32_t b_entries = rd_u32(bf);
@@ -179,30 +238,37 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    float *book = (float *)malloc((size_t)n_books * entries * block
+    float *book = (float *)malloc((size_t)stored_books * entries * block
                                   * sizeof(float));
     if (!book) { fprintf(stderr, "out of memory\n"); return 1; }
-    if (fread(book, sizeof(float), (size_t)n_books * entries * block, bf)
-            != (size_t)n_books * entries * block) {
+    if (fread(book, sizeof(float), (size_t)stored_books * entries * block, bf)
+            != (size_t)stored_books * entries * block) {
         fprintf(stderr, "%s: short book\n", book_path);
         return 1;
     }
     fclose(bf);
-    size_t book_bytes = (version == 2 ? 20 : 12)
-                        + (size_t)n_books * entries * block * sizeof(float);
+    size_t book_bytes = (version == 3 ? 28 : version == 2 ? 20 : 12)
+                        + (size_t)stored_books * entries * block * sizeof(float);
     fseek(sf, 0, SEEK_END);
     uint64_t stream_bytes = tell_of(sf);
     seek_to(sf, header_bytes);
 
     printf("NanoQuatTwo streaming runner\n");
     printf("model format version: %u\n", version);
+    if (version == 3)
+        printf("generation id: %016llx (stream and book agree)\n",
+               (unsigned long long)gen_id);
+    else
+        printf("notice: legacy pack (format v%u): no generation "
+               "identity; the stream and the book are bound by "
+               "position, as before\n", version);
     printf("weights: %llu in %llu blocks of %u\n",
            (unsigned long long)total_weights,
            (unsigned long long)n_blocks, block);
     printf("index stream: %llu bytes; memory file: %zu bytes\n",
            (unsigned long long)stream_bytes, book_bytes);
-    if (version == 2)
-        printf("books: %u (one per tensor)\n", n_books);
+    if (per_tensor_books)
+        printf("books: %u (one per tensor)\n", stored_books);
     printf("expanded size: %llu bytes (never held in memory)\n",
            (unsigned long long)total_weights * 4ull);
 
@@ -229,7 +295,7 @@ int main(int argc, char **argv)
         }
         float mn = half_to_float(mn_h), sc = half_to_float(sc_h);
         const float *book_base = book;
-        if (version == 2) {
+        if (per_tensor_books) {
             /* find which tensor's segment this block lives in */
             uint64_t acc = 0;
             uint32_t seg = 0;
@@ -240,7 +306,7 @@ int main(int argc, char **argv)
             }
             book_base = book + (size_t)seg * entries * block;
             printf("block %ld is in tensor segment %u of %u\n",
-                   peek, seg, n_books);
+                   peek, seg, stored_books);
         }
         printf("block %ld: index %u, min %.6f, scale %.6f\n",
                peek, idx, mn, sc);
@@ -286,7 +352,7 @@ int main(int argc, char **argv)
     uint64_t hash_std = 14695981039346656037ull;   /* FNV-1a 64 */
     uint64_t done = 0;
     uint32_t seg = 0;
-    uint64_t seg_left = version == 2 ? seg_blocks[0] : n_blocks;
+    uint64_t seg_left = per_tensor_books ? seg_blocks[0] : n_blocks;
     /* Expansion and hashing are timed separately: the hash is a
      * verification tax paid once, while the expansion loop is the
      * streaming path (disc to memory to CPU) that runs every load.
@@ -311,7 +377,7 @@ int main(int argc, char **argv)
             }
             float mn = half_to_float(mn_buf[b]);
             float sc = half_to_float(sc_buf[b]);
-            if (version == 2) {
+            if (per_tensor_books) {
                 /* advance across tensor segments as blocks pass;
                  * each segment expands from its own book. The
                  * advance is bounded at the last segment so a
@@ -323,7 +389,7 @@ int main(int argc, char **argv)
                 if (seg_left > 0) seg_left--;
             }
             const float *book_base = book
-                + (size_t)(version == 2 ? seg : 0) * entries * block;
+                + (size_t)(per_tensor_books ? seg : 0) * entries * block;
             const float *proto = book_base + (size_t)idx_buf[b] * block;
             float *dst = win + (size_t)b * block;
             const float *restrict src = proto;

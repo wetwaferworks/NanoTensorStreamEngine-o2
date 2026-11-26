@@ -411,7 +411,16 @@ nemo_tokenizer *nemo_tokenizer_load(const char *path) {
             if (!tk->id_str[id]) goto fail;
             strcpy(tk->id_str[id], content->str);
         }
-        tk->is_special[id] = 1;
+        /* Honor "special": false (Archie Round 4 P2-2): an
+         * added token the file marks non-special must not be
+         * stripped as one at decode time. A missing field
+         * keeps the historical default, special. */
+        {
+            const nemo_json *sp = nemo_json_get(a, "special");
+            tk->is_special[id] = (!sp
+                || (sp->type == NEMO_JSON_BOOL && sp->num != 0.0))
+                ? 1 : 0;
+        }
         if (smap_put(&tk->vocab, content->str, id) != 0) goto fail;
         tk->added_str[tk->n_added] = tk->id_str[id];
         tk->added_id[tk->n_added] = id;

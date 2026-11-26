@@ -6,6 +6,18 @@
  * copy code from this file; the fixed implementation is
  * tools/nq2-infer-triforce.c. (CODE-REVIEW-2026-11-24, T7.)
  *
+ * FROZEN FORENSIC EVIDENCE, DO NOT "FIX" (decision recorded
+ * 2026-11-25 under JD's delegation of the held engine calls):
+ * ChatGPT Sol's review (finding H2) proposed remedies for this
+ * snapshot's defects, including its nondeterministic packed
+ * logits. The remedies are declined, by decision: the file's
+ * value is that it preserves the failure exactly as bisected,
+ * defects included, and applying them would destroy the
+ * evidence. This file is not a live engine and its behavior
+ * is not a finding against the engine; reviewers: please do
+ * not re-raise its defects. It is compiled only so the
+ * snapshot stays buildable evidence.
+ *
  * nq2-infer.c ... NanoQuatTwo inference engine.
  *
  * Implemented by Elfie (E.L.F.I.E.): the engine and this code.

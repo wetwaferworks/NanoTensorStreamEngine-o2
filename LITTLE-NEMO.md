@@ -1,7 +1,8 @@
 # Little Nemo
 
 Little Nemo is a pure C inference engine for NVIDIA's
-Nemotron-Nano-9B-v2, built alongside the Nano Quant Engine. It
+Nemotron-Nano-9B-v2, built alongside the Nano Tensor Stream
+Engine (NTSE-o2). It
 exists for one question, in JD's formulation: we do not get to
 keep the original weights at these pack rates, so the packed
 model has to prove that its output is still the same reasoning.
@@ -138,7 +139,7 @@ fixtures.
   battery below have run.
 - Chat-template wrapping arrives with tokenizer_config.json;
   prompts are currently encoded as-is.
-- The NanoQuant packed weight source plugs into the same fetch
+- The NTSE-o2 packed weight source plugs into the same fetch
   points the raw source uses. When it lands, the behavioral
   battery runs the same prompts three ways (raw, packed, packed
   with dictionary compute) and scores token-for-token agreement,

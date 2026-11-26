@@ -1,4 +1,4 @@
-Nano Quant Engine (NanoQuat-O2)
+Nano Tensor Stream Engine (NTSE-o2)
 
 Release version:        0.1.0
 Rolling build counter:  0001  (Build 0001)

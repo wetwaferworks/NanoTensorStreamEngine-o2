@@ -214,6 +214,14 @@ class NemoClient:
                 import shlex
 
                 cmd = shlex.split(cmd)
+        if os.name == "nt" and cmd and str(cmd[0]).lower().endswith(".py"):
+            # Windows CreateProcess cannot execute a .py file
+            # directly (WinError 193, "%1 is not a valid Win32
+            # application"); the shebang that carries it on
+            # POSIX means nothing there. Run the script with
+            # this interpreter instead (Archie Round 4 P1-1,
+            # 2026-11-25).
+            cmd = [sys.executable] + list(cmd)
         self._proc = subprocess.Popen(
             cmd, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             text=True, encoding="utf-8", bufsize=1,
@@ -717,6 +725,7 @@ def run_gui(engine_cmd=None, host=None, port=None, settings_ctx=None):
                 f"{k}: {v}" for k, v in errors.items()))
 
         def on_apply():
+            nonlocal engine_cmd, host, port
             raw = gather()
             errors = validate_settings(raw)
             if errors:
@@ -739,7 +748,13 @@ def run_gui(engine_cmd=None, host=None, port=None, settings_ctx=None):
             think.delete("1.0", "end")
             think.configure(state="disabled")
             dlg.destroy()
-            connect(result["cmd"], result["host"], result["port"])
+            # The applied settings become the session's current
+            # settings, so a later Restart engine respawns with
+            # them instead of reverting to the startup values
+            # (Archie Round 4 P1-2, 2026-11-25).
+            engine_cmd, host, port = (result["cmd"], result["host"],
+                                      result["port"])
+            connect(engine_cmd, host, port)
 
         tk.Button(btns, text="Apply", command=on_apply, bg=ACCENT,
                   fg="#16161e",

@@ -240,17 +240,32 @@ static void analyze(const char *path, const char *name,
     double mean = sum / (block * done);
     double var = sum2 / (block * done) - mean * mean;
     double rms = sqrt(sum2 / (block * done));
-    double kurt = (sum4 / (block * done)) / (var * var) - 3.0;
     qsort(ranges, done, sizeof(double), cmp_d);
     qsort(topshares, done, sizeof(double), cmp_d);
-    printf("   mean %.6g  RMS %.6g  max|w| %.6g  excess kurtosis %.2f\n",
-           mean, rms, maxabs, kurt);
+    printf("   mean %.6g  RMS %.6g  max|w| %.6g",
+           mean, rms, maxabs);
+    if (var > 0) {
+        double kurt = (sum4 / (block * done)) / (var * var) - 3.0;
+        printf("  excess kurtosis %.2f\n", kurt);
+    } else {
+        /* A constant or all-zero tensor has no variance to
+         * normalize by. The honest report is n/a; the 0/0 here
+         * used to print a negative NaN (held tensorstat item,
+         * decided under JD's 2026-11-25 delegation). */
+        printf("  excess kurtosis n/a (zero variance)\n");
+    }
     printf("   blocks of %llu: %llu\n", (unsigned long long)block,
            (unsigned long long)done);
     double range_sum = 0;
     for (uint64_t i = 0; i < done; i++) range_sum += ranges[i];
     if (done == 0) {
         printf("   no complete blocks read (truncated tensor?)\n");
+    } else if (rms == 0) {
+        /* Every value is zero, so every block range is zero
+         * too and the ratio has no meaning; say so instead of
+         * printing NaNs (same held item as the kurtosis guard
+         * above). */
+        printf("   block range / RMS: n/a (RMS is 0, every block is zero)\n");
     } else {
         printf("   block range / RMS: mean %.2f  p50 %.2f  p99 %.2f  max %.2f\n",
                range_sum / done / rms,

@@ -1,4 +1,4 @@
-# Nano Quant Engine: What Can We Do
+# Nano Tensor Stream Engine (NTSE-o2): What Can We Do
 
 *The plan, written 2026-11-23 while the first real model downloads.*
 

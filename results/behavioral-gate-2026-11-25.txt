@@ -1,0 +1,280 @@
+Behavioral gate, Sonnet L2 roll-in phase 2 (2026-11-25)
+Nano Quant Engine (NanoQuat-O2), Sigma-3B
+Directed by JD 2026-11-25 05:53 EST as part of the Sol fix pass.
+
+THE BLOCKER, stated plainly
+The gate as specified (pack Sigma at PQ d8 K256 RMS and PQ d4
+K256 RMS with the shipped quantizer, run nq2-logitcmp raw vs
+each pack) cannot run as specified. The shipped quantizer
+(nq2-quantize) writes block-VQ packs; PQ exists in the tree
+only as nq2-pq, a per-tensor measurement probe that writes no
+pack. No shipped tool produces an engine-readable PQ pack,
+and producing one is a pack-format change, which waits for
+JD's explicit format call (same decision bucket as H3b and
+format v3). The PQ behavioral rows are therefore empty in
+this record, on purpose, until that call.
+
+What this file records instead:
+(1) the PQ weight-space curve, measured fresh with nq2-pq
+    (RMS frame) on four representative Sigma tensors;
+(2) a true behavioral curve at the rates the shipped format
+    has: lab-engine logits, raw vs the frozen baseline pack,
+    compared with nq2-logitcmp (post-M7: strict by default).
+
+(1) PQ WEIGHT-SPACE CURVE (nq2-pq, RMS frame, fresh runs)
+
+tensor: encoder.layers.0.self_attn.q_proj.weight (12,582,912 w)
+  flat VQ block 256   rel L2 0.9112   complete 0.3229 bpw
+  PQ d8  K256 RMS     rel L2 0.5613   complete 1.2917 bpw
+  PQ d4  K256 RMS     rel L2 0.3148   complete 2.2917 bpw
+  (d8/d4 reproduce Claude Sonnet 5.5's cited values exactly;
+  his notes were drawn from this same tooling, and the fresh
+  runs converge to the same numbers.)
+
+tensor: encoder.layers.0.mlp.gate_proj.weight
+  PQ d8  K256 RMS     rel L2 0.5752   complete 1.1991 bpw
+  PQ d4  K256 RMS     rel L2 0.3190   complete 2.1991 bpw
+
+tensor: encoder.layers.0.mlp.down_proj.weight
+  flat VQ block 256   rel L2 0.9872   complete 0.2303 bpw
+  PQ d8  K256 RMS     rel L2 0.5766   complete 1.1991 bpw
+  PQ d4  K256 RMS     rel L2 0.3214   complete 2.1991 bpw
+
+tensor: encoder.embed_tokens.weight (402,653,184 w)
+  flat VQ block 256   rel L2 0.9745   complete 0.1615 bpw
+  PQ d16 K256 RMS     rel L2 0.7649   complete 0.6302 bpw
+  PQ d8  K256 RMS     rel L2 0.5759   complete 1.1302 bpw
+  PQ d4  K256 RMS     rel L2 0.3197   complete 2.1302 bpw
+
+Reading: PQ's advantage is uniform across tensor kinds, not a
+q_proj accident: at about 1.2 bpw every measured tensor sits
+near 0.57 rel L2 where the shipped flat format sits near
+0.91 to 0.99 at its own rates; at about 2.2 bpw PQ reaches
+0.32. The weight-space case for a PQ pack format is strong.
+The behavioral case cannot be made until the format exists.
+
+(2) BEHAVIORAL CURVE AT SHIPPED RATES (nq2-logitcmp)
+
+Method: lab engine, --ids 1 --tokens 1 --steps 1,
+--logits-dump-all, raw Sigma vs the frozen baseline pack
+(0.15691 bpw complete). Tooling validated first on the small
+fixture: lab and triforce dumps are bit-identical in both
+modes there (cosine 1.000000, zero diff), and raw vs packed
+on the fixture reads sanely (eval-0 cosine +0.567, top-1
+2/32 on a 1024-vocab toy). The comparison machinery is not
+the story; the Sigma numbers below are the model's.
+
+Eval 0 (the prompt pass, 32 positions, the clean block):
+  top-1 agreement 0/32 (0.0%)
+  mean top-5 overlap 0.000
+  mean cosine -0.794652 (min -0.868361)
+  mean abs logit diff 5.4960
+  mean rel logit L2 1.423555
+  mean KL(raw||packed) 5.425064 (max 6.355888)
+
+Eval 1 (the generation pass) is reported with a caveat: in
+BOTH dumps that block carries anomalous magnitudes (logit
+values to +/-28000 at scattered positions, raw and packed
+alike, a dump-all quirk of the second block at Sigma scale;
+the same block is clean on the fixture). Its raw-vs-packed
+figures (cosine +0.124, KL off scale) are dominated by that
+common-mode artifact and are not used as evidence here.
+
+Finding: at the shipped 0.15691 bpw, the frozen Sigma pack
+runs, streams, and generates, but its logits do not track
+the raw model's: zero top-1 agreement and a NEGATIVE mean
+cosine on the prompt pass. By JD's fidelity criterion (the
+output must still be the same reasoning), the 0.157 bpw
+pack does not meet it in logit space. This is the number
+the rate ladder exists to move: the weight-space PQ curve
+in section (1) is the lever, and it waits on the format
+decision recorded at the top of this file.
+
+(3) PROBES (writer-side, format-preserving)
+
+Probe A: per-tensor books vs one global book, identical
+tensor set (Sigma layer 0: q/k/v/o/gate/up/down, 7 tensors,
+116,391,936 weights, block 256, quantizer-reported):
+  global book:      rel L2 0.9865, complete 0.1743 bpw
+  per-tensor books: rel L2 0.9729, complete 0.2824 bpw
+Per-tensor books buy 1.4 points of rel L2 for +62% complete
+rate on this set; the book overhead (7 x 256 KB) dominates
+at this scale and amortizes on larger models, but at block
+256 both settings are near-total-loss per tensor. Verdict:
+a real but small lever; already available as the shipped
+--books per-tensor option; NOT adopted as a default change.
+
+Probe B: the embedding under its own book vs the shared
+book. Own-book pack of embed_tokens alone: rel L2 0.9807.
+The same tensor inside the frozen global-book pack
+(errprobe): rel L2 0.9885. Same story at smaller scale:
+book granularity is worth about a point, not a regime.
+
+Probe C: where the error actually sits (errprobe --all on
+the frozen pack): the top 10 of 241 packed tensors hold
+54.6% of the squared error; the median per-tensor rel L2
+is 0.9943 while the aggregate is 0.6922, carried by a few
+large well-fit tensors. Sensitivity weighting that would
+matter is per-tensor BIT budgets (smaller blocks for the
+worst tensors). That is not expressible in the current
+format: block size is a pack-global header field. STOPPED
+at the format boundary and flagged for JD with H3b and
+format v3. The scripted approximation available today is
+separate per-scope packs at different block sizes via
+--filter + --block, at the cost of one stream per scope.
+
+Bottom line of phase 2: the shipped format's levers are
+measured and small; the lever that changes the regime is
+PQ (section 1), and PQ needs the format call.
+
+================================================================
+Combined pass addendum, 2026-11-25 afternoon: format v3 writers
+================================================================
+
+Format v3 landed in tools/nq2-quantize.c with the H3b pairing
+floor (generation identity in stream + book headers, engines
+refuse mismatched pairs, per-tensor digest manifest verified
+at open, legacy v1/v2 packs readable with a printed notice).
+Writer-side geometry measurements on the Sigma 3B scope,
+RMS frame, block 256, from the writer reports:
+
+  PQ d8, embedding tensor (first full-scope attempt scope):
+    rel L2 0.5759 at 1.1302 bpw complete (per-tensor PQ book)
+  PQ probes already on record (tools/nq2-pq.c):
+    d4 K256 rel L2 0.3148 at 2.2917 bpw
+    embedding d4 K256 rel L2 0.2771 at 3.1250 bpw
+  Baseline for comparison (shipped global book):
+    rel L2 0.6922 at 0.15691 bpw complete
+
+Full-scope PQ d8 and d4 packs, the per-tensor budgets pack,
+and their lab-engine logit comparisons against the raw
+reference dump (scratch/sol-fixes/behav-raw.logits, the same
+reference the shipped point above was measured against) were
+still running on the bench at the time of this entry; the
+pipeline appends their comparison lines to this file when
+they land. The acceptance question is unchanged: top-1
+agreement, mean cosine, and KL of the packed forward against
+the raw forward, reported as measured.
+
+Mini-scope writer measurements (2-layer Sigma extraction,
+27 tensors, 1,040,497,664 weights; same writer, RMS frame):
+  v3 global book:    rel L2 0.9662, 0.1583 bpw complete;
+                     lab and triforce both generate token
+                     4735 from the pack (raw: 75768)
+  v3 per-tensor:     rel L2 0.8093, 0.2107 bpw complete
+The mini scope is embed/head dominated, so its errors run
+higher than the full-model figures; the point of the mini
+runs is reader verification (identity, manifest, refusals,
+cross-engine agreement), which passed in full.
+
+Mini-scope writer measurements, continued (same scope):
+  v3 PQ d8 per-tensor: rel L2 0.4396, 1.1794 bpw complete;
+                     lab runs it (identity verified), token
+                     53190; the triforce refuses PQ packs in
+                     plain words, as recorded
+  v3 budgets:        rel L2 0.7860, 0.2696 bpw complete
+                     (1 tensor re-packed at block 64, 1 at
+                     block 128, 25 at block 256); against
+                     the per-tensor base on this scope
+                     (0.8093 at 0.2107 bpw) the budgets buy
+                     0.023 of rel L2 for 0.059 bpw here;
+                     lab runs it (identity verified)
+  v3 embed fp16:     embedding stored raw fp16, 402,653,184
+                     weights; round-trip rel L2 exactly
+                     0.0000 (the bf16 source's 8-bit mantissa
+                     fits losslessly in fp16's 10 bits for
+                     in-range values, so the option is
+                     bit-exact for this checkpoint); pack
+                     rel L2 0.7666 at 6.3399 bpw complete on
+                     this embedding-heavy scope, which is
+                     the honest cost of 16 bits on 39% of
+                     the scope's weights
+
+Full-scope PQ d8 pack (243 tensors, 3,834,051,584 weights,
+RMS frame, per-tensor PQ books): relative L2 error 0.3791
+at 1.2579 bpw complete. For scale: the shipped global book
+measures 0.6922 at 0.15691 bpw, and the PQ probe's d8 figure
+on the embedding tensor alone was 0.5759. The behavioral
+comparison of this pack's forward against the raw reference
+follows below when the lab dump and logitcmp land.
+
+PQ d8 behavioral point (lab dump of pq-d8-full vs the raw
+reference, nq2-logitcmp, eval 0, the prompt pass):
+  top-1 agreement 0/32 (0.0%)
+  mean cosine 0.893236 (min 0.890048)
+  mean rel logit L2 0.483437
+  mean KL(raw||packed) 1.817920 (max 1.912204)
+Against the shipped point on the same evaluation (top-1
+0/32, mean cosine -0.794652, rel logit L2 1.424, mean KL
+5.425064): every distributional measure improves by a
+wide margin at 1.2579 bpw; the packed forward now tracks
+the raw forward's direction closely. Top-1 agreement is
+still zero, so by JD's fidelity criterion the output is
+still not the same reasoning; the rate ladder's next
+steps remain d4 and the budgets pack, below. Eval 1
+carries the same documented common-mode dump artifact
+in both dumps and is not used as evidence, exactly as
+for the shipped point.
+
+PQ d4 behavioral point (same method; pack weight rel L2
+0.2118 at 2.2579 bpw complete; eval 0):
+  top-1 agreement 0/32 (0.0%)
+  mean cosine 0.944810 (min 0.936560)
+  mean rel logit L2 0.330032
+  mean KL(raw||packed) 1.159235 (max 1.268226)
+Better than d8 on every distributional measure, as the
+weight-space curve predicted; top-1 agreement on the
+prompt pass is still zero. The ladder's shape is now
+measured at three rates: 0.157 bpw (cosine -0.795),
+1.258 bpw (0.893), 2.258 bpw (0.945). The direction is
+monotone and the remaining gap is in the argmax, not
+the direction of the forward.
+
+Per-tensor bit budgets, full scope (4 tensors re-packed
+at block 64, 63 at block 128, 176 left at block 256;
+books re-learned at the finer blocks): relative L2
+0.6601 at 0.4445 bpw complete. Against the brief's
+baseline (global book 0.6922 at 0.15691 bpw) the budgets
+buy 0.032 of rel L2 for 2.8 times the rate. Stated
+plainly: with per-tensor books the squared error is
+spread across many tensors (the walk needed 67 tensors
+to cover 80% of it), so block-size reallocation has
+little to bite on at this scope, and the trade is
+dominated at both ends, by the global book at low rate
+and by PQ d8 at high rate. The mechanism works exactly
+as built; the measured gain is small. That is the
+result.
+
+Format v3 global pack, RMS frame (weight rel L2 0.9719
+at 0.1568 bpw complete; eval 0):
+  top-1 agreement 0/32 (0.0%)
+  mean cosine 0.542399 (min -0.692811)
+  mean rel logit L2 0.960253
+  mean KL(raw||packed) 3.267672 (max 3.522857)
+Frame note, recorded because it changes how the numbers
+read: the shipped frozen pack and its 0.6922 baseline
+use the writer's default min-max (affine) frame. Every
+pack in this addendum up to here was packed with the RMS
+frame (the PQ design's frame, applied by the pipeline
+scripts to the VQ packs as well). The RMS global pack's
+weight error is worse than the min-max baseline while
+its forward cosine is far better (+0.542 against
+-0.795): weight rel L2 and forward fidelity do not rank
+the two frames the same way on this model. The budgets
+figure above is likewise an RMS-frame figure; its
+same-frame global comparison is 0.9719 (RMS global) to
+0.6601 (RMS budgets) at 0.4445 bpw, a real gain under
+that frame, and the cross-frame sentence in the budgets
+entry should be read with this note. A min-max v3
+global pack (the baseline reproduction) follows below.
+
+Format v3 global pack, min-max frame (the shipped
+frame): weight rel L2 0.6922 at 0.1568 bpw complete.
+Behavioral point, eval 0: top-1 0/32, mean cosine
+-0.794652 (min -0.868361), mean rel logit L2 1.423555,
+mean KL 5.425064 (max 6.355888). Every figure matches
+the frozen pack's recorded point to the last printed
+digit. Format v3 reproduces the shipped pack class
+exactly while adding generation identity, the digest
+manifest, and the new writers. The format phase is
+complete.

@@ -12,6 +12,20 @@
  *     T[j][k] = sum_i C[k][i] * x[jB+i],   A[j] = sum_i x[jB+i]
  *     y[r]    = sum_j ( s[r][j] * T[j][idx[r][j]] + m[r][j] * A[j] )
  *
+ * The build/apply logic itself lives in tools/nq2-dc-kernel.h,
+ * the ONE shared kernel, called identically by this probe and
+ * by the adversarial campaign (tools/nq2-dc-adv.c); see the
+ * header for the determinism contract (DTC code review P1-1,
+ * 2026-11-25). This file is the probe around it: fixtures,
+ * pack/shard reading, construction-policy variants, timings.
+ *
+ * Input hardening (DTC code review P1-4, 2026-11-25): every
+ * safetensors span is validated against the dims-derived
+ * element count and the shard's data section before any read,
+ * and non-finite book or frame values are a hard refusal
+ * (nonzero exit), never a NaN metric with a success exit.
+ * Regression: tools/test-dc-hardening.sh.
+ *
  * Tests:
  *   DC1 synthetic fixture vs an fp64 oracle over the same
  *       compressed representation (agreement isolates algebra).
@@ -37,6 +51,8 @@
 #include <stdint.h>
 #include <math.h>
 #include <time.h>
+
+#include "nq2-dc-kernel.h"
 
 static float half_to_float(uint16_t h)
 {
@@ -180,23 +196,14 @@ static void dc1(void)
         }
         y_rec[r] = acc;
     }
-    /* NQDC: fp32 tables, fp32 lookup sum */
-    for (int j = 0; j < J; j++) {
-        float a = 0;
-        for (int i = 0; i < B; i++) a += x[j * B + i];
-        A[j] = a;
-        for (int k = 0; k < K; k++) {
-            float acc = 0;
-            for (int i = 0; i < B; i++) acc += C[k * B + i] * x[j * B + i];
-            T[j * K + k] = acc;
-        }
-    }
-    for (int r = 0; r < M; r++) {
-        float acc = 0;
-        for (int j = 0; j < J; j++)
-            acc += sc[r * J + j] * T[j * K + idx[r * J + j]]
-                 + mn[r * J + j] * A[j];
-        y_dc[r] = acc;
+    /* NQDC: the shared kernel (tools/nq2-dc-kernel.h) */
+    {
+        float *y_dcf = malloc((size_t)M * 4);
+        nqdc_build(C, (uint32_t)K, (uint32_t)B, x, (uint64_t)J, T, A);
+        nqdc_apply(idx, sc, mn, T, A, (uint32_t)K, (uint64_t)J,
+                   (uint64_t)M, y_dcf);
+        for (int r = 0; r < M; r++) y_dc[r] = y_dcf[r];
+        free(y_dcf);
     }
     Cmp c1 = compare(y_dc, y_or, M), c2 = compare(y_rec, y_or, M),
         c3 = compare(y_dc, y_rec, M);
@@ -228,6 +235,13 @@ static int shard_open(Shard *sh, const char *path)
 {
     sh->file = fopen(path, "rb");
     if (!sh->file) { fprintf(stderr, "cannot open %s\n", path); return -1; }
+    /* File size up front: every span below is validated
+     * against the data section before any read trusts it
+     * (DTC code review P1-4a, 2026-11-25). */
+    fseeko(sh->file, 0, SEEK_END);
+    off_t fsz = ftello(sh->file);
+    fseeko(sh->file, 0, SEEK_SET);
+    if (fsz < 0) { fprintf(stderr, "cannot size %s\n", path); return -1; }
     uint8_t lenbuf[8];
     if (fread(lenbuf, 1, 8, sh->file) != 8) return -1;
     uint64_t hlen = 0;
@@ -238,6 +252,14 @@ static int shard_open(Shard *sh, const char *path)
     if (fread(hdr, 1, hlen, sh->file) != hlen) { free(hdr); return -1; }
     hdr[hlen] = '\0';
     sh->data_start = 8 + hlen;
+    if ((uint64_t)fsz < sh->data_start) {
+        fprintf(stderr, "nq2-dc: reject: %s is %lld bytes, smaller "
+                "than its own header (%llu bytes)\n", path,
+                (long long)fsz, (unsigned long long)sh->data_start);
+        free(hdr);
+        return -1;
+    }
+    uint64_t data_len = (uint64_t)fsz - sh->data_start;
     int cap = 256;
     sh->tensors = (TensorInfo *)malloc(sizeof(TensorInfo) * cap);
     sh->n_tensors = 0;
@@ -286,12 +308,14 @@ static int shard_open(Shard *sh, const char *path)
         size_t sl = (size_t)(e - b - 1);
         if (sl >= sizeof(sbuf)) continue;
         memcpy(sbuf, b + 1, sl); sbuf[sl] = '\0';
+        int dims_bad = 0;
         if (*sbuf) {
             char *save = NULL;
             for (char *tok = strtok_r(sbuf, ",", &save); tok;
                  tok = strtok_r(NULL, ",", &save)) {
                 uint64_t d = strtoull(tok, NULL, 10);
-                count *= d;
+                if (d != 0 && count > UINT64_MAX / d) dims_bad = 1;
+                else count *= d;
                 if (ndims < 4) dims[ndims++] = d;
             }
         }
@@ -301,6 +325,28 @@ static int shard_open(Shard *sh, const char *path)
         const char *comma = strchr(ob, ',');
         if (!comma) continue;
         uint64_t end = strtoull(comma + 1, NULL, 10);
+        /* Span validation (P1-4a): the declared span must be
+         * exactly the dims-derived byte count, and it must lie
+         * inside the shard's data section. Before this check an
+         * in-file wrong offset was read as weights silently and
+         * the probe's "oracle" was wrong rather than refused. */
+        {
+            uint64_t esz = dtype == DT_F32 ? 4 : 2;
+            if (dims_bad || count > UINT64_MAX / esz
+                || end < begin || end - begin != count * esz
+                || end > data_len) {
+                fprintf(stderr, "nq2-dc: reject: tensor %s in %s: "
+                        "span [%llu, %llu) is not the shape-derived "
+                        "%llu bytes inside the %llu-byte data "
+                        "section\n", key, path,
+                        (unsigned long long)begin,
+                        (unsigned long long)end,
+                        (unsigned long long)(dims_bad ? 0 : count * esz),
+                        (unsigned long long)data_len);
+                free(hdr);
+                return -1;
+            }
+        }
         if (sh->n_tensors == cap) {
             cap *= 2;
             sh->tensors = (TensorInfo *)realloc(sh->tensors,
@@ -328,6 +374,10 @@ static void shard_free_meta(Shard *sh)
 static int tensor_read(Shard *sh, TensorInfo *t, float *dst)
 {
     uint64_t esz = t->dtype == DT_F32 ? 4 : 2;
+    /* Defense in depth: the span was validated at open; check
+     * it again at the read so no caller can bypass it. */
+    if (t->end < t->begin || t->end - t->begin != t->count * esz)
+        return -1;
     uint8_t *raw = (uint8_t *)malloc(t->count * esz);
     if (!raw) return -1;
     if (fseeko(sh->file, (off_t)(sh->data_start + t->begin), SEEK_SET) != 0)
@@ -431,6 +481,17 @@ int main(int argc, char **argv)
         return 1;
     }
     const float *book = (const float *)(bookf + 12);
+    /* Non-finite book values are a hard refusal (DTC code
+     * review P1-4b, 2026-11-25): a corrupted book must not
+     * yield printed NaN metrics and a success exit. */
+    for (uint64_t i = 0; i < (uint64_t)entries * block; i++) {
+        if (!isfinite(book[i])) {
+            fprintf(stderr, "nq2-dc: reject: book value %llu is "
+                    "not finite\n", (unsigned long long)i);
+            free(stream); free(bookf);
+            return 1;
+        }
+    }
     /* Every index byte must name a book entry (review follow-up:
      * the timed paths trust indices; validate them once here). */
     for (uint64_t b = 0; b < n_blocks; b++) {
@@ -556,6 +617,18 @@ int main(int argc, char **argv)
         mn[b] = half_to_float(rd16(mn_sec + 2 * (target_block0 + b)));
         sc[b] = half_to_float(rd16(sc_sec + 2 * (target_block0 + b)));
     }
+    /* Non-finite frame values are a hard refusal (P1-4b): the
+     * fp16 frame sections can encode inf and NaN, and a poisoned
+     * frame must stop the probe, not flow into the metrics. */
+    for (uint64_t b = 0; b < nb; b++) {
+        if (!isfinite(mn[b]) || !isfinite(sc[b])) {
+            fprintf(stderr, "nq2-dc: reject: frame for block %llu "
+                    "is not finite (scale %g, offset %g)\n",
+                    (unsigned long long)(target_block0 + b),
+                    (double)sc[b], (double)mn[b]);
+            return 1;
+        }
+    }
     float *x = (float *)malloc(N * 4);
     rng_state = 42;
     for (uint64_t i = 0; i < N; i++) x[i] = (float)randn();
@@ -646,28 +719,10 @@ int main(int argc, char **argv)
             y_fus[r] = acc;
         }
         t1 = now_ms(); if (t1 - t0 < t_fus) t_fus = t1 - t0;
-        t0 = now_ms();                        /* NQDC build */
-        for (uint64_t j = 0; j < J; j++) {
-            float a = 0;
-            for (uint32_t i = 0; i < block; i++) a += x[j * block + i];
-            A[j] = a;
-            for (uint32_t k = 0; k < entries; k++) {
-                float acc = 0;
-                const float *proto = book + (size_t)k * block;
-                for (uint32_t i = 0; i < block; i++)
-                    acc += proto[i] * x[j * block + i];
-                T[j * entries + k] = acc;
-            }
-        }
-        t1 = now_ms();                        /* NQDC apply */
-        for (uint64_t r = 0; r < M; r++) {
-            float acc = 0;
-            for (uint64_t j = 0; j < J; j++) {
-                uint64_t b = r * J + j;
-                acc += sc[b] * T[j * entries + idx[b]] + mn[b] * A[j];
-            }
-            y_dc[r] = acc;
-        }
+        t0 = now_ms();                        /* NQDC build (kernel) */
+        nqdc_build(book, entries, block, x, J, T, A);
+        t1 = now_ms();                        /* NQDC apply (kernel) */
+        nqdc_apply(idx, sc, mn, T, A, entries, J, M, y_dc);
         t2 = now_ms();
         if (t1 - t0 < t_dc_b) t_dc_b = t1 - t0;
         if (t2 - t1 < t_dc_a) t_dc_a = t2 - t1;
@@ -700,11 +755,8 @@ int main(int argc, char **argv)
                 int16_t *mp = slot_of + j * entries;
                 for (uint32_t k = 0; k < entries; k++) {
                     if (mp[k] < 0) continue;
-                    float acc = 0;
-                    const float *proto = book + (size_t)k * block;
-                    for (uint32_t i = 0; i < block; i++)
-                        acc += proto[i] * x[j * block + i];
-                    Tc[j * entries + mp[k]] = acc;
+                    Tc[j * entries + mp[k]] = nqdc_entry(book, block,
+                        x + (size_t)j * block, k);
                 }
             }
             double t2 = now_ms();
@@ -722,7 +774,10 @@ int main(int argc, char **argv)
             if (t1 - t0 < t_mask) t_mask = t1 - t0;
             if (t2 - t1 < t_ab) t_ab = t2 - t1;
             if (t3 - t2 < t_aa) t_aa = t3 - t2;
-            /* lazy: build each entry on first touch during apply */
+            /* lazy: build each entry on first touch during apply;
+             * the entry itself comes from the shared kernel, so
+             * a lazily built table is bit-identical to the eager
+             * one by construction, not by parallel code. */
             memset(built, 0, J * entries);
             t0 = now_ms();
             for (uint64_t r = 0; r < M; r++) {
@@ -731,11 +786,8 @@ int main(int argc, char **argv)
                     uint64_t b = r * J + j;
                     uint32_t k = idx[b];
                     if (!built[j * entries + k]) {
-                        float a2 = 0;
-                        const float *proto = book + (size_t)k * block;
-                        for (uint32_t i = 0; i < block; i++)
-                            a2 += proto[i] * x[j * block + i];
-                        Tl[j * entries + k] = a2;
+                        Tl[j * entries + k] = nqdc_entry(book, block,
+                            x + (size_t)j * block, k);
                         built[j * entries + k] = 1;
                     }
                     acc += sc[b] * Tl[j * entries + k] + mn[b] * A[j];
