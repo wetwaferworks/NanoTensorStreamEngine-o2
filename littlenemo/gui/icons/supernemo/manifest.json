@@ -1,0 +1,86 @@
+{
+  "name": "SuperNemo placeholder",
+  "author": "NTSE placeholders (CloudAtlas will replace)",
+  "note": "A purple thinking blob with an orange outline. Replace these PNGs in place; keep manifest.json's frame indices if you keep the same number of frames.",
+  "sizes": [
+    32,
+    64
+  ],
+  "fps": 8,
+  "format": "strip",
+  "layout": "horizontal",
+  "strip": {
+    "32": "strip-32.png",
+    "64": "strip-64.png"
+  },
+  "frames": {
+    "32": "frames-32",
+    "64": "frames-64"
+  },
+  "states": {
+    "idle": {
+      "frames": [
+        0
+      ],
+      "fps": 1,
+      "loop": true
+    },
+    "thinking": {
+      "frames": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "fps": 8,
+      "loop": true,
+      "motion": "bob"
+    },
+    "streaming": {
+      "frames": [
+        3,
+        4,
+        5
+      ],
+      "fps": 10,
+      "loop": true,
+      "motion": "wobble"
+    },
+    "expanding": {
+      "frames": [
+        4,
+        5,
+        1,
+        2
+      ],
+      "fps": 8,
+      "loop": true,
+      "motion": "spin"
+    },
+    "dtc": {
+      "frames": [
+        5,
+        4,
+        2,
+        1
+      ],
+      "fps": 8,
+      "loop": true,
+      "motion": "pulse"
+    },
+    "error": {
+      "frames": [
+        6
+      ],
+      "fps": 1,
+      "loop": false
+    },
+    "done": {
+      "frames": [
+        7
+      ],
+      "fps": 1,
+      "loop": false
+    }
+  }
+}

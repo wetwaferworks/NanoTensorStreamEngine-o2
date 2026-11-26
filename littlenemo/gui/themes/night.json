@@ -1,0 +1,48 @@
+{
+  "id": "night",
+  "name": "Night",
+  "author": "NTSE",
+  "version": 1,
+  "palette": {
+    "bg": "#0E0E10",
+    "sidebar": "#151517",
+    "panel": "#141416",
+    "surface": "#1D1D21",
+    "raised": "#26262B",
+    "border": "#2E2E34",
+    "select": "#2A2438",
+    "fg": "#ECECF1",
+    "fg2": "#C9C9D1",
+    "dim": "#8E8E98",
+    "faint": "#5F5F69",
+    "accent": "#A970FF",
+    "accent2": "#FF9B42",
+    "think": "#C4A6FF",
+    "think_hot": "#E8DEFF",
+    "ok": "#4ADE80",
+    "warn": "#F5B041",
+    "warn_bg": "#2B2210",
+    "error": "#FF7A7A",
+    "user_bubble": "#2A2438",
+    "assistant_fg": "#ECECF1",
+    "icon_fill": "#A970FF",
+    "icon_outline": "#FF9B42"
+  },
+  "fonts": {
+    "family": "Segoe UI",
+    "mono": "Cascadia Mono",
+    "body": 11,
+    "small": 9,
+    "title": 13,
+    "hero": 20
+  },
+  "spacing": {
+    "sidebar_width": 236,
+    "stats_width": 372,
+    "pad": 16,
+    "composer_pad": 40,
+    "icon": 32,
+    "icon_lg": 64
+  },
+  "icons": "default"
+}
