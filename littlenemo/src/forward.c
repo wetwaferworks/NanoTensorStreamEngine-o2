@@ -533,3 +533,117 @@ int nemo_model_step(nemo_model *m, int token, float *logits_out) {
     free(lm);
     return 0;
 }
+
+/* ---- layer-major prefill (see forward.h) ---- */
+
+int nemo_model_head(nemo_model *m, const float *hidden, float *logits_out) {
+    float *nw = get_f32(m, "backbone.norm_f.weight");
+    uint16_t *lm = get_bf16(m, "lm_head.weight");
+    if (!nw || !lm) {
+        free(nw);
+        free(lm);
+        return -1;
+    }
+    float normed[NEMO_HIDDEN];
+    nemo_rmsnorm(hidden, nw, normed, NEMO_HIDDEN, EPS);
+    free(nw);
+    linear_par(m, lm, normed, logits_out, NEMO_VOCAB, NEMO_HIDDEN);
+    free(lm);
+    return 0;
+}
+
+int nemo_model_prefill(nemo_model *m, const int *tokens, int n,
+                       float *hidden_out) {
+    if (n < 1 || n > NEMO_PREFILL_CHUNK || !tokens) return -1;
+    for (int i = 0; i < n; i++)
+        if (tokens[i] < 0 || tokens[i] >= NEMO_VOCAB) return -1;
+    if (!m->state_valid) return -2;
+    if (validate_set(m->cp, m->layer_limit, 0, NULL, 0, NULL) != 0)
+        return -1;
+    if (m->n_pos + n > m->max_pos) return -1;
+    const nemo_tensor_info *emb =
+        nemo_find(m->cp, "backbone.embeddings.weight");
+    if (!emb) return -1;
+    float *X = (float *)malloc((size_t)n * NEMO_HIDDEN * sizeof(float));
+    uint16_t *row = (uint16_t *)malloc(NEMO_HIDDEN * sizeof(uint16_t));
+    if (!X || !row) {
+        free(X);
+        free(row);
+        return -1;
+    }
+    FILE *f = fopen(emb->shard_path, "rb");
+    if (!f) {
+        free(X);
+        free(row);
+        return -1;
+    }
+    int ok = 1;
+    for (int t = 0; t < n && ok; t++) {
+        uint64_t off = emb->data_off +
+                       (uint64_t)tokens[t] * NEMO_HIDDEN * sizeof(uint16_t);
+        ok = fseeko(f, (off_t)off, SEEK_SET) == 0 &&
+             fread(row, sizeof(uint16_t), NEMO_HIDDEN, f) == NEMO_HIDDEN;
+        if (ok)
+            for (int i = 0; i < NEMO_HIDDEN; i++)
+                X[(size_t)t * NEMO_HIDDEN + i] = nemo_bf16_to_f32(row[i]);
+    }
+    fclose(f);
+    free(row);
+    if (!ok) {
+        free(X);
+        return -1;
+    }
+
+    layer_ws slots[2];
+    memset(slots, 0, sizeof slots);
+    slots[0].rc = -1;
+    slots[1].rc = -1;
+    prep_ticket ticket;
+    ticket.m = m;
+    ticket.layer = 0;
+    ticket.ws = &slots[0];
+    nemo_pool_prep(&m->pool, prepare_job, &ticket);
+    int cur = 0;
+    for (int layer = 0; layer < m->layer_limit; layer++) {
+        nemo_pool_prep_wait(&m->pool);
+        if (slots[cur].rc != 0) {
+            m->state_valid = 0;
+            ws_free(&slots[0]);
+            ws_free(&slots[1]);
+            free(X);
+            return -1;
+        }
+        if (layer + 1 < m->layer_limit) {
+            ticket.layer = layer + 1;
+            ticket.ws = &slots[cur ^ 1];
+            nemo_pool_prep(&m->pool, prepare_job, &ticket);
+        }
+        char t = nemo_layer_type(layer);
+        if (m->on_layer) m->on_layer(m->on_layer_user, layer, t);
+        for (int k = 0; k < n; k++) {
+            float *xk = X + (size_t)k * NEMO_HIDDEN;
+            memcpy(m->x, xk, NEMO_HIDDEN * sizeof(float));
+            nemo_rmsnorm(m->x, slots[cur].norm_w, m->h, NEMO_HIDDEN, EPS);
+            int rc = t == 'M'   ? run_mamba(m, layer, &slots[cur])
+                     : t == '*' ? run_attn(m, layer, &slots[cur])
+                                : run_mlp(m, &slots[cur]);
+            if (rc != 0) {
+                nemo_pool_prep_wait(&m->pool);
+                m->state_valid = 0;
+                ws_free(&slots[0]);
+                ws_free(&slots[1]);
+                free(X);
+                return -1;
+            }
+            for (int i = 0; i < NEMO_HIDDEN; i++) m->x[i] += m->y[i];
+            memcpy(xk, m->x, NEMO_HIDDEN * sizeof(float));
+        }
+        ws_free(&slots[cur]);
+        cur ^= 1;
+    }
+    memcpy(hidden_out, X + (size_t)(n - 1) * NEMO_HIDDEN,
+           NEMO_HIDDEN * sizeof(float));
+    m->n_pos += n;
+    free(X);
+    return 0;
+}

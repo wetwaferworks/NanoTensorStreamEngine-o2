@@ -1,0 +1,105 @@
+{
+  "schema": "ntse-mascot/1",
+  "id": "lattice-cube",
+  "name": "Lattice Cube",
+  "theme": "lattice",
+  "default": false,
+  "author": "CloudAtlas \u00b7 Technical Art Director",
+  "sizes": [
+    32,
+    64
+  ],
+  "frame_size": {
+    "32": [
+      32,
+      32
+    ],
+    "64": [
+      64,
+      64
+    ]
+  },
+  "layout": "horizontal-strip",
+  "scaling": "nearest-integer",
+  "color": "RGBA, transparent background",
+  "states": {
+    "idle": {
+      "frames": 8,
+      "fps": 6,
+      "motion": "bob",
+      "loop": true,
+      "strip": {
+        "32": "idle-32.png",
+        "64": "idle-64.png"
+      },
+      "description": "slow float with a blink"
+    },
+    "thinking": {
+      "frames": 8,
+      "fps": 10,
+      "motion": "wobble",
+      "loop": true,
+      "strip": {
+        "32": "thinking-32.png",
+        "64": "thinking-64.png"
+      },
+      "description": "side-to-side tilt, eyes up, thought dots rise"
+    },
+    "streaming": {
+      "frames": 8,
+      "fps": 14,
+      "motion": "bob",
+      "loop": true,
+      "strip": {
+        "32": "streaming-32.png",
+        "64": "streaming-64.png"
+      },
+      "description": "quick forward bob while bit packets stream out behind"
+    },
+    "expanding": {
+      "frames": 8,
+      "fps": 10,
+      "motion": "pulse",
+      "loop": true,
+      "strip": {
+        "32": "expanding-32.png",
+        "64": "expanding-64.png"
+      },
+      "description": "swells outward with a growing ring"
+    },
+    "dtc": {
+      "frames": 12,
+      "fps": 16,
+      "motion": "spin",
+      "loop": true,
+      "strip": {
+        "32": "dtc-32.png",
+        "64": "dtc-64.png"
+      },
+      "description": "full spin on its vertical axis while tensor blocks fire in the corners"
+    },
+    "error": {
+      "frames": 8,
+      "fps": 12,
+      "motion": "wobble",
+      "loop": true,
+      "strip": {
+        "32": "error-32.png",
+        "64": "error-64.png"
+      },
+      "description": "shake, red flash, X eyes and a \"!\""
+    },
+    "done": {
+      "frames": 10,
+      "fps": 12,
+      "motion": "flip",
+      "loop": false,
+      "strip": {
+        "32": "done-32.png",
+        "64": "done-64.png"
+      },
+      "description": "happy hop with a flip at the top and a sparkle landing (plays once, holds last frame)"
+    }
+  },
+  "fallback_state": "idle"
+}

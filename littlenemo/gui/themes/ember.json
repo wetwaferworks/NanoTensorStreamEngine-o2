@@ -1,0 +1,48 @@
+{
+  "id": "ember",
+  "name": "Ember",
+  "author": "NTSE",
+  "version": 1,
+  "palette": {
+    "bg": "#140E0C",
+    "sidebar": "#1B1410",
+    "panel": "#1A1210",
+    "surface": "#241A16",
+    "raised": "#2E221C",
+    "border": "#3A2C24",
+    "select": "#3A2418",
+    "fg": "#F6EDE4",
+    "fg2": "#E2D0C0",
+    "dim": "#A89080",
+    "faint": "#6E584C",
+    "accent": "#FF9B42",
+    "accent2": "#A970FF",
+    "think": "#FFD0A8",
+    "think_hot": "#FFE8D0",
+    "ok": "#86D98A",
+    "warn": "#F5B041",
+    "warn_bg": "#2B1C10",
+    "error": "#FF8A7A",
+    "user_bubble": "#3A2418",
+    "assistant_fg": "#F6EDE4",
+    "icon_fill": "#FF9B42",
+    "icon_outline": "#A970FF"
+  },
+  "fonts": {
+    "family": "Segoe UI",
+    "mono": "Cascadia Mono",
+    "body": 11,
+    "small": 9,
+    "title": 13,
+    "hero": 20
+  },
+  "spacing": {
+    "sidebar_width": 236,
+    "stats_width": 372,
+    "pad": 16,
+    "composer_pad": 40,
+    "icon": 32,
+    "icon_lg": 64
+  },
+  "icons": "default"
+}

@@ -1,0 +1,916 @@
+{
+  "app": "NTSE - Nano Tensor Streaming Engine",
+  "version": "themes-v1",
+  "date": "2026-11-26",
+  "default_theme": "pixel",
+  "status_colors": {
+    "ready": "#4ADE80",
+    "thinking": "#A970FF",
+    "generating": "#FF9A3C",
+    "expanding": "#38BDF8",
+    "dense compute": "#FFE066",
+    "error": "#FF5C6C"
+  },
+  "themes": [
+    {
+      "id": "pixel",
+      "order": 5,
+      "name": "Pixel Nemo",
+      "subtitle": "Retro Pixel",
+      "description": "A 16x16 sprite clownfish (Nemo!) in purple and orange stripes: chunky, retro, crisp at every size.",
+      "default": true,
+      "folder": "themes/5-pixel-nemo/",
+      "colors": {
+        "bg": "#140A24",
+        "panel": "#1E1036",
+        "panel2": "#2A1A4A",
+        "line": "#5B3FA0",
+        "text": "#FFF4E0",
+        "muted": "#B9A6E0",
+        "p": "#A970FF",
+        "p2": "#D9BFFF",
+        "o": "#FF9A3C"
+      },
+      "fonts": {
+        "ui": "vt",
+        "heading": "press"
+      },
+      "corner_radius": 0,
+      "status_dot_shape": "pixel-circle",
+      "assets": {
+        "ico": "themes/5-pixel-nemo/icon/ntse.ico",
+        "icon_png": {
+          "16": "themes/5-pixel-nemo/icon/icon-16.png",
+          "24": "themes/5-pixel-nemo/icon/icon-24.png",
+          "32": "themes/5-pixel-nemo/icon/icon-32.png",
+          "48": "themes/5-pixel-nemo/icon/icon-48.png",
+          "64": "themes/5-pixel-nemo/icon/icon-64.png",
+          "128": "themes/5-pixel-nemo/icon/icon-128.png",
+          "256": "themes/5-pixel-nemo/icon/icon-256.png",
+          "512": "themes/5-pixel-nemo/icon/icon-512.png"
+        },
+        "tray": {
+          "16": "themes/5-pixel-nemo/tray/tray-16.png",
+          "32": "themes/5-pixel-nemo/tray/tray-32.png"
+        },
+        "banner": "themes/5-pixel-nemo/banner/banner-1200x300.png",
+        "buttons": {
+          "send": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/send-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/send-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/send-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/send-48.png"
+            }
+          },
+          "stop": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/stop-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/stop-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/stop-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/stop-48.png"
+            }
+          },
+          "attach-image": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/attach-image-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/attach-image-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/attach-image-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/attach-image-48.png"
+            }
+          },
+          "attach-video": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/attach-video-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/attach-video-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/attach-video-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/attach-video-48.png"
+            }
+          },
+          "attach-file": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/attach-file-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/attach-file-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/attach-file-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/attach-file-48.png"
+            }
+          },
+          "new-chat": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/new-chat-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/new-chat-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/new-chat-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/new-chat-48.png"
+            }
+          },
+          "settings": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/settings-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/settings-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/settings-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/settings-48.png"
+            }
+          },
+          "model-switch": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/model-switch-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/model-switch-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/model-switch-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/model-switch-48.png"
+            }
+          },
+          "copy": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/copy-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/copy-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/copy-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/copy-48.png"
+            }
+          },
+          "clear": {
+            "plated": {
+              "24": "themes/5-pixel-nemo/buttons/plated/clear-24.png",
+              "48": "themes/5-pixel-nemo/buttons/plated/clear-48.png"
+            },
+            "glyph": {
+              "24": "themes/5-pixel-nemo/buttons/glyph/clear-24.png",
+              "48": "themes/5-pixel-nemo/buttons/glyph/clear-48.png"
+            }
+          }
+        },
+        "thinking_strip": {
+          "path": "themes/5-pixel-nemo/thinking/thinking-strip-16x16x12.png",
+          "frame_w": 16,
+          "frame_h": 16,
+          "frames": 12,
+          "suggested_ms_per_frame": 80
+        },
+        "status": {
+          "ready": {
+            "16": "themes/5-pixel-nemo/status/ready-16.png",
+            "32": "themes/5-pixel-nemo/status/ready-32.png"
+          },
+          "thinking": {
+            "16": "themes/5-pixel-nemo/status/thinking-16.png",
+            "32": "themes/5-pixel-nemo/status/thinking-32.png"
+          },
+          "generating": {
+            "16": "themes/5-pixel-nemo/status/generating-16.png",
+            "32": "themes/5-pixel-nemo/status/generating-32.png"
+          },
+          "expanding": {
+            "16": "themes/5-pixel-nemo/status/expanding-16.png",
+            "32": "themes/5-pixel-nemo/status/expanding-32.png"
+          },
+          "dense compute": {
+            "16": "themes/5-pixel-nemo/status/dense-compute-16.png",
+            "32": "themes/5-pixel-nemo/status/dense-compute-32.png"
+          },
+          "error": {
+            "16": "themes/5-pixel-nemo/status/error-16.png",
+            "32": "themes/5-pixel-nemo/status/error-32.png"
+          }
+        },
+        "background_tile": "themes/5-pixel-nemo/tile/bg-tile-64x64.png"
+      }
+    },
+    {
+      "id": "lattice",
+      "order": 1,
+      "name": "Lattice",
+      "subtitle": "Tensor Crystal",
+      "description": "A faceted tensor-crystal cube on a deep violet base: sharp, geometric, chamfered edges.",
+      "default": false,
+      "folder": "themes/1-lattice/",
+      "colors": {
+        "bg": "#0D0A18",
+        "panel": "#151028",
+        "panel2": "#1D1636",
+        "line": "#3A2D63",
+        "text": "#EFE9FB",
+        "muted": "#A79BC7",
+        "p": "#A970FF",
+        "p2": "#D9BFFF",
+        "o": "#FF9A3C"
+      },
+      "fonts": {
+        "ui": "chakra",
+        "heading": "chakra"
+      },
+      "corner_radius": 4,
+      "status_dot_shape": "hexagon",
+      "assets": {
+        "ico": "themes/1-lattice/icon/ntse.ico",
+        "icon_png": {
+          "16": "themes/1-lattice/icon/icon-16.png",
+          "24": "themes/1-lattice/icon/icon-24.png",
+          "32": "themes/1-lattice/icon/icon-32.png",
+          "48": "themes/1-lattice/icon/icon-48.png",
+          "64": "themes/1-lattice/icon/icon-64.png",
+          "128": "themes/1-lattice/icon/icon-128.png",
+          "256": "themes/1-lattice/icon/icon-256.png",
+          "512": "themes/1-lattice/icon/icon-512.png"
+        },
+        "tray": {
+          "16": "themes/1-lattice/tray/tray-16.png",
+          "32": "themes/1-lattice/tray/tray-32.png"
+        },
+        "banner": "themes/1-lattice/banner/banner-1200x300.png",
+        "buttons": {
+          "send": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/send-24.png",
+              "48": "themes/1-lattice/buttons/plated/send-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/send-24.png",
+              "48": "themes/1-lattice/buttons/glyph/send-48.png"
+            }
+          },
+          "stop": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/stop-24.png",
+              "48": "themes/1-lattice/buttons/plated/stop-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/stop-24.png",
+              "48": "themes/1-lattice/buttons/glyph/stop-48.png"
+            }
+          },
+          "attach-image": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/attach-image-24.png",
+              "48": "themes/1-lattice/buttons/plated/attach-image-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/attach-image-24.png",
+              "48": "themes/1-lattice/buttons/glyph/attach-image-48.png"
+            }
+          },
+          "attach-video": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/attach-video-24.png",
+              "48": "themes/1-lattice/buttons/plated/attach-video-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/attach-video-24.png",
+              "48": "themes/1-lattice/buttons/glyph/attach-video-48.png"
+            }
+          },
+          "attach-file": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/attach-file-24.png",
+              "48": "themes/1-lattice/buttons/plated/attach-file-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/attach-file-24.png",
+              "48": "themes/1-lattice/buttons/glyph/attach-file-48.png"
+            }
+          },
+          "new-chat": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/new-chat-24.png",
+              "48": "themes/1-lattice/buttons/plated/new-chat-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/new-chat-24.png",
+              "48": "themes/1-lattice/buttons/glyph/new-chat-48.png"
+            }
+          },
+          "settings": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/settings-24.png",
+              "48": "themes/1-lattice/buttons/plated/settings-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/settings-24.png",
+              "48": "themes/1-lattice/buttons/glyph/settings-48.png"
+            }
+          },
+          "model-switch": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/model-switch-24.png",
+              "48": "themes/1-lattice/buttons/plated/model-switch-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/model-switch-24.png",
+              "48": "themes/1-lattice/buttons/glyph/model-switch-48.png"
+            }
+          },
+          "copy": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/copy-24.png",
+              "48": "themes/1-lattice/buttons/plated/copy-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/copy-24.png",
+              "48": "themes/1-lattice/buttons/glyph/copy-48.png"
+            }
+          },
+          "clear": {
+            "plated": {
+              "24": "themes/1-lattice/buttons/plated/clear-24.png",
+              "48": "themes/1-lattice/buttons/plated/clear-48.png"
+            },
+            "glyph": {
+              "24": "themes/1-lattice/buttons/glyph/clear-24.png",
+              "48": "themes/1-lattice/buttons/glyph/clear-48.png"
+            }
+          }
+        },
+        "thinking_strip": {
+          "path": "themes/1-lattice/thinking/thinking-strip-16x16x12.png",
+          "frame_w": 16,
+          "frame_h": 16,
+          "frames": 12,
+          "suggested_ms_per_frame": 80
+        },
+        "status": {
+          "ready": {
+            "16": "themes/1-lattice/status/ready-16.png",
+            "32": "themes/1-lattice/status/ready-32.png"
+          },
+          "thinking": {
+            "16": "themes/1-lattice/status/thinking-16.png",
+            "32": "themes/1-lattice/status/thinking-32.png"
+          },
+          "generating": {
+            "16": "themes/1-lattice/status/generating-16.png",
+            "32": "themes/1-lattice/status/generating-32.png"
+          },
+          "expanding": {
+            "16": "themes/1-lattice/status/expanding-16.png",
+            "32": "themes/1-lattice/status/expanding-32.png"
+          },
+          "dense compute": {
+            "16": "themes/1-lattice/status/dense-compute-16.png",
+            "32": "themes/1-lattice/status/dense-compute-32.png"
+          },
+          "error": {
+            "16": "themes/1-lattice/status/error-16.png",
+            "32": "themes/1-lattice/status/error-32.png"
+          }
+        },
+        "background_tile": "themes/1-lattice/tile/bg-tile-128x64.png"
+      }
+    },
+    {
+      "id": "stream",
+      "order": 2,
+      "name": "Stream",
+      "subtitle": "Bitstream",
+      "description": "Packed bits flowing as a waveform: stacked squares that rise and fall, purple to orange, on midnight navy.",
+      "default": false,
+      "folder": "themes/2-stream/",
+      "colors": {
+        "bg": "#080E1E",
+        "panel": "#0F1830",
+        "panel2": "#16224A",
+        "line": "#2B3B73",
+        "text": "#E9EEFC",
+        "muted": "#9FB0D8",
+        "p": "#A970FF",
+        "p2": "#D9BFFF",
+        "o": "#FF9A3C"
+      },
+      "fonts": {
+        "ui": "inter",
+        "heading": "space"
+      },
+      "corner_radius": 16,
+      "status_dot_shape": "rounded-square",
+      "assets": {
+        "ico": "themes/2-stream/icon/ntse.ico",
+        "icon_png": {
+          "16": "themes/2-stream/icon/icon-16.png",
+          "24": "themes/2-stream/icon/icon-24.png",
+          "32": "themes/2-stream/icon/icon-32.png",
+          "48": "themes/2-stream/icon/icon-48.png",
+          "64": "themes/2-stream/icon/icon-64.png",
+          "128": "themes/2-stream/icon/icon-128.png",
+          "256": "themes/2-stream/icon/icon-256.png",
+          "512": "themes/2-stream/icon/icon-512.png"
+        },
+        "tray": {
+          "16": "themes/2-stream/tray/tray-16.png",
+          "32": "themes/2-stream/tray/tray-32.png"
+        },
+        "banner": "themes/2-stream/banner/banner-1200x300.png",
+        "buttons": {
+          "send": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/send-24.png",
+              "48": "themes/2-stream/buttons/plated/send-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/send-24.png",
+              "48": "themes/2-stream/buttons/glyph/send-48.png"
+            }
+          },
+          "stop": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/stop-24.png",
+              "48": "themes/2-stream/buttons/plated/stop-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/stop-24.png",
+              "48": "themes/2-stream/buttons/glyph/stop-48.png"
+            }
+          },
+          "attach-image": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/attach-image-24.png",
+              "48": "themes/2-stream/buttons/plated/attach-image-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/attach-image-24.png",
+              "48": "themes/2-stream/buttons/glyph/attach-image-48.png"
+            }
+          },
+          "attach-video": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/attach-video-24.png",
+              "48": "themes/2-stream/buttons/plated/attach-video-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/attach-video-24.png",
+              "48": "themes/2-stream/buttons/glyph/attach-video-48.png"
+            }
+          },
+          "attach-file": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/attach-file-24.png",
+              "48": "themes/2-stream/buttons/plated/attach-file-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/attach-file-24.png",
+              "48": "themes/2-stream/buttons/glyph/attach-file-48.png"
+            }
+          },
+          "new-chat": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/new-chat-24.png",
+              "48": "themes/2-stream/buttons/plated/new-chat-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/new-chat-24.png",
+              "48": "themes/2-stream/buttons/glyph/new-chat-48.png"
+            }
+          },
+          "settings": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/settings-24.png",
+              "48": "themes/2-stream/buttons/plated/settings-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/settings-24.png",
+              "48": "themes/2-stream/buttons/glyph/settings-48.png"
+            }
+          },
+          "model-switch": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/model-switch-24.png",
+              "48": "themes/2-stream/buttons/plated/model-switch-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/model-switch-24.png",
+              "48": "themes/2-stream/buttons/glyph/model-switch-48.png"
+            }
+          },
+          "copy": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/copy-24.png",
+              "48": "themes/2-stream/buttons/plated/copy-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/copy-24.png",
+              "48": "themes/2-stream/buttons/glyph/copy-48.png"
+            }
+          },
+          "clear": {
+            "plated": {
+              "24": "themes/2-stream/buttons/plated/clear-24.png",
+              "48": "themes/2-stream/buttons/plated/clear-48.png"
+            },
+            "glyph": {
+              "24": "themes/2-stream/buttons/glyph/clear-24.png",
+              "48": "themes/2-stream/buttons/glyph/clear-48.png"
+            }
+          }
+        },
+        "thinking_strip": {
+          "path": "themes/2-stream/thinking/thinking-strip-16x16x12.png",
+          "frame_w": 16,
+          "frame_h": 16,
+          "frames": 12,
+          "suggested_ms_per_frame": 80
+        },
+        "status": {
+          "ready": {
+            "16": "themes/2-stream/status/ready-16.png",
+            "32": "themes/2-stream/status/ready-32.png"
+          },
+          "thinking": {
+            "16": "themes/2-stream/status/thinking-16.png",
+            "32": "themes/2-stream/status/thinking-32.png"
+          },
+          "generating": {
+            "16": "themes/2-stream/status/generating-16.png",
+            "32": "themes/2-stream/status/generating-32.png"
+          },
+          "expanding": {
+            "16": "themes/2-stream/status/expanding-16.png",
+            "32": "themes/2-stream/status/expanding-32.png"
+          },
+          "dense compute": {
+            "16": "themes/2-stream/status/dense-compute-16.png",
+            "32": "themes/2-stream/status/dense-compute-32.png"
+          },
+          "error": {
+            "16": "themes/2-stream/status/error-16.png",
+            "32": "themes/2-stream/status/error-32.png"
+          }
+        },
+        "background_tile": "themes/2-stream/tile/bg-tile-128x128.png"
+      }
+    },
+    {
+      "id": "handshake",
+      "order": 3,
+      "name": "o.O Handshake",
+      "subtitle": "HandshakeOS nod",
+      "description": "A small o, a dot and a big O: the HandshakeOS o.O mark as two nodes shaking hands over a circuit bus.",
+      "default": false,
+      "folder": "themes/3-handshake-oO/",
+      "colors": {
+        "bg": "#09090B",
+        "panel": "#121215",
+        "panel2": "#1A1A1F",
+        "line": "#34343C",
+        "text": "#F2F2F5",
+        "muted": "#A3A3AE",
+        "p": "#A970FF",
+        "p2": "#D9BFFF",
+        "o": "#FF9A3C"
+      },
+      "fonts": {
+        "ui": "jb",
+        "heading": "jb"
+      },
+      "corner_radius": 10,
+      "status_dot_shape": "circle",
+      "assets": {
+        "ico": "themes/3-handshake-oO/icon/ntse.ico",
+        "icon_png": {
+          "16": "themes/3-handshake-oO/icon/icon-16.png",
+          "24": "themes/3-handshake-oO/icon/icon-24.png",
+          "32": "themes/3-handshake-oO/icon/icon-32.png",
+          "48": "themes/3-handshake-oO/icon/icon-48.png",
+          "64": "themes/3-handshake-oO/icon/icon-64.png",
+          "128": "themes/3-handshake-oO/icon/icon-128.png",
+          "256": "themes/3-handshake-oO/icon/icon-256.png",
+          "512": "themes/3-handshake-oO/icon/icon-512.png"
+        },
+        "tray": {
+          "16": "themes/3-handshake-oO/tray/tray-16.png",
+          "32": "themes/3-handshake-oO/tray/tray-32.png"
+        },
+        "banner": "themes/3-handshake-oO/banner/banner-1200x300.png",
+        "buttons": {
+          "send": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/send-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/send-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/send-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/send-48.png"
+            }
+          },
+          "stop": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/stop-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/stop-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/stop-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/stop-48.png"
+            }
+          },
+          "attach-image": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/attach-image-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/attach-image-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/attach-image-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/attach-image-48.png"
+            }
+          },
+          "attach-video": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/attach-video-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/attach-video-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/attach-video-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/attach-video-48.png"
+            }
+          },
+          "attach-file": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/attach-file-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/attach-file-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/attach-file-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/attach-file-48.png"
+            }
+          },
+          "new-chat": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/new-chat-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/new-chat-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/new-chat-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/new-chat-48.png"
+            }
+          },
+          "settings": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/settings-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/settings-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/settings-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/settings-48.png"
+            }
+          },
+          "model-switch": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/model-switch-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/model-switch-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/model-switch-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/model-switch-48.png"
+            }
+          },
+          "copy": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/copy-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/copy-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/copy-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/copy-48.png"
+            }
+          },
+          "clear": {
+            "plated": {
+              "24": "themes/3-handshake-oO/buttons/plated/clear-24.png",
+              "48": "themes/3-handshake-oO/buttons/plated/clear-48.png"
+            },
+            "glyph": {
+              "24": "themes/3-handshake-oO/buttons/glyph/clear-24.png",
+              "48": "themes/3-handshake-oO/buttons/glyph/clear-48.png"
+            }
+          }
+        },
+        "thinking_strip": {
+          "path": "themes/3-handshake-oO/thinking/thinking-strip-16x16x12.png",
+          "frame_w": 16,
+          "frame_h": 16,
+          "frames": 12,
+          "suggested_ms_per_frame": 80
+        },
+        "status": {
+          "ready": {
+            "16": "themes/3-handshake-oO/status/ready-16.png",
+            "32": "themes/3-handshake-oO/status/ready-32.png"
+          },
+          "thinking": {
+            "16": "themes/3-handshake-oO/status/thinking-16.png",
+            "32": "themes/3-handshake-oO/status/thinking-32.png"
+          },
+          "generating": {
+            "16": "themes/3-handshake-oO/status/generating-16.png",
+            "32": "themes/3-handshake-oO/status/generating-32.png"
+          },
+          "expanding": {
+            "16": "themes/3-handshake-oO/status/expanding-16.png",
+            "32": "themes/3-handshake-oO/status/expanding-32.png"
+          },
+          "dense compute": {
+            "16": "themes/3-handshake-oO/status/dense-compute-16.png",
+            "32": "themes/3-handshake-oO/status/dense-compute-32.png"
+          },
+          "error": {
+            "16": "themes/3-handshake-oO/status/error-16.png",
+            "32": "themes/3-handshake-oO/status/error-32.png"
+          }
+        },
+        "background_tile": "themes/3-handshake-oO/tile/bg-tile-128x128.png"
+      }
+    },
+    {
+      "id": "owl",
+      "order": 4,
+      "name": "Sage Owl",
+      "subtitle": "Owl of the Nemo",
+      "description": "A geometric sage owl with one purple and one orange eye, on plum with warm parchment text.",
+      "default": false,
+      "folder": "themes/4-sage-owl/",
+      "colors": {
+        "bg": "#110C1C",
+        "panel": "#1A1328",
+        "panel2": "#241A38",
+        "line": "#44335F",
+        "text": "#F3EBDD",
+        "muted": "#B8A9C9",
+        "p": "#A970FF",
+        "p2": "#D9BFFF",
+        "o": "#FF9A3C"
+      },
+      "fonts": {
+        "ui": "exo2",
+        "heading": "exo2"
+      },
+      "corner_radius": 12,
+      "status_dot_shape": "diamond",
+      "assets": {
+        "ico": "themes/4-sage-owl/icon/ntse.ico",
+        "icon_png": {
+          "16": "themes/4-sage-owl/icon/icon-16.png",
+          "24": "themes/4-sage-owl/icon/icon-24.png",
+          "32": "themes/4-sage-owl/icon/icon-32.png",
+          "48": "themes/4-sage-owl/icon/icon-48.png",
+          "64": "themes/4-sage-owl/icon/icon-64.png",
+          "128": "themes/4-sage-owl/icon/icon-128.png",
+          "256": "themes/4-sage-owl/icon/icon-256.png",
+          "512": "themes/4-sage-owl/icon/icon-512.png"
+        },
+        "tray": {
+          "16": "themes/4-sage-owl/tray/tray-16.png",
+          "32": "themes/4-sage-owl/tray/tray-32.png"
+        },
+        "banner": "themes/4-sage-owl/banner/banner-1200x300.png",
+        "buttons": {
+          "send": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/send-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/send-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/send-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/send-48.png"
+            }
+          },
+          "stop": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/stop-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/stop-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/stop-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/stop-48.png"
+            }
+          },
+          "attach-image": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/attach-image-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/attach-image-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/attach-image-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/attach-image-48.png"
+            }
+          },
+          "attach-video": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/attach-video-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/attach-video-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/attach-video-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/attach-video-48.png"
+            }
+          },
+          "attach-file": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/attach-file-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/attach-file-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/attach-file-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/attach-file-48.png"
+            }
+          },
+          "new-chat": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/new-chat-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/new-chat-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/new-chat-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/new-chat-48.png"
+            }
+          },
+          "settings": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/settings-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/settings-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/settings-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/settings-48.png"
+            }
+          },
+          "model-switch": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/model-switch-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/model-switch-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/model-switch-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/model-switch-48.png"
+            }
+          },
+          "copy": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/copy-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/copy-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/copy-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/copy-48.png"
+            }
+          },
+          "clear": {
+            "plated": {
+              "24": "themes/4-sage-owl/buttons/plated/clear-24.png",
+              "48": "themes/4-sage-owl/buttons/plated/clear-48.png"
+            },
+            "glyph": {
+              "24": "themes/4-sage-owl/buttons/glyph/clear-24.png",
+              "48": "themes/4-sage-owl/buttons/glyph/clear-48.png"
+            }
+          }
+        },
+        "thinking_strip": {
+          "path": "themes/4-sage-owl/thinking/thinking-strip-16x16x12.png",
+          "frame_w": 16,
+          "frame_h": 16,
+          "frames": 12,
+          "suggested_ms_per_frame": 80
+        },
+        "status": {
+          "ready": {
+            "16": "themes/4-sage-owl/status/ready-16.png",
+            "32": "themes/4-sage-owl/status/ready-32.png"
+          },
+          "thinking": {
+            "16": "themes/4-sage-owl/status/thinking-16.png",
+            "32": "themes/4-sage-owl/status/thinking-32.png"
+          },
+          "generating": {
+            "16": "themes/4-sage-owl/status/generating-16.png",
+            "32": "themes/4-sage-owl/status/generating-32.png"
+          },
+          "expanding": {
+            "16": "themes/4-sage-owl/status/expanding-16.png",
+            "32": "themes/4-sage-owl/status/expanding-32.png"
+          },
+          "dense compute": {
+            "16": "themes/4-sage-owl/status/dense-compute-16.png",
+            "32": "themes/4-sage-owl/status/dense-compute-32.png"
+          },
+          "error": {
+            "16": "themes/4-sage-owl/status/error-16.png",
+            "32": "themes/4-sage-owl/status/error-32.png"
+          }
+        },
+        "background_tile": "themes/4-sage-owl/tile/bg-tile-128x128.png"
+      }
+    }
+  ]
+}

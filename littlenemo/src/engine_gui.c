@@ -1,0 +1,837 @@
+/* engine_gui.c - GUI adapter build of the Little Nemo engine (pure C,
+ * no mutexes, no new threads). A copy of engine.c with a thin
+ * --chat mode and a few real v3 lines for the NTSE Nemo Chat GUI;
+ * engine.c itself is unchanged and is still the reference build.
+ *
+ *   --chat        wrap each PROMPT in the model's own chat template
+ *                 (tokenizer_config.json chat_template, Nemotron-H) and
+ *                 keep the conversation in the model state across turns
+ *   --think       reasoning on by default; per turn, "/think" and
+ *                 "/no_think" in the user text override it, as in the
+ *                 template. Default is no-think (answers only).
+ *
+ * Extra output is real or absent: READY gains chat= and accel=cpu
+ * (this build computes on the CPU; no GPU lane is linked), HW carries
+ * only cores/threads/accel, PREFILL and the added STATS keys are
+ * measured with the same monotonic clock, MEM reports peak working
+ * set. Nothing is estimated beyond the existing, labeled gbs.
+ *
+ * Original header follows.
+ *
+ * engine.c - the Little Nemo engine binary (protocol v2, see
+ * littlenemo/PROTOCOL.md). Pure C. Loads a Nemotron-Nano-9B-v2
+ * checkpoint directory plus a tokenizer.json, speaks the line
+ * protocol on stdin/stdout, and generates greedily: deterministic
+ * argmax decoding, the same discipline the PCHIE battery scores.
+ *
+ *   nemo-engine <checkpoint_dir> <tokenizer.json>
+ *               [--layers N] [--max-pos N] [--max-new N]
+ *
+ * --layers truncates the stack (plumbing tests only, not a model
+ * output). Chat-template wrapping arrives with tokenizer_config.json;
+ * until then PROMPT text is encoded as-is.
+ *
+ * Telemetry honesty: ms_tok and tps are measured with a monotonic
+ * clock; gbs is an ESTIMATE (weight bytes the step touches, summed
+ * from the checkpoint index, over measured time) and is labeled an
+ * estimate in the protocol. staged is 0: this engine consumes
+ * serially and prefetches nothing yet.
+ */
+#define _POSIX_C_SOURCE 200809L
+#if !defined(_WIN32)
+#include <poll.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "forward.h"
+#include "loader.h"
+#include "nn.h"
+#include "tokenizer.h"
+
+#if defined(_WIN32)
+#include <conio.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <psapi.h> /* GetProcessMemoryInfo for peak_kb (Archie P1-3) */
+
+/* getline() is POSIX; this is the same contract built on fgetc:
+ * returns the byte count (newline included), or -1 at EOF when
+ * nothing was read. The buffer is (re)allocated as needed. */
+static long eng_getline(char **lineptr, size_t *n, FILE *stream) {
+    if (!lineptr || !n) return -1;
+    if (!*lineptr || *n == 0) {
+        *n = 128;
+        *lineptr = (char *)realloc(*lineptr, *n);
+        if (!*lineptr) return -1;
+    }
+    size_t len = 0;
+    int c;
+    while ((c = fgetc(stream)) != EOF) {
+        if (len + 2 > *n) {
+            *n *= 2;
+            char *nb = (char *)realloc(*lineptr, *n);
+            if (!nb) return -1;
+            *lineptr = nb;
+        }
+        (*lineptr)[len++] = (char)c;
+        if (c == '\n') break;
+    }
+    if (len == 0) return -1;
+    (*lineptr)[len] = '\0';
+    return (long)len;
+}
+#define getline eng_getline
+#endif
+
+static double now_ms(void) {
+#if defined(_WIN32)
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER t;
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart * 1000.0 / (double)freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+#endif
+}
+
+static long peak_kb(void) {
+#if defined(_WIN32)
+    /* /proc/self/status does not exist on Windows (Archie P1-3);
+     * the PSAPI peak working set is the same quantity. */
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc))
+        return (long)(pmc.PeakWorkingSetSize / 1024);
+    return 0;
+#else
+    FILE *f = fopen("/proc/self/status", "r");
+    if (!f) return 0;
+    char line[256];
+    long kb = 0;
+    while (fgets(line, sizeof line, f)) {
+        if (sscanf(line, "VmHWM: %ld kB", &kb) == 1) break;
+    }
+    fclose(f);
+    return kb;
+#endif
+}
+
+/* ---- protocol text escaping ---- */
+
+static void emit_escaped(const char *verb, const char *text, size_t n) {
+    fputs(verb, stdout);
+    fputc(' ', stdout);
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)text[i];
+        if (c == '\\') fputs("\\\\", stdout);
+        else if (c == '\n') fputs("\\n", stdout);
+        else if (c == '\t') fputs("\\t", stdout);
+        else fputc(c, stdout);
+    }
+    fputc('\n', stdout);
+    fflush(stdout);
+}
+
+static void unescape(char *s) {
+    char *r = s, *w = s;
+    while (*r) {
+        if (*r == '\\' && r[1]) {
+            r++;
+            *w++ = (*r == 'n') ? '\n' : (*r == 't') ? '\t' : *r;
+            r++;
+        } else {
+            *w++ = *r++;
+        }
+    }
+    *w = 0;
+}
+
+/* ---- layer telemetry hook ---- */
+
+static const char *type_name(char t) {
+    return t == 'M' ? "mamba" : t == '*' ? "attention" : "mlp";
+}
+
+static void on_layer(void *user, int layer, char t) {
+    (void)user;
+    printf("LAYER %d %s\n", layer, type_name(t));
+    fflush(stdout);
+}
+
+/* ---- think/answer stream splitting ---- */
+
+#define THINK_OPEN "<think>"
+#define THINK_CLOSE "</think>"
+
+typedef struct {
+    char buf[8192]; /* decoded bytes not yet emitted */
+    size_t len;
+    int thinking;   /* current mode */
+} splitter;
+
+static size_t utf8_prefix(const char *s, size_t n) {
+    /* Longest prefix of s[0..n) ending on a UTF-8 boundary. */
+    if (n == 0) return 0;
+    size_t i = n - 1;
+    while (i > 0 && ((unsigned char)s[i] & 0xC0) == 0x80) i--;
+    unsigned char lead = (unsigned char)s[i];
+    size_t need = lead < 0x80 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+    return (i + need <= n) ? n : i;
+}
+
+static void split_flush(splitter *sp, int final) {
+    for (;;) {
+        const char *delim = sp->thinking ? THINK_CLOSE : THINK_OPEN;
+        size_t dlen = strlen(delim);
+        /* find the delimiter in the pending bytes */
+        size_t at = (size_t)-1;
+        if (sp->len >= dlen) {
+            for (size_t i = 0; i + dlen <= sp->len; i++) {
+                if (memcmp(sp->buf + i, delim, dlen) == 0) { at = i; break; }
+            }
+        }
+        if (at != (size_t)-1) {
+            if (at > 0)
+                emit_escaped(sp->thinking ? "THINK" : "TOK", sp->buf, at);
+            memmove(sp->buf, sp->buf + at + dlen, sp->len - at - dlen);
+            sp->len -= at + dlen;
+            sp->thinking = !sp->thinking;
+            continue;
+        }
+        /* No delimiter: hold back a tail that could be a delimiter
+         * prefix split across tokens, plus any partial UTF-8 tail. */
+        size_t hold = 0;
+        if (!final) {
+            size_t maxk = sp->len < dlen - 1 ? sp->len : dlen - 1;
+            for (size_t k = maxk; k > 0; k--) {
+                if (memcmp(sp->buf + sp->len - k, delim, k) == 0) {
+                    hold = k;
+                    break;
+                }
+            }
+        }
+        size_t emit = utf8_prefix(sp->buf, sp->len - hold);
+        if (emit == 0) return;
+        emit_escaped(sp->thinking ? "THINK" : "TOK", sp->buf, emit);
+        memmove(sp->buf, sp->buf + emit, sp->len - emit);
+        sp->len -= emit;
+        return;
+    }
+}
+
+static void split_feed(splitter *sp, const char *bytes) {
+    size_t n = strlen(bytes);
+    /* Copy in chunks that always fit (Archie P1-3): a final flush
+     * can leave up to 3 bytes of a split UTF-8 codepoint in the
+     * buffer, so testing the fit once, before flushing, still
+     * lets len + n overrun the buffer when n is within a few
+     * bytes of its size. The fit is therefore re-tested after
+     * every flush, and oversized input is fed through in pieces;
+     * the splitter's delimiter hold-back keeps a delimiter split
+     * across pieces intact. */
+    while (n > 0) {
+        if (sp->len + n >= sizeof sp->buf) split_flush(sp, 1);
+        size_t room = sizeof sp->buf - sp->len;
+        if (room == 0) {
+            /* The buffer holds only bytes a final flush cannot
+             * emit (a partial codepoint): emit them raw rather
+             * than spin. */
+            emit_escaped(sp->thinking ? "THINK" : "TOK", sp->buf,
+                         sp->len);
+            sp->len = 0;
+            room = sizeof sp->buf;
+        }
+        size_t take = n < room ? n : room;
+        memcpy(sp->buf + sp->len, bytes, take);
+        sp->len += take;
+        bytes += take;
+        n -= take;
+        split_flush(sp, 0);
+    }
+}
+
+/* ---- weight bytes per token (for the gbs estimate) ---- */
+
+static uint64_t tensor_bytes(const nemo_checkpoint *cp, const char *name) {
+    const nemo_tensor_info *t = nemo_find(cp, name);
+    return t ? t->count * (uint64_t)t->elem_size : 0;
+}
+
+static uint64_t bytes_per_token(const nemo_checkpoint *cp, int limit) {
+    char name[96];
+    uint64_t sum = tensor_bytes(cp, "lm_head.weight") +
+                   (uint64_t)NEMO_HIDDEN * 2; /* one embedding row */
+    for (int i = 0; i < limit; i++) {
+        char t = nemo_layer_type(i);
+        snprintf(name, sizeof name, "backbone.layers.%d.norm.weight", i);
+        sum += tensor_bytes(cp, name);
+        if (t == 'M') {
+            const char *leaves[] = {"mixer.in_proj.weight",
+                                    "mixer.out_proj.weight",
+                                    "mixer.conv1d.weight",
+                                    "mixer.conv1d.bias", "mixer.A_log",
+                                    "mixer.D", "mixer.dt_bias",
+                                    "mixer.norm.weight"};
+            for (size_t k = 0; k < sizeof leaves / sizeof *leaves; k++) {
+                snprintf(name, sizeof name, "backbone.layers.%d.%s", i,
+                         leaves[k]);
+                sum += tensor_bytes(cp, name);
+            }
+        } else if (t == '*') {
+            const char *leaves[] = {"mixer.q_proj.weight",
+                                    "mixer.k_proj.weight",
+                                    "mixer.v_proj.weight",
+                                    "mixer.o_proj.weight"};
+            for (size_t k = 0; k < sizeof leaves / sizeof *leaves; k++) {
+                snprintf(name, sizeof name, "backbone.layers.%d.%s", i,
+                         leaves[k]);
+                sum += tensor_bytes(cp, name);
+            }
+        } else {
+            snprintf(name, sizeof name, "backbone.layers.%d.mixer.up_proj.weight", i);
+            sum += tensor_bytes(cp, name);
+            snprintf(name, sizeof name, "backbone.layers.%d.mixer.down_proj.weight", i);
+            sum += tensor_bytes(cp, name);
+        }
+    }
+    return sum;
+}
+
+/* ---- generation ---- */
+
+typedef struct {
+    nemo_checkpoint *cp;
+    nemo_tokenizer *tk;
+    nemo_model *model;
+    int max_new;
+    int eos_id;
+    uint64_t bytes_tok;
+    uint64_t head_bytes; /* lm_head.weight: in bytes_tok, but the
+                          * hidden-only commit never reads it */
+    char *pending_cmd; /* command read while generating (STOP handled) */
+    /* --chat adapter state */
+    int chat;           /* wrap PROMPTs in the chat template */
+    int think_default;  /* reasoning on unless /no_think */
+    int turns;          /* completed turns in the model state */
+    int pos;            /* tokens committed to the model state */
+    int max_pos;
+    int last_nl;        /* last emitted piece ended in a newline */
+} engine;
+
+static void engine_reset(engine *e) {
+    nemo_model_reset(e->model);
+    e->turns = 0;
+    e->pos = 0;
+    e->last_nl = 1;
+}
+
+/* Returns 1 if a command line was waiting on stdin (it is consumed
+ * into e->pending_cmd; the caller checks for STOP). */
+static int poll_command(engine *e) {
+#if defined(_WIN32)
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD avail = 0;
+    DWORD type = (h == INVALID_HANDLE_VALUE) ? 0 : GetFileType(h);
+    if (type == FILE_TYPE_PIPE) {
+        if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) || avail == 0)
+            return 0;
+    } else if (type == FILE_TYPE_CHAR) {
+        if (!_kbhit()) return 0;
+    } else {
+        return 0;
+    }
+#else
+    struct pollfd pfd;
+    pfd.fd = 0;
+    pfd.events = POLLIN;
+    if (poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN)) return 0;
+#endif
+    char *line = NULL;
+    size_t cap = 0;
+    if (getline(&line, &cap, stdin) < 0) {
+        free(line);
+        e->pending_cmd = NULL;
+        return 0;
+    }
+    e->pending_cmd = line;
+    return 1;
+}
+
+static int argmax(const float *logits) {
+    int best = 0;
+    float bv = logits[0];
+    for (int i = 1; i < NEMO_VOCAB; i++) {
+        if (logits[i] > bv) {
+            bv = logits[i];
+            best = i;
+        }
+    }
+    return best;
+}
+
+static void run_turn_raw(engine *e, const char *prompt_text, int think_on) {
+    int ids[8192];
+    int n = nemo_tokenizer_encode(e->tk, prompt_text, ids, 8192);
+    if (n < 0) {
+        printf("ERROR prompt could not be tokenized\n");
+        fflush(stdout);
+        return;
+    }
+    if (e->chat && e->pos + n + 1 > e->max_pos) {
+        engine_reset(e);
+        printf("ERROR the context is full (limit %d tokens); the "
+               "conversation was reset, send your message again\n",
+               e->max_pos);
+        fflush(stdout);
+        return;
+    }
+    float *logits = (float *)malloc((size_t)NEMO_VOCAB * sizeof(float));
+    float *hidden = (float *)malloc((size_t)NEMO_HIDDEN * sizeof(float));
+    if (!logits || !hidden) {
+        free(logits);
+        free(hidden);
+        printf("ERROR out of memory\n");
+        fflush(stdout);
+        return;
+    }
+    double turn_t0 = now_ms();
+    /* Prompt ingestion: full steps for the state, lm_head only on the
+     * last prompt token (it does not affect the state trajectory). */
+    for (int i = 0; i < n; i += NEMO_PREFILL_CHUNK) {
+        int cn = n - i < NEMO_PREFILL_CHUNK ? n - i : NEMO_PREFILL_CHUNK;
+        int rc = nemo_model_prefill(e->model, ids + i, cn, hidden);
+        if (rc == 0 && i + cn >= n)
+            rc = nemo_model_head(e->model, hidden, logits);
+        if (rc != 0) {
+            /* A failed turn never leaves state behind: reset before
+             * the next prompt, and say so (PROTOCOL.md). */
+            engine_reset(e);
+            printf("ERROR forward pass failed during prompt; state "
+                   "reset\n");
+            fflush(stdout);
+            free(logits);
+            free(hidden);
+            return;
+        }
+    }
+    double prefill_ms = now_ms() - turn_t0;
+    e->pos += n;
+    printf("PREFILL tokens=%d ms=%.0f tps=%.3f\n", n, prefill_ms,
+           prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0);
+    fflush(stdout);
+    splitter sp;
+    memset(&sp, 0, sizeof sp);
+    sp.thinking = (e->chat && think_on) ? 1 : 0;
+    int generated = 0;
+    double gen_ms = 0.0;
+    int stopped = 0;
+    int capped_commit = 0; /* the cap token was committed
+                            * hidden-only inside its iteration */
+    /* Whether the last emitted token has been stepped into the
+     * model state, and which token it was (Codex Astra review
+     * H7, 2026-11-25). */
+    int last_committed = 1;
+    int last_token = -1;
+    if (n == 0) { /* empty prompt: nothing to condition on */
+        printf("ERROR empty prompt\n");
+        fflush(stdout);
+        free(logits);
+        free(hidden);
+        return;
+    }
+    while (generated < e->max_new) {
+        double t0 = now_ms();
+        int next = argmax(logits);
+        if (next == e->eos_id || (e->chat && (next == 2 || next == 11)))
+            break;
+        generated++;
+        e->pos++;
+        last_token = next;
+        last_committed = 0;
+        char *piece = nemo_tokenizer_decode(e->tk, &next, 1, 1);
+        if (piece) {
+            if (*piece) e->last_nl = piece[strlen(piece) - 1] == '\n';
+            split_feed(&sp, piece);
+            free(piece);
+        }
+        /* Step the chosen token to produce the next logits. At
+         * the cap there is no next token to produce, so the
+         * token is committed hidden-only instead: the emitted
+         * token must still enter the state, or the next turn
+         * is conditioned as if this turn's last token had
+         * never been said, while the transcript shows it. The
+         * commit happens INSIDE this timed iteration (Sol
+         * M4): it used to run after the loop, outside gen_ms,
+         * so the generation span never paid for work it
+         * caused, and the byte charge below now matches what
+         * each step actually reads... the hidden-only commit
+         * never reads lm_head. */
+        if (generated < e->max_new) {
+            if (nemo_model_step(e->model, next, logits) != 0) {
+                engine_reset(e);
+                printf("ERROR forward pass failed during generation; "
+                       "state reset\n");
+                fflush(stdout);
+                free(logits);
+                free(hidden);
+                return;
+            }
+            last_committed = 1;
+        } else {
+            if (nemo_model_step_hidden(e->model, next, hidden) != 0) {
+                engine_reset(e);
+                printf("ERROR forward pass failed committing the "
+                       "final token; state reset\n");
+                fflush(stdout);
+                free(logits);
+                free(hidden);
+                return;
+            }
+            last_committed = 1;
+            capped_commit = 1;
+        }
+        double ms = now_ms() - t0;
+        gen_ms += ms;
+        {
+            uint64_t charged = capped_commit
+                && generated == e->max_new
+                    ? e->bytes_tok - e->head_bytes : e->bytes_tok;
+            printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d "
+                   "ms_tok=%.1f gbs=%.3f\n",
+                   sp.thinking ? "thinking" : "answering",
+                   e->model->layer_limit - 1, generated, ms,
+                   ms > 0 ? (double)charged / (ms / 1000.0) / 1e9 : 0.0);
+        }
+        fflush(stdout);
+        if (poll_command(e)) {
+            if (e->pending_cmd &&
+                strncmp(e->pending_cmd, "STOP", 4) == 0) {
+                free(e->pending_cmd);
+                e->pending_cmd = NULL;
+                stopped = 1;
+                break;
+            }
+            break; /* another command: end the turn, main loop reads it */
+        }
+    }
+    /* The final emitted token is always committed by the time
+     * the loop ends (H7's invariant, kept): at the cap its
+     * hidden-only commit now runs inside the last timed
+     * iteration (Sol M4), so there is no post-loop commit left
+     * to make. last_committed/last_token remain as the
+     * loop's record of that invariant. */
+    (void)last_committed;
+    (void)last_token;
+    split_flush(&sp, 1);
+    double total_ms = now_ms() - turn_t0;
+    char extra[256];
+    {
+        int w = snprintf(extra, sizeof extra,
+                         " prompt_tokens=%d prompt_ms=%.0f prompt_tps=%.3f "
+                         "stopped=%d lane=cpu",
+                         n, prefill_ms,
+                         prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0,
+                         stopped);
+        if (generated > 0 && gen_ms > 0 && w > 0 && (size_t)w < sizeof extra)
+            snprintf(extra + w, sizeof extra - (size_t)w,
+                     " ttft_ms=%.0f gen_tps=%.3f", prefill_ms,
+                     generated / (gen_ms / 1000.0));
+    }
+    printf("STATS tokens=%d ms=%.0f tps=%.3f ms_per_tok=%.1f "
+           "gbs_avg=%.3f peak_mb=%.1f%s\n",
+           generated, total_ms,
+           gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0,
+           generated ? gen_ms / generated : 0.0,
+           gen_ms > 0
+               ? ((double)e->bytes_tok * generated
+                  - (capped_commit ? (double)e->head_bytes : 0.0))
+                     / (gen_ms / 1000.0) / 1e9
+               : 0.0,
+           peak_kb() / 1024.0, extra);
+    printf("MEM peak_mb=%.1f\n", peak_kb() / 1024.0);
+    e->turns++;
+    printf("DONE\n");
+    fflush(stdout);
+    free(logits);
+    free(hidden);
+}
+
+/* Remove every occurrence of tag from s in place; returns 1 if found. */
+static int strip_tag(char *s, const char *tag) {
+    size_t tl = strlen(tag);
+    int found = 0;
+    char *p;
+    while ((p = strstr(s, tag)) != NULL) {
+        memmove(p, p + tl, strlen(p + tl) + 1);
+        found = 1;
+    }
+    return found;
+}
+
+/* The chat template of Nemotron-H (tokenizer_config.json), rendered as
+ * text with its own special tokens, which the tokenizer turns into
+ * their ids. Turn 1 carries the (empty) system block; later turns first
+ * close the previous assistant message ("\n<SPECIAL_12>\n"), because
+ * the model state already holds that reply. */
+static void run_turn(engine *e, const char *user_text) {
+    if (!e->chat) {
+        run_turn_raw(e, user_text, 0);
+        return;
+    }
+    size_t ul = strlen(user_text);
+    char *u = (char *)malloc(ul + 1);
+    char *tpl = (char *)malloc(ul + 256);
+    if (!u || !tpl) {
+        free(u);
+        free(tpl);
+        printf("ERROR out of memory\n");
+        fflush(stdout);
+        return;
+    }
+    memcpy(u, user_text, ul + 1);
+    int think_on = e->think_default;
+    if (strip_tag(u, "/think")) think_on = 1;
+    else if (strip_tag(u, "/no_think")) think_on = 0;
+    char *b = u;
+    while (*b == ' ' || *b == '\t' || *b == '\n') b++;
+    size_t L = strlen(b);
+    while (L && (b[L - 1] == ' ' || b[L - 1] == '\t' || b[L - 1] == '\n'))
+        b[--L] = 0;
+    if (L == 0) {
+        free(u);
+        free(tpl);
+        printf("ERROR empty prompt\n");
+        fflush(stdout);
+        return;
+    }
+    snprintf(tpl, ul + 256, "%s%s\n<SPECIAL_11>Assistant\n%s",
+             e->turns == 0 ? "<SPECIAL_10>System\n\n<SPECIAL_11>User\n"
+                           : (e->last_nl ? "<SPECIAL_12>\n<SPECIAL_11>User\n"
+                                         : "\n<SPECIAL_12>\n<SPECIAL_11>User\n"),
+             b, think_on ? "<think>\n" : "<think></think>");
+    run_turn_raw(e, tpl, think_on);
+    free(u);
+    free(tpl);
+}
+
+int main(int argc, char **argv) {
+    if (argc < 3) {
+        fprintf(stderr,
+                "usage: nemo-engine <checkpoint_dir> <tokenizer.json> "
+                "[--layers N] [--max-pos N] [--max-new N] "
+                "[--mode minimum|medium|max|ultra] [--threads N] "
+                "[--simd] [--chat] [--think] "
+                "[--serve PORT | --serve-stdio]\n");
+        return 2;
+    }
+    int layers = 0, max_pos = 4096, max_new = 256;
+    const char *mode = "max";
+    int threads = 0; /* 0 = take the mode's count */
+    int simd = 0;
+    int serve_port = 0;
+    int chat = 0, think_default = 0;
+    for (int i = 3; i < argc; i++) {
+        if (!strcmp(argv[i], "--chat")) chat = 1;
+        else if (!strcmp(argv[i], "--think")) think_default = 1;
+        else if (!strcmp(argv[i], "--simd")) simd = 1;
+        else if (!strcmp(argv[i], "--no-simd")) simd = 0;
+        else if (!strcmp(argv[i], "--serve-stdio")) serve_port = -1;
+        else if (i + 1 < argc && !strcmp(argv[i], "--serve")) {
+            serve_port = atoi(argv[++i]);
+            /* Validate at parse time: an out-of-range port would
+             * otherwise fall through to stdio silently (<= 0) or
+             * truncate in the (uint16_t) cast below (Archie
+             * Round 2 P2-E). */
+            if (serve_port < 1 || serve_port > 65535) {
+                fprintf(stderr,
+                        "nemo-engine: --serve port %d out of range "
+                        "(1-65535)\n",
+                        serve_port);
+                return 2;
+            }
+        }
+        else if (i + 1 < argc && !strcmp(argv[i], "--layers"))
+            layers = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--max-pos"))
+            max_pos = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--max-new"))
+            max_new = atoi(argv[++i]);
+        else if (i + 1 < argc && !strcmp(argv[i], "--mode"))
+            mode = argv[++i];
+        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))
+            threads = atoi(argv[++i]);
+        else {
+            fprintf(stderr, "nemo-engine: unknown option %s\n", argv[i]);
+            return 2;
+        }
+    }
+    nemo_set_simd(simd);
+    /* The machine sets the scale: query the cores, map the mode,
+     * and split the work across what is actually there. */
+    int cores = nemo_cores();
+    int nthreads = threads > 0 ? threads
+                                : nemo_threads_for_mode(mode, cores);
+    if (nthreads < 0) {
+        fprintf(stderr,
+                "nemo-engine: unknown mode %s (minimum, medium, max, "
+                "ultra)\n",
+                mode);
+        return 2;
+    }
+    if (nthreads < 1) nthreads = 1;
+    /* Transports (PROTOCOL.md; Archie P1-3: both flags were
+     * documented but rejected as unknown). --serve-stdio names
+     * the default transport explicitly. --serve PORT accepts one
+     * TCP client and speaks the same protocol over the socket:
+     * stdin/stdout are rebound to the connection before READY is
+     * printed, so every line, the STOP poll included, rides the
+     * socket exactly as it rides a pipe. POSIX only for now; the
+     * Windows input shims (PeekNamedPipe/_kbhit) cannot poll a
+     * socket, so Windows says so instead of pretending. */
+    if (serve_port > 0) {
+#if defined(_WIN32)
+        fprintf(stderr,
+                "nemo-engine: --serve is not supported on Windows "
+                "yet; use --serve-stdio with a local client\n");
+        return 2;
+#else
+        int ls = socket(AF_INET, SOCK_STREAM, 0);
+        if (ls < 0) {
+            fprintf(stderr, "nemo-engine: socket failed\n");
+            return 1;
+        }
+        int one = 1;
+        setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof addr);
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        addr.sin_port = htons((uint16_t)serve_port);
+        if (bind(ls, (struct sockaddr *)&addr, sizeof addr) != 0 ||
+            listen(ls, 1) != 0) {
+            fprintf(stderr, "nemo-engine: cannot listen on port %d\n",
+                    serve_port);
+            close(ls);
+            return 1;
+        }
+        fprintf(stderr, "nemo-engine: listening on port %d\n",
+                serve_port);
+        int conn = accept(ls, NULL, NULL);
+        if (conn < 0) {
+            fprintf(stderr, "nemo-engine: accept failed\n");
+            close(ls);
+            return 1;
+        }
+        if (dup2(conn, 0) < 0 || dup2(conn, 1) < 0) {
+            fprintf(stderr, "nemo-engine: cannot bind stdio to the "
+                            "socket\n");
+            return 1;
+        }
+        close(ls);
+        if (conn > 1) close(conn);
+#endif
+    }
+    nemo_checkpoint cp;
+    if (nemo_checkpoint_open(&cp, argv[1]) != 0) {
+        fprintf(stderr, "nemo-engine: cannot open checkpoint %s\n", argv[1]);
+        return 1;
+    }
+    nemo_tokenizer *tk = nemo_tokenizer_load(argv[2]);
+    if (!tk) {
+        fprintf(stderr, "nemo-engine: cannot load tokenizer %s\n", argv[2]);
+        return 1;
+    }
+    nemo_model model;
+    if (nemo_model_init_ex(&model, &cp, layers, max_pos, nthreads) != 0) {
+        fprintf(stderr, "nemo-engine: model init failed\n");
+        return 1;
+    }
+    /* Whole-geometry validation before inference begins (Gizmo
+     * review, 2026-11-24): READY is only printed for a checkpoint
+     * whose every tensor is present, shaped, and typed as the
+     * architecture requires. */
+    {
+        char bad[128];
+        int vcode = 0;
+        if (nemo_validate_model(&cp, layers, 1, bad, sizeof bad,
+                                &vcode) != 0) {
+            fprintf(stderr,
+                    "nemo-engine: checkpoint failed validation: %s "
+                    "(%s)\n",
+                    bad,
+                    vcode == 1 ? "missing tensor"
+                    : vcode == 2 ? "wrong shape"
+                                 : "wrong dtype");
+            return 1;
+        }
+    }
+    model.on_layer = on_layer;
+    engine e;
+    memset(&e, 0, sizeof e);
+    e.cp = &cp;
+    e.tk = tk;
+    e.model = &model;
+    e.max_new = max_new;
+    e.chat = chat;
+    e.think_default = think_default;
+    e.max_pos = max_pos;
+    e.last_nl = 1;
+    e.eos_id = nemo_tokenizer_special(tk, "<|end_of_text|>");
+    if (e.eos_id < 0) e.eos_id = 12; /* arch study: EOS 12 */
+    e.bytes_tok = bytes_per_token(&cp, model.layer_limit);
+    e.head_bytes = tensor_bytes(&cp, "lm_head.weight");
+    printf("READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=raw "
+           "layers=%d cores=%d threads=%d mode=%s simd=%d accel=cpu "
+           "chat=%d think=%d\n",
+           model.layer_limit, cores, model.nthreads,
+           threads > 0 ? "custom" : mode, nemo_simd_active(),
+           chat, think_default);
+    printf("HW cores=%d threads=%d accel=cpu\n", cores, model.nthreads);
+    fflush(stdout);
+
+    char *line = NULL;
+    size_t cap = 0;
+    for (;;) {
+        if (e.pending_cmd) {
+            line = e.pending_cmd;
+            e.pending_cmd = NULL;
+        } else if (getline(&line, &cap, stdin) < 0) {
+            break;
+        }
+        if (!strncmp(line, "PROMPT ", 7)) {
+            char *text = line + 7;
+            size_t L = strlen(text);
+            while (L && (text[L - 1] == '\n' || text[L - 1] == '\r'))
+                text[--L] = 0;
+            unescape(text);
+            run_turn(&e, text);
+        } else if (!strncmp(line, "RESET", 5)) {
+            engine_reset(&e);
+        } else if (!strncmp(line, "STOP", 4)) {
+            /* no generation running: nothing to stop */
+        } else if (!strncmp(line, "QUIT", 4)) {
+            free(line);
+            line = NULL;
+            break;
+        }
+        free(line);
+        line = NULL;
+        cap = 0;
+    }
+    free(line);
+    nemo_model_free(&model);
+    nemo_tokenizer_free(tk);
+    nemo_checkpoint_close(&cp);
+    return 0;
+}

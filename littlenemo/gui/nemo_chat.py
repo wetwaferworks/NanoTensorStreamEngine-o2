@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
-"""nemo_chat.py - Little Nemo chat front end.
+"""nemo_chat.py - NTSE chat front end (SuperNemo and Little Nemo).
 
-The ONLY Python piece of Little Nemo, by JD's standing rule: the front
-end is a Python GUI that calls the pure-C backend. This file renders the
-conversation, the model's thinking, and the telemetry deck, and speaks
-PROTOCOL.md v2 to the engine over a subprocess pipe or a TCP socket
-(so the same window works against an engine on your own machine or one
-running on Elfie's computer).
+The ONLY Python piece of NTSE's chat path, by JD's standing rule: the
+front end is a Python GUI that calls the pure-C backend. This module is
+the entry point and the Tk-free half: the protocol (PROTOCOL.md v2 plus
+the backward-compatible v3 extensions), the engine client, the model
+list and send gating, and the settings code path. The window lives in
+nemo_ui.py, attachments in nemo_media.py, the stats panel's data and
+the thinking-line headline in nemo_stats.py, scripted walk-throughs in
+nemo_demo.py. It speaks to the engine over a subprocess pipe or a TCP
+socket (so the same window works against an engine on your own machine
+or one running on Elfie's computer).
 
     python3 nemo_chat.py [--engine "../nemo --serve-stdio"] [--host H --port P]
+                         [--model supernemo|littlenemo]
+                         [--theme pixel|lattice|stream|handshake|owl]
+                         [--supernemo-engine CMD | --supernemo-host H
+                          --supernemo-port P]
+
+Models: SuperNemo is the code name for Nemotron 3.5 Super VL
+120B-A12B (text, image and video by design). Its NTSE engine path
+(512-expert MoE plus the RADIO vision tower) is not written yet, so
+with no [supernemo] engine configured the window says "SuperNemo
+engine not available yet" and sends nothing. Little Nemo (Nemotron
+Nano 9B v2) is text-only; attachments are refused before anything
+is sent. Test fixture: ../tests/fake_engine.py (replies say so).
 
 Configuration can also come from an INI file, so the window can be
 launched by clicking with no arguments at all. The GUI looks for
@@ -17,8 +33,8 @@ the script's parent directory (or at the path given by --config):
 
     [paths]
     engine     = ../bin/nemo-engine.exe
-    checkpoint = D:/models/Nemotron-Nano-9B-v2
-    tokenizer  = D:/models/Nemotron-Nano-9B-v2/tokenizer.json
+    checkpoint = <models-dir>/Nemotron-Nano-9B-v2
+    tokenizer  = <models-dir>/Nemotron-Nano-9B-v2/tokenizer.json
 
     [engine]
     mode    = max          ; minimum | medium | max | ultra
@@ -146,12 +162,96 @@ def _kv(tokens):
     return d
 
 
-def parse_line(line):
-    """One protocol line -> (kind, payload). Kinds: ready, think, tok,
-    layer, tick, stats, done, error. Unknown lines are ('raw', line)."""
-    line = line.rstrip("\n")
+# ------------------------------------------------- protocol v3 additions ---
+#
+# Everything below is additive and backward compatible (PROTOCOL.md,
+# "v3 extensions"): a v2 engine never sends the new lines and the GUI
+# works without them; a v2 client treats the new lines as 'raw' and
+# ignores them. Values of the new key=value lines are percent-encoded
+# (RFC 3986, every byte outside A-Z a-z 0-9 - . _ ~), so names and paths
+# may carry spaces, '=' and non-ASCII text on a whitespace-split line.
+
+# A protocol line longer than this is not parsed (a hostile or broken
+# peer cannot make the reader build megabyte payloads); it surfaces as
+# ('raw', <truncated>) and is ignored by the GUI.
+MAX_LINE = 256 * 1024
+
+# Attachment bounds the client enforces before it sends anything; the
+# engine validates again on its side (see PROTOCOL.md).
+MAX_ATTACHMENTS = 8
+MAX_IMAGE_BYTES = 64 * 1024 * 1024
+MAX_VIDEO_BYTES = 4 * 1024 * 1024 * 1024
+MAX_IMAGE_SIDE = 16384
+MAX_IMAGE_PIXELS = 100_000_000
+MAX_FRAMES = 32
+MAX_PATH_CHARS = 4096
+MEDIA_TYPES = ("image", "video")
+
+# Keys whose values stay strings even when they look numeric.
+_STRING_KEYS = {
+    "cpu", "gpu", "driver", "igpu", "accel", "os", "name", "tensor",
+    "lane", "state", "reason", "mode", "model", "path", "mime", "type",
+    "experts", "kind", "weights", "media", "cuda", "opencl", "note",
+    "device", "codec", "phase",
+}
+
+
+def pct_encode(value):
+    from urllib.parse import quote
+
+    return quote(str(value), safe="")
+
+
+def pct_decode(value):
+    from urllib.parse import unquote
+
+    return unquote(value)
+
+
+def _num(v):
+    """'12' -> 12, '1.5' -> 1.5, anything else unchanged."""
+    try:
+        return int(v, 10)
+    except (TypeError, ValueError):
+        pass
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return v
+    if f != f or f in (float("inf"), float("-inf")):
+        return v  # nan / inf stay text; never feed them to a readout
+    return f
+
+
+def _typed_kv(tokens):
+    """key=value tokens -> dict with percent-decoded values; numeric
+    values become int/float except for keys in _STRING_KEYS."""
+    d = {}
+    for k, v in _kv(tokens).items():
+        v = pct_decode(v)
+        d[k] = v if k in _STRING_KEYS else _num(v)
+    return d
+
+
+# v3 telemetry verbs -> event kinds (engine to client).
+_EXT_VERBS = {
+    "HW": "hw",            # hardware the engine runs on
+    "PREFILL": "prefill",  # prompt processing summary
+    "EXPAND": "expand",    # a tensor being expanded (dequantized)
+    "DTC": "dtc",          # a tensor in dense tensor compute
+    "HS": "hs",            # Tensor Handshake / prefetch counters
+    "MEM": "mem",          # RAM / VRAM in use
+    "MOE": "moe",          # mixture-of-experts routing for a layer
+    "STAT": "stat",        # any other engine statistic
+    "MEDIA_OK": "media_ok",
+    "MEDIA_ERR": "media_err",
+}
+
+
+def _parse_line_strict(line):
     if line.startswith("READY "):
-        return ("ready", _kv(line.split()[2:]))
+        return ("ready", {k: pct_decode(v)
+                          for k, v in _kv(line.split()[2:]).items()})
     if line.startswith("THINK "):
         return ("think", unescape(line[6:]))
     if line.startswith("TOK "):
@@ -176,24 +276,85 @@ def parse_line(line):
         for k in ("ms", "tps", "ms_per_tok", "gbs_avg", "peak_mb"):
             if k in d:
                 d[k] = float(d[k])
+        # v3: any further STATS keys (prompt_tokens, ttft_ms, ...)
+        for k, v in list(d.items()):
+            if isinstance(v, str):
+                d[k] = _num(pct_decode(v))
         return ("stats", d)
     if line == "DONE":
         return ("done", None)
     if line.startswith("ERROR "):
         return ("error", line[6:])
+    verb, _, rest = line.partition(" ")
+    if verb in _EXT_VERBS:
+        return (_EXT_VERBS[verb], _typed_kv(rest.split()))
     return ("raw", line)
+
+
+def parse_line(line):
+    """One protocol line -> (kind, payload). v2 kinds: ready, think,
+    tok, layer, tick, stats, done, error. v3 kinds: hw, prefill,
+    expand, dtc, hs, mem, moe, stat, media_ok, media_err. Unknown or
+    malformed lines are ('raw', line): a bad line from the engine is
+    ignored instead of killing the reader thread."""
+    line = line.rstrip("\r\n")
+    if len(line) > MAX_LINE:
+        return ("raw", line[:256])
+    try:
+        return _parse_line_strict(line)
+    except (ValueError, IndexError):
+        return ("raw", line)
+
+
+def ready_media(ready):
+    """The media types an engine accepts, from its READY line's v3
+    'media=' key. A v2 READY has no such key: text only."""
+    raw = (ready or {}).get("media", "")
+    return {m for m in str(raw).split(",") if m in MEDIA_TYPES}
+
+
+def format_media_lines(att_id, att):
+    """The client->engine lines announcing one attachment (PROTOCOL.md
+    v3): a MEDIA line, then one FRAME line per extracted video frame.
+    att is the dict nemo_media.inspect_attachment returns (plus an
+    optional 'frames_list' of {'path', 'ts_ms'})."""
+    if att.get("type") not in MEDIA_TYPES:
+        raise ValueError("attachment type must be image or video")
+    path = str(att["path"])
+    if not path or len(path) > MAX_PATH_CHARS:
+        raise ValueError("attachment path is empty or too long")
+    fields = [("id", int(att_id)), ("type", att["type"]),
+              ("mime", att.get("mime") or "application/octet-stream"),
+              ("bytes", int(att["bytes"]))]
+    for k in ("w", "h", "frames", "dur_ms"):
+        if att.get(k) not in (None, ""):
+            fields.append((k, int(att[k])))
+    frames = list(att.get("frames_list") or [])[:MAX_FRAMES]
+    if frames:
+        fields.append(("sent_frames", len(frames)))
+    fields.append(("name", att.get("name") or os.path.basename(path)))
+    fields.append(("path", path))
+    lines = ["MEDIA " + " ".join(f"{k}={pct_encode(v)}" for k, v in fields)]
+    for i, fr in enumerate(frames):
+        lines.append(f"FRAME id={int(att_id)} idx={i} "
+                     f"ts_ms={int(fr.get('ts_ms', 0))} "
+                     f"path={pct_encode(fr['path'])}")
+    return lines
 
 
 class NemoClient:
     """Speaks the protocol to one engine. on_event(kind, payload) is
-    called from the reader thread; the GUI marshals to its own thread."""
+    called from the reader thread; the GUI marshals to its own thread
+    through a queue. Sends are made from one thread only (the GUI's
+    Tk thread, or a test's main thread), so no lock is needed: the
+    reader thread only reads, and nothing else writes."""
 
     def __init__(self, on_event):
         self.on_event = on_event
         self._w = None
         self._proc = None
         self._sock = None
-        self._lock = threading.Lock()
+        self._next_media_id = 1
 
     def connect_process(self, cmd):
         # Structured argument list, never a shell: configured
@@ -255,14 +416,34 @@ class NemoClient:
         threading.Thread(target=run, daemon=True).start()
 
     def _send(self, line):
-        with self._lock:
-            if self._w is None:
-                raise RuntimeError("not connected")
-            self._w.write(line + "\n")
-            self._w.flush()
+        if self._w is None:
+            raise RuntimeError("not connected")
+        self._w.write(line + "\n")
+        self._w.flush()
 
     def send_prompt(self, text):
         self._send("PROMPT " + escape(text))
+
+    def send_turn(self, text, attachments=()):
+        """One user turn with optional attachments (v3): the MEDIA /
+        FRAME lines for each attachment, then the PROMPT they belong
+        to. Returns the media ids used, in order. Only call this with
+        attachments for an engine whose READY advertised them
+        (ready_media); check_send enforces that in the GUI."""
+        attachments = list(attachments)
+        if len(attachments) > MAX_ATTACHMENTS:
+            raise ValueError(f"at most {MAX_ATTACHMENTS} attachments per turn")
+        lines = []
+        ids = []
+        for att in attachments:
+            att_id = self._next_media_id
+            self._next_media_id += 1
+            lines.extend(format_media_lines(att_id, att))
+            ids.append(att_id)
+        for line in lines:
+            self._send(line)
+        self.send_prompt(text)
+        return ids
 
     def stop(self):
         self._send("STOP")
@@ -276,502 +457,147 @@ class NemoClient:
         except Exception:
             pass
 
+    def close(self):
+        """Retire this client: QUIT, then end the process / socket."""
+        self.quit()
+        try:
+            if self._proc is not None:
+                self._proc.terminate()
+        except Exception:
+            pass
+        try:
+            if self._sock is not None:
+                self._sock.close()
+        except Exception:
+            pass
+        self._w = None
+
+
+# --------------------------------------------------------------- models ---
+#
+# The models this window can talk to. SuperNemo is the code name for
+# Nemotron 3.5 Super VL 120B-A12B; its NTSE engine path (512-expert MoE
+# plus the RADIO vision tower) is not written yet, so unless an engine
+# is configured for it the GUI says so plainly and sends nothing.
+
+MODELS = {
+    "supernemo": {
+        "label": "SuperNemo",
+        "full": "Nemotron 3.5 Super VL 120B-A12B",
+        "inputs": ("text", "image", "video"),
+        "unavailable": ("SuperNemo engine not available yet. NTSE has no "
+                        "engine path for its 512-expert MoE and RADIO "
+                        "vision tower so far; nothing is sent and no reply "
+                        "is invented. Little Nemo is available for text."),
+    },
+    "littlenemo": {
+        "label": "Little Nemo",
+        "full": "Nemotron Nano 9B v2",
+        "inputs": ("text",),
+        "unavailable": ("No Little Nemo engine is configured (see "
+                        "littlenemo.ini [paths] or --engine / --host)."),
+    },
+}
+MODEL_ORDER = ("supernemo", "littlenemo")
+
+
+def resolve_model_targets(argv):
+    """Engine targets per model -> {key: {'cmd', 'host', 'port'}}.
+    Little Nemo comes from littlenemo.ini [paths]/[remote] and
+    --engine/--host/--port, exactly as before. SuperNemo comes from an
+    optional [supernemo] section (engine = full command line, or
+    host/port) and --supernemo-engine / --supernemo-host /
+    --supernemo-port. A model with no target is shown as unavailable."""
+    cmd, host, port = load_ini(argv)
+    s_cmd = s_host = s_port = None
+    path = find_ini_path(argv)
+    if path:
+        cfg = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
+        cfg.read(path, encoding="utf-8")
+        s_cmd = cfg.get("supernemo", "engine", fallback="").strip() or None
+        s_host = cfg.get("supernemo", "host", fallback="").strip() or None
+        s_port = cfg.get("supernemo", "port", fallback="").strip() or None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        val = argv[i + 1] if i + 1 < len(argv) else None
+        if a == "--engine":
+            cmd = val
+        elif a == "--host":
+            host = val
+        elif a == "--port":
+            port = val
+        elif a == "--supernemo-engine":
+            s_cmd = val
+        elif a == "--supernemo-host":
+            s_host = val
+        elif a == "--supernemo-port":
+            s_port = val
+        else:
+            i += 1
+            continue
+        i += 2
+    return {
+        "littlenemo": {"cmd": cmd, "host": host, "port": port},
+        "supernemo": {"cmd": s_cmd, "host": s_host if s_port else None,
+                      "port": s_port if s_host else None},
+    }
+
+
+def target_available(target):
+    t = target or {}
+    return bool(t.get("cmd") or (t.get("host") and t.get("port")))
+
+
+def check_send(model_key, available, connected, ready, text, attachments,
+               models=None):
+    """Whether a turn may go out -> (ok, message). Pure, so the
+    refusals are unit-tested: an unavailable SuperNemo engine, a
+    disconnected engine, attachments the engine did not advertise
+    (Little Nemo is text-only), too many attachments, an empty turn."""
+    info = (models or MODELS).get(
+        model_key, {"label": model_key, "unavailable": ""})
+    attachments = list(attachments or [])
+    if not available:
+        return False, info["unavailable"]
+    if not connected:
+        return False, f"{info['label']} engine is not connected yet."
+    if not (text or "").strip() and not attachments:
+        return False, ""
+    if len(attachments) > MAX_ATTACHMENTS:
+        return False, (f"At most {MAX_ATTACHMENTS} attachments per turn; "
+                       f"remove {len(attachments) - MAX_ATTACHMENTS}.")
+    accepted = ready_media(ready)
+    refused = sorted({a.get("type") for a in attachments} - accepted)
+    if refused:
+        if not accepted:
+            return False, (f"{info['label']} is text-only: the attachments "
+                           f"were not sent. Remove them, or switch to "
+                           f"SuperNemo for image and video.")
+        return False, (f"This engine does not accept {', '.join(refused)} "
+                       f"attachments (it accepts "
+                       f"{', '.join(sorted(accepted))}); nothing was sent.")
+    if not (text or "").strip():
+        return False, "Add a message to go with the attachments."
+    return True, ""
+
 
 # ---------------------------------------------------------------- GUI ---
-
-BG = "#16161e"
-PANEL = "#1f2335"
-FG = "#c0caf5"
-DIM = "#565f89"
-ACCENT = "#7aa2f7"
-THINK_COLOR = "#bb9af7"
-ANSWER_COLOR = "#9ece6a"
-LAYER_COLORS = {"mamba": "#7aa2f7", "mlp": "#3b4261", "attention": "#ff9e64"}
-LAYER_LIT = {"mamba": "#a9c1ff", "mlp": "#8a94b8", "attention": "#ffc79e"}
+#
+# The window itself lives in nemo_ui.py (Tk); everything above and
+# below this point is Tk-free and headless-testable.
 
 
 def run_gui(engine_cmd=None, host=None, port=None, settings_ctx=None):
-    import queue
-    import time
-    import tkinter as tk
-    from tkinter import messagebox
-    from tkinter.scrolledtext import ScrolledText
+    """Compatibility entry point (v2 signature): open the chat window
+    with Little Nemo on the given engine target, SuperNemo per the
+    settings file."""
+    argv = (settings_ctx or {}).get("argv", [])
+    targets = resolve_model_targets(argv)
+    targets["littlenemo"] = {"cmd": engine_cmd, "host": host, "port": port}
+    import nemo_ui
 
-    events = queue.Queue()
-    # The live engine connection, with a generation counter: a
-    # respawn (settings apply, restart) retires the old client,
-    # and events tagged with a retired generation are ignored,
-    # so a dying engine cannot mark its replacement disconnected.
-    conn = {"client": None, "gen": 0}
-
-    root = tk.Tk()
-    root.title("Little Nemo")
-    root.configure(bg=BG)
-    root.geometry("1060x760")
-
-    state = {
-        "mode": "idle", "layer": None, "next": None, "active": 0,
-        "staged": 0, "tok": 0, "ms_tok": 0.0, "gbs": 0.0,
-        "turn_start": None, "busy": False, "model": "...",
-        "turns": 0, "ready": {},
-    }
-
-    top = tk.Frame(root, bg=BG)
-    top.pack(fill="x", padx=10, pady=(10, 2))
-    tk.Label(top, text="Little Nemo", font=("TkDefaultFont", 15, "bold"),
-             bg=BG, fg=FG).pack(side="left")
-    status = tk.Label(top, text="connecting...", bg=BG, fg=DIM)
-    status.pack(side="left", padx=10)
-    lamp = tk.Label(top, text="● IDLE", bg=BG, fg=DIM,
-                    font=("TkDefaultFont", 11, "bold"))
-    lamp.pack(side="right")
-
-    settings_btn = tk.Menubutton(top, text="Settings", bg=PANEL, fg=FG,
-                                  activebackground=PANEL, relief="flat")
-    settings_menu = tk.Menu(settings_btn, tearoff=0, bg=PANEL, fg=FG,
-                            activebackground=ACCENT)
-    settings_menu.add_command(label="Engine settings...",
-                              command=lambda: open_settings())
-    settings_menu.add_command(label="Restart engine",
-                              command=lambda: restart_engine())
-    settings_btn.configure(menu=settings_menu)
-    settings_btn.pack(side="right", padx=(0, 8))
-
-    panes = tk.Frame(root, bg=BG)
-    panes.pack(fill="both", expand=True, padx=10, pady=4)
-    chat = ScrolledText(panes, bg=PANEL, fg=FG, insertbackground=FG,
-                        font=("TkDefaultFont", 11), wrap="word",
-                        state="disabled", width=64)
-    chat.pack(side="left", fill="both", expand=True)
-    chat.tag_config("user", foreground=ACCENT, font=("TkDefaultFont", 11, "bold"))
-    chat.tag_config("nemo", foreground=FG)
-    chat.tag_config("sys", foreground=DIM)
-
-    right = tk.Frame(panes, bg=BG)
-    right.pack(side="right", fill="both", padx=(8, 0))
-    tk.Label(right, text="Thinking", bg=BG, fg=THINK_COLOR,
-             font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
-    think = ScrolledText(right, bg=PANEL, fg=THINK_COLOR,
-                         font=("TkDefaultFont", 10, "italic"), wrap="word",
-                         state="disabled", width=38)
-    think.pack(fill="both", expand=True)
-
-    deck = tk.Frame(root, bg=PANEL)
-    deck.pack(fill="x", padx=10, pady=4)
-    strip = tk.Canvas(deck, bg=PANEL, height=26, highlightthickness=0)
-    strip.pack(fill="x", padx=8, pady=(6, 0))
-    cells = []
-    readout = tk.Label(deck, bg=PANEL, fg=FG, font=("TkFixedFont", 10),
-                       anchor="w", justify="left")
-    readout.pack(fill="x", padx=8, pady=(2, 6))
-
-    bottom = tk.Frame(root, bg=BG)
-    bottom.pack(fill="x", padx=10, pady=(2, 10))
-    entry = tk.Entry(bottom, bg=PANEL, fg=FG, insertbackground=FG,
-                     font=("TkDefaultFont", 11))
-    entry.pack(side="left", fill="x", expand=True)
-
-    def draw_strip():
-        strip.delete("all")
-        w = max(strip.winfo_width(), 200)
-        n = len(LAYER_TYPES)
-        cw = w / n
-        for i, t in enumerate(LAYER_TYPES):
-            lit = state["layer"] is not None and i <= state["layer"]
-            staged = (state["layer"] is not None
-                      and state["layer"] < i <= state["layer"] + state["staged"])
-            fill = LAYER_LIT[t] if lit else LAYER_COLORS[t]
-            outline = "#e0e6ff" if i == state["layer"] else ""
-            y0 = 3 if not staged else 8
-            strip.create_rectangle(i * cw + 1, y0, (i + 1) * cw - 1, 21,
-                                   fill=fill, outline=outline, width=2 if outline else 1)
-            if staged:
-                strip.create_line(i * cw + 2, 24, (i + 1) * cw - 2, 24,
-                                  fill=ACCENT, width=2)
-    strip.bind("<Configure>", lambda e: draw_strip())
-
-    def append(widget, text, tag=None):
-        widget.configure(state="normal")
-        widget.insert("end", text, tag)
-        widget.see("end")
-        widget.configure(state="disabled")
-
-    def fmt_readout():
-        lyr = state["layer"]
-        cur = (f"layer {lyr}/{len(LAYER_TYPES) - 1} ({LAYER_TYPES[lyr]})"
-               if lyr is not None and 0 <= lyr < len(LAYER_TYPES)
-               else "layer -")
-        nxt = state["next"]
-        nxt_s = (f"next {nxt} ({LAYER_TYPES[nxt]})"
-                 if nxt is not None and 0 <= nxt < len(LAYER_TYPES) else "next -")
-        el = ""
-        if state["turn_start"] is not None:
-            el = f"elapsed {time.time() - state['turn_start']:.1f}s"
-        tps = (1000.0 / state["ms_tok"]) if state["ms_tok"] > 0 else 0.0
-        return (f"{cur}   {nxt_s}   active {state['active']}   "
-                f"predict-ahead {state['staged']}   tok {state['tok']}   "
-                f"{tps:.1f} tok/s   {state['ms_tok']:.0f} ms/tok   "
-                f"{state['gbs']:.1f} GB/s est   {el}")
-
-    def set_mode(mode):
-        state["mode"] = mode
-        lamp.configure(
-            text={"thinking": "● THINKING", "answering": "● ANSWERING",
-                  "idle": "● IDLE"}[mode],
-            fg={"thinking": THINK_COLOR, "answering": ANSWER_COLOR,
-                "idle": DIM}[mode])
-
-    def on_send():
-        text = entry.get().strip()
-        if not text or state["busy"]:
-            return
-        entry.delete(0, "end")
-        append(chat, "You: ", "user")
-        append(chat, text + "\n", "user")
-        state["busy"] = True
-        state["turn_start"] = time.time()
-        state["tok"] = 0
-        set_mode("thinking")
-        try:
-            conn["client"].send_prompt(text)
-            state["turns"] += 1
-        except Exception as exc:
-            append(chat, f"[not connected: {exc}]\n", "sys")
-            state["busy"] = False
-            set_mode("idle")
-
-    def on_stop():
-        try:
-            conn["client"].stop()
-        except Exception:
-            pass
-
-    def on_reset():
-        try:
-            conn["client"].reset()
-        except Exception:
-            pass
-        state["turns"] = 0
-        append(chat, "[conversation reset]\n", "sys")
-        think.configure(state="normal")
-        think.delete("1.0", "end")
-        think.configure(state="disabled")
-
-    tk.Button(bottom, text="Send", command=on_send, bg=ACCENT, fg="#16161e",
-              font=("TkDefaultFont", 10, "bold")).pack(side="left", padx=(8, 0))
-    tk.Button(bottom, text="Stop", command=on_stop, bg=PANEL, fg=FG).pack(
-        side="left", padx=(6, 0))
-    tk.Button(bottom, text="Reset", command=on_reset, bg=PANEL, fg=FG).pack(
-        side="left", padx=(6, 0))
-    entry.bind("<Return>", lambda e: on_send())
-    entry.focus_set()
-
-    def poll():
-        try:
-            while True:
-                gen, kind, payload = events.get_nowait()
-                if gen != conn["gen"]:
-                    continue
-                if kind == "ready":
-                    state["ready"] = payload
-                    state["model"] = payload.get("model", "?")
-                    extra = ""
-                    if "cores" in payload:
-                        extra = (f" · cores {payload.get('cores', '?')}"
-                                 f" · threads {payload.get('threads', '?')}"
-                                 f" · mode {payload.get('mode', '?')}"
-                                 f" · simd "
-                                 f"{'on' if payload.get('simd') == '1' else 'off'}")
-                    status.configure(
-                        text=f"connected · {state['model']} · "
-                             f"weights {payload.get('weights', '?')}{extra}")
-                elif kind == "think":
-                    append(think, payload)
-                elif kind == "tok":
-                    if state["mode"] != "answering":
-                        set_mode("answering")
-                        append(chat, "Nemo: ", "nemo")
-                    append(chat, payload, "nemo")
-                elif kind == "layer":
-                    state["layer"] = payload["idx"]
-                    draw_strip()
-                elif kind == "tick":
-                    for k in ("layer", "next", "active", "staged", "tok",
-                              "ms_tok", "gbs"):
-                        if k in payload:
-                            state[k] = payload[k]
-                    set_mode(payload.get("mode", state["mode"]))
-                    draw_strip()
-                elif kind == "stats":
-                    append(chat,
-                           f"\n[{payload.get('tokens', 0)} tokens · "
-                           f"{payload.get('tps', 0):.1f} tok/s · "
-                           f"{payload.get('ms_per_tok', 0):.0f} ms/tok · "
-                           f"{payload.get('gbs_avg', 0):.1f} GB/s avg est · "
-                           f"peak {payload.get('peak_mb', 0):.0f} MB]\n", "sys")
-                elif kind == "done":
-                    append(chat, "\n")
-                    state["busy"] = False
-                    state["turn_start"] = None
-                    set_mode("idle")
-                elif kind == "error":
-                    append(chat, f"[error: {payload}]\n", "sys")
-                    state["busy"] = False
-                    set_mode("idle")
-                elif kind == "closed":
-                    status.configure(text="disconnected")
-        except queue.Empty:
-            pass
-        readout.configure(text=fmt_readout())
-        root.after(120, poll)
-
-    def connect(cmd, h, p):
-        """(Re)spawn the engine with an argument list or a remote
-        target, retiring any live client. This is the runtime
-        refresh the Settings menu applies through: the engine
-        holds the conversation state, so a respawn starts a
-        fresh session, and the new READY line in the status bar
-        is the receipt that the settings were picked up."""
-        old = conn["client"]
-        if old is not None:
-            old.quit()
-            try:
-                if old._proc is not None:
-                    old._proc.terminate()
-            except Exception:
-                pass
-            try:
-                if old._sock is not None:
-                    old._sock.close()
-            except Exception:
-                pass
-        conn["gen"] += 1
-        gen = conn["gen"]
-        c = NemoClient(lambda k, pl, g=gen: events.put((g, k, pl)))
-        conn["client"] = c
-        state["busy"] = False
-        state["turns"] = 0
-        set_mode("idle")
-        if h:
-            try:
-                c.connect_tcp(h, int(p))
-                status.configure(text="connecting...")
-            except Exception as exc:
-                status.configure(text=f"connect failed: {exc}")
-        elif cmd:
-            try:
-                c.connect_process(cmd)
-                status.configure(text="connecting...")
-            except Exception as exc:
-                status.configure(text=f"engine failed to start: {exc}")
-        else:
-            status.configure(
-                text="no engine configured (see littlenemo.ini or --engine / --host)")
-
-    def restart_engine():
-        append(chat, "[engine restarting with the current settings]\n",
-               "sys")
-        think.configure(state="normal")
-        think.delete("1.0", "end")
-        think.configure(state="disabled")
-        connect(engine_cmd, host, port)
-
-    def open_settings():
-        ctx = settings_ctx or {}
-        argv = ctx.get("argv", [])
-        values, found_path = resolve_settings(argv)
-        target = (found_path or ctx.get("config_arg")
-                  or os.path.join(os.getcwd(), "littlenemo.ini"))
-
-        dlg = tk.Toplevel(root)
-        dlg.title("Little Nemo settings")
-        dlg.configure(bg=BG)
-        dlg.transient(root)
-        form = tk.Frame(dlg, bg=BG)
-        form.pack(fill="both", expand=True, padx=12, pady=10)
-        r = 0
-
-        def head(text):
-            nonlocal r
-            tk.Label(form, text=text, bg=BG, fg=ACCENT,
-                     font=("TkDefaultFont", 10, "bold"),
-                     anchor="w").grid(row=r, column=0, columnspan=2,
-                                      sticky="w", pady=(8, 2))
-            r += 1
-
-        def note(text):
-            nonlocal r
-            tk.Label(form, text=text, bg=BG, fg=DIM, anchor="w",
-                     justify="left", wraplength=430).grid(
-                         row=r, column=0, columnspan=2, sticky="w",
-                         pady=1)
-            r += 1
-
-        def entry_row(text, initial):
-            nonlocal r
-            tk.Label(form, text=text, bg=BG, fg=FG, anchor="w").grid(
-                row=r, column=0, sticky="w", padx=(0, 8), pady=1)
-            e = tk.Entry(form, bg=PANEL, fg=FG, insertbackground=FG,
-                         width=46)
-            e.insert(0, initial)
-            e.grid(row=r, column=1, sticky="ew", pady=1)
-            r += 1
-            return e
-
-        head("Engine")
-        tk.Label(form, text="mode", bg=BG, fg=FG, anchor="w").grid(
-            row=r, column=0, sticky="w", padx=(0, 8), pady=1)
-        mode_var = tk.StringVar(value=values["mode"] or "max")
-        tk.OptionMenu(form, mode_var, *MODES).grid(
-            row=r, column=1, sticky="w", pady=1)
-        r += 1
-
-        auto_var = tk.BooleanVar(value=values["threads"] in ("", "0"))
-        e_threads = entry_row(
-            "threads", "" if auto_var.get() else values["threads"])
-        tk.Checkbutton(
-            form, text="threads: let the mode decide (auto)",
-            variable=auto_var, bg=BG, fg=FG, activebackground=BG,
-            selectcolor=PANEL,
-            command=lambda: e_threads.configure(
-                state="disabled" if auto_var.get() else "normal")).grid(
-                    row=r, column=1, sticky="w", pady=1)
-        r += 1
-        if auto_var.get():
-            e_threads.configure(state="disabled")
-
-        simd_var = tk.BooleanVar(value=values["simd"])
-        tk.Checkbutton(
-            form, text="simd: AVX2 projections where available",
-            variable=simd_var, bg=BG, fg=FG, activebackground=BG,
-            selectcolor=PANEL).grid(row=r, column=0, columnspan=2,
-                                     sticky="w", pady=1)
-        r += 1
-        note("The engine checks the CPU itself and stays scalar on "
-             "hardware without AVX2; the status bar shows what the "
-             "engine actually ran.")
-        e_max_new = entry_row("max_new", values["max_new"])
-        e_max_pos = entry_row("max_pos", values["max_pos"])
-        note("Blank max_new / max_pos fall back to the engine "
-             "defaults (256 / 4096).")
-
-        head("Paths (local engine)")
-        e_engine = entry_row("engine", values["engine"])
-        e_ckpt = entry_row("checkpoint", values["checkpoint"])
-        e_tok = entry_row("tokenizer", values["tokenizer"])
-        note("Relative paths resolve against the settings file's "
-             "folder.")
-
-        head("Remote engine")
-        e_host = entry_row("host", values["host"])
-        e_port = entry_row("port", values["port"])
-        note("A remote engine keeps its own mode, threads, simd, "
-             "max_new and max_pos; those cannot be changed from "
-             "this window. With a host set, Apply saves everything "
-             "to the settings file but only reconnects; the engine "
-             "fields take effect when a local engine is next "
-             "started from this file.")
-
-        head("This machine")
-        hw = f"{os.cpu_count()} cores detected on this machine."
-        rd = state.get("ready") or {}
-        if rd:
-            hw += (f" Engine reported: cores {rd.get('cores', '?')}, "
-                   f"threads {rd.get('threads', '?')}, "
-                   f"mode {rd.get('mode', '?')}, "
-                   f"simd {'on' if rd.get('simd') == '1' else 'off'}, "
-                   f"model {rd.get('model', '?')}.")
-        else:
-            hw += " The engine has not reported its READY line yet."
-        note(hw)
-        note(f"Settings file: {target}"
-             + ("" if found_path else " (will be created by Apply)"))
-        if ctx.get("cli_engine"):
-            note("This session was launched with a command-line "
-                 "--engine override. The fields above show the "
-                 "settings file. Apply saves to the file and "
-                 "restarts from it, replacing the override for "
-                 "this session.")
-        if ctx.get("cli_host") or ctx.get("cli_port"):
-            note("This session was launched with command-line "
-                 "--host / --port overrides; Apply restarts from "
-                 "the settings file's remote values.")
-
-        err = tk.Label(form, text="", bg=BG, fg="#f7768e", anchor="w",
-                       justify="left", wraplength=430)
-        err.grid(row=r, column=0, columnspan=2, sticky="w",
-                 pady=(6, 2))
-        r += 1
-        btns = tk.Frame(form, bg=BG)
-        btns.grid(row=r, column=0, columnspan=2, sticky="e",
-                  pady=(4, 0))
-
-        def gather():
-            return {
-                "engine": e_engine.get(),
-                "checkpoint": e_ckpt.get(),
-                "tokenizer": e_tok.get(),
-                "mode": mode_var.get(),
-                "threads": "" if auto_var.get() else e_threads.get(),
-                "simd": bool(simd_var.get()),
-                "max_new": e_max_new.get(),
-                "max_pos": e_max_pos.get(),
-                "host": e_host.get(),
-                "port": e_port.get(),
-            }
-
-        def show_errors(errors):
-            err.configure(text="\n".join(
-                f"{k}: {v}" for k, v in errors.items()))
-
-        def on_apply():
-            nonlocal engine_cmd, host, port
-            raw = gather()
-            errors = validate_settings(raw)
-            if errors:
-                show_errors(errors)
-                return
-            if state["busy"] or state["turns"] > 0:
-                if not messagebox.askyesno(
-                        "Restart engine",
-                        "Applying these settings restarts the "
-                        "engine and clears the current conversation. "
-                        "Continue?", parent=dlg):
-                    return
-            errors, result = apply_settings(raw, target)
-            if errors:
-                show_errors(errors)
-                return
-            append(chat, "[settings applied; engine restarting, "
-                         "conversation cleared]\n", "sys")
-            think.configure(state="normal")
-            think.delete("1.0", "end")
-            think.configure(state="disabled")
-            dlg.destroy()
-            # The applied settings become the session's current
-            # settings, so a later Restart engine respawns with
-            # them instead of reverting to the startup values
-            # (Archie Round 4 P1-2, 2026-11-25).
-            engine_cmd, host, port = (result["cmd"], result["host"],
-                                      result["port"])
-            connect(engine_cmd, host, port)
-
-        tk.Button(btns, text="Apply", command=on_apply, bg=ACCENT,
-                  fg="#16161e",
-                  font=("TkDefaultFont", 10, "bold")).pack(
-                      side="left", padx=(0, 6))
-        tk.Button(btns, text="Cancel", command=dlg.destroy, bg=PANEL,
-                  fg=FG).pack(side="left")
-        try:
-            dlg.grab_set()
-        except Exception:
-            pass
-
-    connect(engine_cmd, host, port)
-
-    draw_strip()
-    poll()
-    root.mainloop()
+    nemo_ui.run_app(targets, "littlenemo", settings_ctx or {})
 
 
 def load_ini(argv):
@@ -1099,37 +925,39 @@ def apply_settings(raw, ini_path):
     return {}, result
 
 
+
+def _arg(argv, flag):
+    if flag in argv:
+        j = argv.index(flag)
+        if j + 1 < len(argv):
+            return argv[j + 1]
+    return None
+
+
 def main(argv):
-    engine_cmd, host, port = load_ini(argv)
-    cli_engine = cli_host = cli_port = None
-    i = 0
-    while i < len(argv):
-        if argv[i] == "--engine":
-            engine_cmd = argv[i + 1]
-            cli_engine = argv[i + 1]
-            i += 2
-        elif argv[i] == "--host":
-            host = argv[i + 1]
-            cli_host = argv[i + 1]
-            i += 2
-        elif argv[i] == "--port":
-            port = argv[i + 1]
-            cli_port = argv[i + 1]
-            i += 2
-        elif argv[i] == "--config":
-            i += 2
-        else:
-            i += 1
+    targets = resolve_model_targets(argv)
+    model = _arg(argv, "--model") or "littlenemo"
+    if model not in MODELS:
+        sys.stderr.write(f"unknown --model {model!r}; choose one of: "
+                         f"{', '.join(MODEL_ORDER)}\n")
+        return 2
+    lt = targets["littlenemo"]
     settings_ctx = {
         "argv": list(argv),
         "ini_path": find_ini_path(argv),
         "config_arg": _config_arg(argv),
-        "cli_engine": cli_engine,
-        "cli_host": cli_host,
-        "cli_port": cli_port,
+        "cli_engine": _arg(argv, "--engine"),
+        "cli_host": _arg(argv, "--host"),
+        "cli_port": _arg(argv, "--port"),
+        "cli_theme": _arg(argv, "--theme"),
+        "engine_cmd": lt["cmd"], "host": lt["host"], "port": lt["port"],
     }
-    run_gui(engine_cmd, host, port, settings_ctx)
+    import nemo_ui
+
+    return nemo_ui.run_app(targets, model, settings_ctx,
+                           demo=_arg(argv, "--demo"),
+                           shots=_arg(argv, "--shots"))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

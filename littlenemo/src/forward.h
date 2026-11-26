@@ -92,6 +92,23 @@ int nemo_model_step_hidden(nemo_model *m, int token, float *hidden_out);
  * Same return conventions as nemo_model_step_hidden. */
 int nemo_model_step(nemo_model *m, int token, float *logits_out);
 
+/* Layer-major prompt prefill (GUI adapter, 2026-11-26). Runs n <=
+ * NEMO_PREFILL_CHUNK tokens through the stack one LAYER at a time: each
+ * layer's weights are fetched once and applied to every token in order
+ * before the next layer, instead of re-fetching all 56 layers per token.
+ * Per-token math and the per-layer state order are unchanged, so the
+ * result is bit-identical to n calls of nemo_model_step_hidden (the
+ * test_prefill suite checks exactly that). hidden_out receives the last
+ * token's pre-final-norm hidden state. Same return codes as
+ * nemo_model_step_hidden. */
+#define NEMO_PREFILL_CHUNK 32
+int nemo_model_prefill(nemo_model *m, const int *tokens, int n,
+                       float *hidden_out);
+
+/* Final norm + lm_head on a hidden state (the readout half of
+ * nemo_model_step). Returns 0, or -1 if the head tensors fail to load. */
+int nemo_model_head(nemo_model *m, const float *hidden, float *logits_out);
+
 /* Validate the whole model geometry against the checkpoint index
  * before inference begins (Gizmo review, 2026-11-24): every tensor
  * the steps will fetch, across layers 0..layer_limit-1 (0 = all 56)
