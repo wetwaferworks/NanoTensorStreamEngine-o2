@@ -1,5 +1,7 @@
 # Little Nemo
 
+> Update, 2026-11-26: the GUI adapter (`engine_gui`, chat template, layer-major prefill, protocol v3), the CUDA lane and the chat window arrived after this document was written. For the current guides see [docs/LITTLE-NEMO-ENGINE.md](docs/LITTLE-NEMO-ENGINE.md), [docs/ACCEL-CUDA.md](docs/ACCEL-CUDA.md) and [docs/GUI.md](docs/GUI.md). This file is the original record and is kept as written.
+
 Little Nemo is a pure C inference engine for NVIDIA's
 Nemotron-Nano-9B-v2, built alongside the Nano Tensor Stream
 Engine (NTSE-o2). It

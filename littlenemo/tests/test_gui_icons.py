@@ -256,7 +256,7 @@ def main():
     expect(missing["id"] == "pixel" and any("not found" in n
                                             for n in missing["notes"]),
            "unknown theme falls back to Pixel Nemo")
-    # Handshake banner exists; THEMES.md notes HandshakeOS is not public-cleared.
+    # Handshake banner exists; THEMES.md notes the banner's product tag is not public-cleared.
     hs = themes.get_theme("handshake")
     hs_banner = themes.banner_path(hs)
     expect(hs["id"] == "handshake" and hs_banner and os.path.isfile(hs_banner),

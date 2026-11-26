@@ -19,7 +19,7 @@ Use the compiler already on the machine. Do not install anything.
     # Linux / the box
     ./build.sh && ./test_nemo_scale
 
-    # TheWorkstation (MSYS2 UCRT64 gcc on PATH, or:)
+    # Windows (MSYS2 UCRT64 gcc on PATH, or:)
     MSYS2 UCRT64 gcc on PATH  (see build.bat)
     build.bat && test_nemo_scale.exe
 

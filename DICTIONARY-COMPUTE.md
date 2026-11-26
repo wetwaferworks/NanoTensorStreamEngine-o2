@@ -70,9 +70,13 @@ contended; treat timings as floor numbers.
 - The method has a break-even: tables cost memory bandwidth too,
   and for M, the weight matrix's row count (the output
   dimension; the activation batch cancels out of the
-  inequality), the win holds while M stays under about
+  inequality), the win holds once M is over about
   K*B/(B-1) for book size K and block B (about 257 at K = B =
-  256). A "where dictionary compute fails" study is on the
+  256): tall matrices win, short ones lose. (Erratum, 2026-11-26:
+  an earlier draft of this sentence had the inequality reversed
+  ("under"). Per segment DTC pays K*B multiply-adds to build the
+  tables plus about M lookups, against M*B for dense, so DTC wins
+  when M > K*B/(B-1). Reported by Gizmo; see accel/README.md.) A "where dictionary compute fails" study is on the
   program, and its negative results will be published the same
   way as the positive ones.
 - Summation order differs from the materializing path, so the
@@ -151,14 +155,12 @@ live tree. Two disclosures ride with the ruling:
   re-derived against the gate engine, or the vehicle
   audited, before the default posture flips to auto.
 
-[SLOT: tonight's hardware measurements. JD measures DTC on
-his own hardware tonight (2026-11-25): end-to-end consume
-loop timings, the dense-versus-DTC comparison in bytes moved
-per token, and any GPU (CUDA) DTC figures from the Cortana
-session. No bench numbers beyond the probe receipts above
-exist at the time of this draft. Fill this slot with the
-measured results, dated and sourced, before this file is
-applied and pushed.]
+Hardware measurements are recorded where they were taken: the
+accel lanes and their bench tables (CUDA, OpenCL on NVIDIA, Intel
+iGPU) are in accel/README.md and docs/ACCEL.md, the Little Nemo
+CUDA lane in docs/ACCEL-CUDA.md, and the end-to-end consume loop
+and byte-movement comparison in MEGA-TENSOR.md and
+PIPELINE-2026-11-24.md.
 
 ## Credits
 

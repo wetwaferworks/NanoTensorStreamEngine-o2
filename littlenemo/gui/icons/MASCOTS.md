@@ -68,4 +68,4 @@ Comments in the JSON above are for explanation only, so remove them in a real ma
 
 To rebuild everything, run `python3 scripts/mascots.py` (needs PIL only).
 
-Credits: mascots by CloudAtlas · Technical Art Director. The HandshakeOS name and o.O mark are by JD.
+Credits: mascots by CloudAtlas · Technical Art Director. The o.O mark is by JD.

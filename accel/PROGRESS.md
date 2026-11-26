@@ -1,8 +1,8 @@
 # accel/ progress note (resume point)
 
 Updated 2026-11-26 12:25 ET. Worktree <scratch>\ntse-o2-accel-2026-11-26,
-branch scratch/accel-2026-11-26 off ef39281. No commits, no pushes.
-`git status`: only `?? accel/`. Box mirror: /workspace/ntse-accel/accel
+branch scratch/accel-2026-11-26 off ef39281. This note predates the merge: the work is now on `main`.
+`git status`: only `?? accel/`.
 (sync: tar on box -> CopyFromBox to <xfer-dir>
 -> `tar -xf` in the worktree; the scratch drive is outside the CopyFromBox root).
 Run everything at BelowNormal; leave CPU for the GUI (pythonw) and

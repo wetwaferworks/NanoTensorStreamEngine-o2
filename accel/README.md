@@ -4,8 +4,8 @@ Direction and idea: **JD**. Lane proposals and measurement list: **Gizmo**.
 NTSE / nq2 / the converter and Little Nemo: **Elfie**. Co-implemented by
 **Cortana**.
 
-Status: research code on branch `scratch/accel-2026-11-26`, based on the
-zero-mutex tree `ef39281`. Nothing outside `accel/` is modified. The pure
+Status: merged into `main` (2026-11-26). Nothing outside `accel/` is
+modified. The pure
 C backend builds and runs with zero GPU code, and **the CPU path stays
 the reference and official path**. These lanes are an accelerator for
 it, not a replacement.
@@ -579,11 +579,11 @@ a tokenizer-based eval once available.
   `NTSE_NVRTC_DLL`). Without it the lane reports NODEV and AUTO moves
   on to OpenCL.
 
-## Erratum for DICTIONARY-COMPUTE.md (reported, not edited)
+## Erratum for DICTIONARY-COMPUTE.md (reported, now fixed)
 
 It says the DTC "win holds while M stays under about K·B/(B−1)". The
 inequality is reversed. Per segment, DTC costs K·B MACs to build the
 tables plus about M lookups, and dense costs M·B MACs. So DTC wins when
 **M > K·B/(B−1)** (≈257 at K = B = 256), i.e. for tall matrices, and
 loses for short ones (Gizmo's correction). Benchmark section b measures
-it.
+it. DICTIONARY-COMPUTE.md has since been corrected, with a note.

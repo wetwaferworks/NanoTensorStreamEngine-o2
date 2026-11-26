@@ -1,4 +1,37 @@
-# Little Nemo engine protocol v2
+# Little Nemo engine protocol v2 and v3
+
+Protocol v2 is the base; v3 is a backward-compatible set of extensions
+(2026-11-26), described in the second half of this file. The GUI-side view of
+every message is in [docs/GUI.md](../docs/GUI.md#protocol-v3-message-reference).
+
+## Message index
+
+| Message | Direction | Since | Meaning |
+|---|---|---|---|
+| `PROMPT` | client to engine | v2 | one user turn |
+| `STOP` | client to engine | v2 | end the current generation early |
+| `RESET` | client to engine | v2 | clear the conversation (and pending attachments) |
+| `QUIT` | client to engine | v2 | end the session |
+| `MEDIA` | client to engine | v3 | announce one attachment for the next PROMPT |
+| `FRAME` | client to engine | v3 | one extracted video frame for a MEDIA id |
+| `READY` | engine to client | v2 (v3 adds `media`, `accel`, `moe`, `fixture`) | the engine is up |
+| `THINK` | engine to client | v2 | a piece of the reasoning trace |
+| `TOK` | engine to client | v2 | a piece of the visible answer |
+| `LAYER` | engine to client | v2 | the forward pass entered a layer |
+| `TICK` | engine to client | v2 | per-token telemetry |
+| `STATS` | engine to client | v2 (v3 adds keys) | end-of-turn summary |
+| `DONE` | engine to client | v2 | the turn is complete |
+| `ERROR` | engine to client | v2 | something went wrong; the turn is over |
+| `MEDIA_OK`, `MEDIA_ERR` | engine to client | v3 | attachment accepted or refused |
+| `HW` | engine to client | v3 | hardware the engine runs on |
+| `PREFILL` | engine to client | v3 | prompt processing, once per turn |
+| `EXPAND` | engine to client | v3 | a tensor being expanded |
+| `DTC` | engine to client | v3 | a tensor in dense tensor compute |
+| `HS` | engine to client | v3 | Tensor Handshake counters |
+| `MEM` | engine to client | v3 | memory |
+| `MOE` | engine to client | v3 | experts routed for the current token |
+| `STAT` | engine to client | v3 | any other statistic |
+
 
 Line-based UTF-8 text protocol between the GUI (client, Python) and the
 engine (server, pure C). The backend is always C; the Python front end

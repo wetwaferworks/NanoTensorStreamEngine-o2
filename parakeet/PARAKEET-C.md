@@ -1,6 +1,6 @@
 # parakeet-c: native Windows speech runtime for Nemo-family dictation
 
-Scratch build, 2026-11-26. Not committed or pushed. Idea and shape: JD.
+Engineering notes for `parakeet-c` (2026-11-26). Idea and shape: JD. User guide: [docs/DICTATION.md](../docs/DICTATION.md).
 
 ## What it is
 A pure-C11 runtime (plus WASAPI COM calls) that runs NVIDIA **Parakeet TDT 0.6B v2**
@@ -21,8 +21,8 @@ The chat GUI (Python/Tk) only spawns `parakeet-c.exe --stdio` and reads lines ba
 `accel/` is reserved for a CUDA encoder lane. It is not built yet because the CPU is already at about 0.06 RTF.
 
 ## Weights (reused, not downloaded)
-The weights come from JD's existing WSL setup (`/opt/parakeet` in Ubuntu-24.04) and were copied to
-`<models-dir>\parakeet-tdt-0.6b-v2\`:
+The weights are not in this repository. Download them (or reuse an existing NeMo extract) into
+`<models-dir>\parakeet-tdt-0.6b-v2\` and point `PARAKEET_MODEL` at it:
 - `model_weights.safetensors` (1,253,859,392 B; encoder bf16, decoder/joint f32): the "fast" extract made from the .nemo on 2026-10-07.
 - `*_tokenizer.model`, `*_tokenizer.vocab`, `*_vocab.txt`, `model_config.yaml`, `manifest.json`.
 - `samples\*.wav` and `samples\ref\*.txt`: the WSL/NeMo pipeline's own transcripts, used as the accuracy reference.
@@ -48,8 +48,8 @@ env: PARAKEET_MIC=<part of device name>, PARAKEET_THREADS, PARAKEET_HOP_MS, PARA
   `STAT <seg> audio= mel= enc= dec= total= rtf= final=`, `WARN <msg>` (mic delivers digital silence), `DONE`, `ERR <msg>`, `RESULT <text>`
 
 ## GUI
-- `gui/nemo_dictation.py` is a new file, also copied into `ntse-o2-gui-2026-11-26\littlenemo\gui\`.
-- `nemo_ui.py` gets a 9-line guarded hook in `_build_composer`. The backup is `backup\nemo_ui.py.before-dictation`.
+- `gui/nemo_dictation.py` is the dictation client (a copy lives in `littlenemo/gui/`).
+- `nemo_ui.py` carries a small guarded hook in `_build_composer`.
 - How it works:
   - A big mic button and a "Click to dictate" label sit in the composer tool row.
   - Click to start and click to stop. You can also hold the button and let go (push-to-talk), or press Ctrl+Shift+Space.
@@ -58,7 +58,7 @@ env: PARAKEET_MIC=<part of device name>, PARAKEET_THREADS, PARAKEET_HOP_MS, PARA
   - parakeet-c is pre-warmed 1.5 s after the GUI opens, so the first click is instant.
   - parakeet-c exits when the GUI's pipe closes.
 
-## Results (TheWorkstation, i5-12450H, 8 threads, CPU only)
+## Results (12th-gen Core i5-12450H, 8 threads, CPU only)
 | Test | Result |
 |---|---|
 | Unit tests | 17 PASS / 0 FAIL (FFT, GEMM f32/bf16 at 1 and 8 threads, 20k pool jobs, resampler + anti-alias, WAV, mel, SPM, checkpoint fb/window/dims/vocab) |

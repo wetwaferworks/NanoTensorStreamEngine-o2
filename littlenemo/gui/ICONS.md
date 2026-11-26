@@ -1,4 +1,4 @@
-# NTSE model icons — asset format for CloudAtlas
+# NTSE model icons: asset format
 
 Placeholder packs live in `gui/icons/supernemo/` and `gui/icons/littlenemo/`.
 They are procedurally drawn stand-ins (simple shapes, JD's purple `#A970FF`

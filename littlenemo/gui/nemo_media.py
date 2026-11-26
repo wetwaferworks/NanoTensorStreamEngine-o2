@@ -9,7 +9,7 @@ Images are opened with Pillow (already installed) and checked against
 the side and pixel-count bounds before anything decodes the pixels,
 so a decompression bomb is refused, not rendered.
 
-Video frames: there is no ffmpeg or OpenCV on TheWorkstation and the
+Video frames: there is no ffmpeg or OpenCV on the development machine and the
 GUI may not download them, so frame extraction uses what exists:
 ffmpeg if one is on PATH, else Pillow for animated GIF / WebP. For
 MP4 / MOV / WebM / MKV / AVI without ffmpeg, the attachment is still

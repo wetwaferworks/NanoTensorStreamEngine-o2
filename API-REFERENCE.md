@@ -26,7 +26,7 @@ share the run-shaping flags:
     --steps N            diffusion steps
     --block N            block size
     --sampler NAME       ddim (default) or ddpm
-    --schedule NAME      logsnr (default) or edm_sigma
+    --schedule NAME      log_snr (default) or edm_sigma
     --guidance F         guidance scale
     --score-temp F       score temperature
     --seed N             seed
@@ -98,6 +98,8 @@ nq2-quantize writes the pack. Flags verified in source:
     --norm MODE          minmax or rms
     --residual           residual second book
     --format N           1, 2, or 3 (default 3)
+    --threads N          worker threads for the encode; the output is
+                         byte-identical at any N
 
 Format v3 additions (all three require --books per-tensor):
 

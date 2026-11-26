@@ -556,8 +556,8 @@
       "id": "handshake",
       "order": 3,
       "name": "o.O Handshake",
-      "subtitle": "HandshakeOS nod",
-      "description": "A small o, a dot and a big O: the HandshakeOS o.O mark as two nodes shaking hands over a circuit bus.",
+      "subtitle": "",
+      "description": "A small o, a dot and a big O: the o.O mark as two nodes shaking hands over a circuit bus.",
       "default": false,
       "folder": "themes/3-handshake-oO/",
       "colors": {

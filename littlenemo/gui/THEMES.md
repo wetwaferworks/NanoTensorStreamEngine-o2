@@ -1,4 +1,4 @@
-# NTSE chat themes — format for CloudAtlas
+# NTSE chat themes: format
 
 The official theme pack lives at `gui/theme-pack/` and is loaded
 **directly** from `theme.json` (the CloudAtlas v1 format). JD has
@@ -10,7 +10,7 @@ approved all five themes; all five are selectable. The default is
 | `pixel`     | Pixel Nemo      | Retro Pixel     | `themes/5-pixel-nemo/`     | **yes** |
 | `lattice`   | Lattice         | Tensor Crystal  | `themes/1-lattice/`        |         |
 | `stream`    | Stream          | Bitstream       | `themes/2-stream/`         |         |
-| `handshake` | o.O Handshake   | HandshakeOS nod | `themes/3-handshake-oO/`   |         |
+| `handshake` | o.O Handshake   |                 | `themes/3-handshake-oO/`   |         |
 | `owl`       | Sage Owl        |                 | `themes/4-sage-owl/`       |         |
 
 The pack's `scripts/` folder is **build tooling only** and is not
@@ -25,14 +25,13 @@ If the pack is missing, the picker falls back to two built-in themes
 (Night and Ember, also kept as `gui/themes/*.json` for reference).
 Those are hidden once the official pack is present.
 
-## HandshakeOS — not cleared for public yet
+## The Handshake banner tag
 
 The Handshake banner (`themes/3-handshake-oO/banner/banner-1200x300.png`)
-includes a **"HandshakeOS"** tag in the bottom-right corner. That name
-is **not cleared for public use yet**. Keep the banner for internal
-builds and the in-app picker, but do not ship or publish that mark
-until JD says it is cleared. The other Handshake assets (window icon,
-buttons, thinking strip, status dots, tile) do not carry the tag.
+carries a small product-name tag in the bottom-right corner. That name
+has not been cleared as a public mark, so these docs do not reproduce
+it. The other Handshake assets (window icon, buttons, thinking strip,
+status dots, tile) do not carry the tag.
 
 ## Pack layout
 

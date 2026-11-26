@@ -9,7 +9,7 @@ Five themes for the NTSE (Nano Tensor Streaming Engine) desktop GUI, which is a 
 | 5 | **Pixel Nemo: Retro Pixel** | `themes/5-pixel-nemo/` | **yes** |
 | 1 | Lattice: Tensor Crystal | `themes/1-lattice/` | |
 | 2 | Stream: Bitstream | `themes/2-stream/` | |
-| 3 | o.O Handshake: HandshakeOS nod | `themes/3-handshake-oO/` | |
+| 3 | o.O Handshake | `themes/3-handshake-oO/` | |
 | 4 | Sage Owl | `themes/4-sage-owl/` | |
 
 ## What each theme folder contains
@@ -38,4 +38,4 @@ Five themes for the NTSE (Nano Tensor Streaming Engine) desktop GUI, which is a 
 - The o.O Handshake 16 px icon and 16 px tray icon are hand-placed pixel by pixel, with o, dot and O sitting on a shared baseline.
 - To rebuild everything, run `python3 scripts/ntse_build_v1.py` (needs PIL only). The 2026-11-26 preview set stays unchanged in `../ntse-gui-art-2026-11-26/`.
 
-Credits: art by CloudAtlas · Technical Art Director. The HandshakeOS name and o.O mark are by JD.
+Credits: art by CloudAtlas · Technical Art Director. The o.O mark is by JD.
