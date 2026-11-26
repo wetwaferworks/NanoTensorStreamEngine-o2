@@ -26,7 +26,7 @@ Every result will be published with its negatives, as Lane 4 was.
 
 ## Engines and lanes
 
-- **Little Nemo CUDA lane:** done and measured; lands in the tree with the next push ([ACCEL-CUDA.md](ACCEL-CUDA.md)).
+- **Little Nemo CUDA lane:** done and measured; source is in `accel/` ([ACCEL-CUDA.md](ACCEL-CUDA.md)).
 - **CUDA runtime for Sigma:** the lanes are verified, but there is no end-to-end GPU decode for the Sigma model yet ([ACCEL.md](ACCEL.md)).
 - **SuperNemo engine:** Nemotron 3.5 Super VL 120B-A12B (512-expert MoE and a vision tower). The GUI side exists; the engine path does not.
 - **Precision Gate:** move the scratch implementation into `tools/` and chase the open intermittent `--threads 1` boundary fault ([PRECISION-GATE.md](PRECISION-GATE.md)).

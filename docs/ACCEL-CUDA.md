@@ -1,8 +1,8 @@
 # Little Nemo on CUDA: calibration, DTC by default, predict and expand
 
-Little Nemo can run its projections on the NVIDIA GPU from an NTSE `.nq2` v3 product-quantized pack, with the host side in pure C. This guide covers the lane, the startup calibration, the DTC and EXPAND rules, every flag, the windowless engine, and the measured speed and quiz results. Source: `accel/` in the GUI worktree: `nemo_gpu.c`/`.h`, `nemo_gpu_kernels.h`, `nemo_calib.c`/`.h`, `nemo_predict.c`/`.h`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`. Implementation: Cortana.
+Little Nemo can run its projections on the NVIDIA GPU from an NTSE `.nq2` v3 product-quantized pack, with the host side in pure C. This guide covers the lane, the startup calibration, the DTC and EXPAND rules, every flag, the windowless engine, and the measured speed and quiz results. Source: `accel/` (`nemo_gpu.c`/`.h`, `nemo_gpu_kernels.h`, `nemo_calib.c`/`.h`, `nemo_predict.c`/`.h`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`). Implementation: Cortana.
 
-**Status:** this lane was finished on 2026-11-26 and lands in the public tree with the next push. The numbers below are from one bench session on one machine (RTX 3050 Ti Laptop, 4 GB). They are measurements, not guarantees, and the quiz is a ten-question smoke test, not a benchmark.
+**Status:** this lane landed on 2026-11-26. Source is in `accel/` (`nemo_gpu`, `nemo_calib`, `nemo_predict`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`). The numbers below are from one bench session on one machine (RTX 3050 Ti Laptop, 4 GB). They are measurements, not guarantees, and the quiz is a ten-question smoke test, not a benchmark.
 
 ## The honest result first
 
@@ -105,12 +105,12 @@ Developer aids, read from the environment: `NEMO_CALIB_FILE` (cache path), `NEMO
 
 | Binary | Notes |
 |---|---|
-| `accel\bin\nemo-engine-cuda.exe` | the console engine (generated from `engine_gui.c` by `mk_engine_gui_cuda.py`, linked with the GPU, calibration and predict objects) |
+| `accel\bin\nemo-engine-cuda.exe` | the console engine (generated into `accel/engine_gui_cuda.c` from `engine_gui.c` by `mk_engine_gui_cuda.py`, linked with the GPU, calibration and predict objects; the generated file is a build product and is not committed) |
 | `accel\bin\nemo-engine-cuda-w.exe` | the same code linked with `-mwindows`: no console window pops up. Use it from a desktop shortcut or the GUI, with `--log FILE` to keep a log |
 | `accel\bin\test_nemo_gpu_layers.exe` | per-layer verification of the GPU path against the CPU reference |
 
 ```
-powershell -File accel\build-nemo-gpu.ps1        # from the GUI worktree root, MSYS2 UCRT64 gcc on PATH
+powershell -File accel\build-nemo-gpu.ps1        # from the repository root, MSYS2 UCRT64 gcc and Python on PATH
 ```
 
 The script writes new binaries only and rebuilds nothing prior. Example launch, as the desktop shortcut runs it:
