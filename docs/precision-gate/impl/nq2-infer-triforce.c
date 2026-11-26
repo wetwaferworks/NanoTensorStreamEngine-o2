@@ -1437,6 +1437,11 @@ typedef struct {
     double stat_stall_s, stat_slack_s, stat_load_ms;
     uint64_t stat_bytes;
     long stat_hits, stat_miss;
+    /* Hits that carry a ready-slack stamp (expanded ordinals):
+     * the slack mean divides by these, not by every hit, since a
+     * DTC consume has no expansion-ready stamp (Archie Round 5
+     * P2-PG2). */
+    long stat_slack_n;
     /* The Tensor Handshake layer counter (JD, 2026-11-25): the
      * consumer's committed position in the ordinal sequence,
      * and the consume tick of the stage-2 protocol (below):
@@ -2186,6 +2191,7 @@ static void pipe_init(int layers)
     g_pipe.stat_stall_s = g_pipe.stat_slack_s = g_pipe.stat_load_ms = 0.0;
     g_pipe.stat_bytes = 0;
     g_pipe.stat_hits = g_pipe.stat_miss = 0;
+    g_pipe.stat_slack_n = 0;
     /* Tensor Handshake stage 2: the prefetch priority list
      * starts empty, every worker row idle. */
     g_pipe.ord_state = (uint8_t *)calloc((size_t)max_ord + 1, 1);
@@ -2730,6 +2736,7 @@ static const float *pipe_get(int ord)
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
     for (;;) {
         uint32_t d = hs_door_open(&g_pipe.door);
@@ -2765,6 +2772,7 @@ static const float *pipe_get(int ord)
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
     if (!was_ready) {
         /* Demand ord from the triforce: the unpacker takes it,
@@ -2904,6 +2912,7 @@ static void dtc_consume(int ord, const float *x, float *y,
     int self_fetched = 0;
     int demanded = 0;
     long my_demand = 0;
+    double wait_s;                  /* the wait for the stage only */
     if (ord == 0) pipe_pass_boundary();
     if (ord > HS_LDX(&g_pipe.req_max)) HS_ST(&g_pipe.req_max, ord);
     /* Zero mutex (2026-11-26): the consumer takes the ordinal's
@@ -2975,6 +2984,13 @@ static void dtc_consume(int ord, const float *x, float *y,
         pipe_bump();
         break;
     }
+    /* The wait for the stage ends here, before the table
+     * compute below (Archie Round 5 P2-PG2): stall telemetry
+     * charges only time spent waiting on the pipeline, never the
+     * consume's own arithmetic. A stage found waiting on the
+     * first look (no demand posted, no self-fetch) is a prefetch
+     * hit, as pipe_get counts a buffer found ready. */
+    wait_s = pipe_now() - t_entry;
     if (!self_fetched) {
         HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
         HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
@@ -3021,14 +3037,19 @@ static void dtc_consume(int ord, const float *x, float *y,
     HS_SUB(&g_pipe.expand_busy_n, 1);
     HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], -1);
     {
-        /* Miss accounting, mirroring pipe_get: the ordinal
-         * was not resident-expanded when demanded. */
-        double wait_s = pipe_now() - t_entry;
-        g_pipe.stat_miss++;
-        g_pipe.stat_stall_s += wait_s;
-        g_pipe.fx_miss_count[ord]++;
-        g_pipe.fx_miss_wait_s[ord] += wait_s;
-        if (self_fetched) g_pipe.fx_self_count[ord]++;
+        /* Hit/miss accounting, mirroring pipe_get: a stage
+         * already waiting when the consumer asked is a hit; one
+         * the consumer had to demand or fetch itself is a miss,
+         * charged the staging wait only. */
+        if (!demanded && !self_fetched) {
+            g_pipe.stat_hits++;
+        } else {
+            g_pipe.stat_miss++;
+            g_pipe.stat_stall_s += wait_s;
+            g_pipe.fx_miss_count[ord]++;
+            g_pipe.fx_miss_wait_s[ord] += wait_s;
+            if (self_fetched) g_pipe.fx_self_count[ord]++;
+        }
     }
     if (ord + 1 <= g_pipe.max_ord) HS_ST(&g_pipe.want_unpack, ord + 1);
     pipe_bump();
@@ -3091,8 +3112,9 @@ static void pipe_report(void)
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,
-           g_pipe.stat_hits
-               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_hits : 0.0);
+           g_pipe.stat_slack_n
+               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_slack_n
+               : 0.0);
     if (g_pipe.stat_load_ms > 0)
         printf("  load path (disc + reconstruct): %.1f ms for "
                "%.2f GB expanded, %.0f MB/sec\n",

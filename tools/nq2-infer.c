@@ -394,6 +394,30 @@ static int seek_to(FILE *f, uint64_t off)
 #endif
 }
 
+/* 64-bit position/size reads, the same discipline as seek_to.
+ * A plain long ftell/fseek narrows a stream above 2 GiB on
+ * Windows, where long is 32 bits: packed_open's upfront size
+ * check then refused a valid large pack (Archie Round 5 P2-1,
+ * completing Round 3 P2-2 in this reader). Same helpers as
+ * nq2-infer-triforce.c and nq2-infer-lab.c. */
+static long long tell_of(FILE *f)
+{
+#ifdef _WIN32
+    return _ftelli64(f);
+#else
+    return (long long)ftello(f);
+#endif
+}
+
+static int seek_end(FILE *f)
+{
+#ifdef _WIN32
+    return _fseeki64(f, 0, SEEK_END);
+#else
+    return fseeko(f, 0, SEEK_END);
+#endif
+}
+
 /* Read elements [elem0, elem0+nelems) of a raw tensor as fp32. */
 static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
@@ -820,7 +844,7 @@ static int packed_open(const char *stream_path, const char *book_path)
         return -1;
     }
     {
-        long hb = ftell(g_pk_stream);
+        long long hb = tell_of(g_pk_stream);
         g_pk_header = hb > 0 ? (uint64_t)hb : 0;
     }
     /* Read-integrity (Round 4 P0 gap A, generalized): the
@@ -833,17 +857,17 @@ static int packed_open(const char *stream_path, const char *book_path)
     {
         if (g_pk_nblocks > (UINT64_MAX - g_pk_header) / (g_pk_idxw + 4))
             return -1;
-        long save = ftell(g_pk_stream);
-        if (save < 0 || fseek(g_pk_stream, 0, SEEK_END) != 0)
+        long long save = tell_of(g_pk_stream);
+        if (save < 0 || seek_end(g_pk_stream) != 0)
             return -1;
-        long fsz = ftell(g_pk_stream);
+        long long fsz = tell_of(g_pk_stream);
         if (fsz < 0 || seek_to(g_pk_stream, (uint64_t)save) != 0)
             return -1;
         uint64_t want = g_pk_header
             + (uint64_t)(g_pk_idxw + 4) * g_pk_nblocks + raw_bytes;
         if ((uint64_t)fsz != want) {
             fprintf(stderr, "packed stream size mismatch: file "
-                    "has %ld bytes, header describes %llu\n",
+                    "has %lld bytes, header describes %llu\n",
                     fsz, (unsigned long long)want);
             return -1;
         }
