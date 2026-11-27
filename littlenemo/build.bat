@@ -23,8 +23,8 @@ gcc %FLAGS% -o bin\nemo-engine.exe src\engine.c %LIB% -lm -lpsapi
 if errorlevel 1 (echo build failed: nemo-engine & exit /b 1)
 gcc %FLAGS% -o bin\nemo-inspect.exe src\nemo.c %LIB% -lm
 if errorlevel 1 (echo build failed: nemo-inspect & exit /b 1)
-for %%T in (test_mamba test_attn test_loader test_forward test_tokenizer test_tokenizer_split test_guards test_hostile test_coherence test_par test_simd) do (
+for %%T in (test_mamba test_attn test_loader test_forward test_tokenizer test_tokenizer_split test_guards test_hostile test_coherence test_par test_simd test_prefill mk_fixtures) do (
     gcc %FLAGS% -o bin\%%T.exe tests\%%T.c %LIB% -lm
     if errorlevel 1 (echo build failed: %%T & exit /b 1)
 )
-echo built bin\nemo-engine.exe bin\nemo-inspect.exe and 11 test suites in bin\
+echo built bin\nemo-engine.exe bin\nemo-inspect.exe and 12 test suites plus the fixture builder mk_fixtures in bin\

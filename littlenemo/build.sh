@@ -23,7 +23,7 @@ $CC $FLAGS -o bin/nemo-engine src/engine.c $LIB -lm -pthread
 $CC $FLAGS -o bin/nemo-inspect src/nemo.c $LIB -lm -pthread
 for t in test_mamba test_attn test_loader test_forward test_tokenizer \
          test_tokenizer_split test_guards test_hostile test_coherence \
-         test_par test_simd; do
+         test_par test_simd test_prefill mk_fixtures; do
     $CC $FLAGS -o bin/$t tests/$t.c $LIB -lm -pthread
 done
-echo "built bin/nemo-engine bin/nemo-inspect and 11 test suites in bin/"
+echo "built bin/nemo-engine bin/nemo-inspect and 12 test suites plus the fixture builder mk_fixtures in bin/"

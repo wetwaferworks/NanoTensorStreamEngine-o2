@@ -1,12 +1,15 @@
 /* test_prefill.c - layer-major prefill must be bit-identical to the
- * token-by-token path (GUI adapter, 2026-11-26). Truncated stack, real
- * checkpoint. Usage: test_prefill <checkpoint_dir> [layers] */
+ * token-by-token path. Runs a truncated stack (default 16 layers) on a real
+ * checkpoint, feeds 7 tokens in two chunks (4 + 3) to cross a chunk boundary,
+ * then checks the carried state with one more token and the refusal cases.
+ *
+ *     test_prefill <checkpoint_dir> [layers] */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "forward.h"
-#include "loader.h"
+#include "../src/forward.h"
+#include "../src/loader.h"
 
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: test_prefill <ckpt> [layers]\n"); return 2; }
