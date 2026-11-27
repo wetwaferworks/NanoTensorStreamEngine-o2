@@ -236,6 +236,13 @@ static float f16_to_float(uint16_t h)
 
 enum { DT_BF16, DT_F16, DT_F32 };
 
+/* --skip-unsupported (SuperVL work, 2026-11-27): tensors whose dtype is
+ * not BF16, F16 or F32 (for example the I64 summary_idxs of the RADIO
+ * tower) are left out of the pack with a notice instead of rejecting the
+ * whole model. Off by default: the old refusal stands. */
+static int g_skip_unsupported = 0;
+static int g_n_skipped = 0;
+
 typedef struct {
     char *name;
     int dtype;
@@ -344,6 +351,15 @@ static int shard_open(Shard *sh, const char *path)
                 if (strcmp(dts, "BF16") == 0) t->dtype = DT_BF16;
                 else if (strcmp(dts, "F16") == 0) t->dtype = DT_F16;
                 else if (strcmp(dts, "F32") == 0) t->dtype = DT_F32;
+                else if (g_skip_unsupported) {
+                    fprintf(stderr, "skip: tensor %s has dtype '%s' "
+                            "(not a weight dtype; left out of the "
+                            "pack)\n", key, dts);
+                    g_n_skipped++;
+                    free(t->name);
+                    pos = obj_end + 1;
+                    continue;
+                }
                 else {
                     /* Unsupported dtypes are rejected, never
                      * reinterpreted: an I32 tensor's bit patterns
@@ -1129,6 +1145,42 @@ static int g_format = 3;      /* --format 1|2|3 */
 static int g_pq_d = 0;        /* --pq D: subvector dim, 0 = flat */
 static int g_budgets = 0;     /* --budgets */
 static int g_embed_fp16 = 0;  /* --embed-fp16 */
+/* Generalised raw float16 storage (SuperVL work, 2026-11-27).
+ *   --raw-names a,b   tensors whose name contains any listed substring
+ *   --raw-small N     tensors with N weights or fewer, or with a weight
+ *                     count that is not a whole number of blocks (a
+ *                     block-packed tensor would silently lose its tail)
+ * Both use the same raw float16 section as --embed-fp16 and need
+ * per-tensor books, format 3. */
+static const char *g_raw_names = NULL;
+static uint64_t g_raw_small = 0;
+static int g_raw_any = 0;     /* any raw option given */
+
+static int name_matches_any(const char *name, const char *list)
+{
+    const char *p = list;
+    while (p && *p) {
+        const char *e = strchr(p, ',');
+        size_t n = e ? (size_t)(e - p) : strlen(p);
+        if (n > 0 && n < 255) {
+            char tok[256];
+            memcpy(tok, p, n); tok[n] = 0;
+            if (strstr(name, tok)) return 1;
+        }
+        if (!e) break;
+        p = e + 1;
+    }
+    return 0;
+}
+
+static int tensor_is_raw(const TensorInfo *ti, uint32_t block)
+{
+    if (g_embed_fp16 && strstr(ti->name, "embed_tokens")) return 1;
+    if (g_raw_names && name_matches_any(ti->name, g_raw_names)) return 1;
+    if (g_raw_small && (ti->count <= g_raw_small
+                        || ti->count % block != 0)) return 1;
+    return 0;
+}
 
 #define NQ2_FNV_SEED 14695981039346656037ull
 static uint64_t fnv1a(const void *data, size_t len, uint64_t h)
@@ -1615,6 +1667,7 @@ typedef struct {
     int *frame_bad;  uint64_t *bad_block; float *bad_value;
     int *fail;
     int *tbad;            /* per worker */
+    uint32_t idxw;        /* index bytes per block: 1 flat, block/d for PQ */
     uint64_t next;        /* lock-free tensor counter */
     uint64_t done;        /* progress only (atomic) */
     time_t t0;
@@ -1653,12 +1706,12 @@ static void pt_worker(int tid, void *vj)
             if (pt_write(bf, j->book_off[s], o.book, sizeof(float),
                          (size_t)j->entries * j->block) != 0) j->tbad[tid] = 1;
             if (o.nblocks) {
-                if (pt_write(sf, j->idx_off[s], o.idx, 1, (size_t)o.nblocks) != 0
+                if (pt_write(sf, j->idx_off[s], o.idx, 1, (size_t)o.nblocks * j->idxw) != 0
                     || pt_write(sf, j->mn_off[s], o.mn_h, 2, (size_t)o.nblocks) != 0
                     || pt_write(sf, j->sc_off[s], o.sc_h, 2, (size_t)o.nblocks) != 0)
                     j->tbad[tid] = 1;
             }
-            j->segd[s] = seg_digest_of(&o, 1);
+            j->segd[s] = seg_digest_of(&o, j->idxw);
             j->bookd[s] = book_digest_of(o.book, j->entries, j->block);
             j->frame_bad[s] = o.frame_bad;
             j->bad_block[s] = o.bad_block;
@@ -1730,7 +1783,7 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
     uint64_t st = rng_state;
     for (int s = 0; s < n; s++) {
         TensorInfo *ti = g_scope[s].tensor;
-        j.is_raw[s] = g_embed_fp16 && strstr(ti->name, "embed_tokens") ? 1 : 0;
+        j.is_raw[s] = tensor_is_raw(ti, block);
         j.rng0[s] = st;
         if (j.is_raw[s]) {
             j.nb[s] = 0;
@@ -1741,7 +1794,9 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
             j.nb[s] = tb;
             n_books++;
             uint64_t cap = tensor_sample_cap < tb ? tensor_sample_cap : tb;
-            uint64_t adv = (tb > cap ? tb - cap : 0) + (tb ? entries : 0);
+            uint64_t nsub_rng = g_pq_d ? block / (uint32_t)g_pq_d : 1;
+            uint64_t adv = (tb > cap ? tb - cap : 0)
+                         + (tb ? nsub_rng * entries : 0);
             for (uint64_t k = 0; k < adv; k++) st = xs_step(st);
         }
         block0s[s] = tot_blocks;
@@ -1749,20 +1804,23 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
         tot_weights += j.nb[s] * block;
     }
     rng_state = st;
-    uint32_t flags = tot_raw ? 4u : 0u;
+    uint32_t flags = (tot_raw ? 4u : 0u) | (g_pq_d ? 1u : 0u);
+    uint64_t idxw = g_pq_d ? block / (uint32_t)g_pq_d : 1;
+    j.idxw = (uint32_t)idxw;
     uint64_t bookbytes = (uint64_t)entries * block * 4;
-    uint64_t book_size = 28 + (uint64_t)n_books * bookbytes;
-    uint64_t H = 36 + (uint64_t)n * 8 + 8 + 4 + ((flags & 4u) ? 4 + (uint64_t)n_raw * 4 : 0);
-    uint64_t stream_size = H + tot_blocks * 5 + tot_raw * 2;
+    uint64_t book_hdr = 28 + (g_pq_d ? 4 : 0);
+    uint64_t book_size = book_hdr + (uint64_t)n_books * bookbytes;
+    uint64_t H = 36 + (uint64_t)n * 8 + 8 + 4 + (g_pq_d ? 4 : 0) + ((flags & 4u) ? 4 + (uint64_t)n_raw * 4 : 0);
+    uint64_t stream_size = H + tot_blocks * (idxw + 4) + tot_raw * 2;
     {
         uint64_t bk = 0;
         for (int s = 0; s < n; s++) {
-            if (!j.is_raw[s]) { j.book_off[s] = 28 + bk * bookbytes; bk++; }
-            j.idx_off[s] = H + block0s[s];
-            j.mn_off[s] = H + tot_blocks + block0s[s] * 2;
-            j.sc_off[s] = H + tot_blocks * 3 + block0s[s] * 2;
+            if (!j.is_raw[s]) { j.book_off[s] = book_hdr + bk * bookbytes; bk++; }
+            j.idx_off[s] = H + block0s[s] * idxw;
+            j.mn_off[s] = H + tot_blocks * idxw + block0s[s] * 2;
+            j.sc_off[s] = H + tot_blocks * (idxw + 2) + block0s[s] * 2;
             if (j.is_raw[s]) {
-                j.raw_off[s] = H + tot_blocks * 5 + raw_acc * 2;
+                j.raw_off[s] = H + tot_blocks * (idxw + 4) + raw_acc * 2;
                 raw_acc += g_scope[s].tensor->count;
             }
         }
@@ -1784,7 +1842,8 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
         bad |= wr(bf, &entries, 4, 1);
         bad |= wr(bf, &nb32, 4, 1);
         bad |= wr(bf, &gen, 8, 1);
-        if (book_size > 28) { uint8_t z = 0; bad |= seek_to(bf, book_size - 1); bad |= wr(bf, &z, 1, 1); }
+        if (g_pq_d) { uint32_t d32 = (uint32_t)g_pq_d; bad |= wr(bf, &d32, 4, 1); }
+        if (book_size > book_hdr) { uint8_t z = 0; bad |= seek_to(bf, book_size - 1); bad |= wr(bf, &z, 1, 1); }
         if (fclose(bf) != 0) bad = 1;
         FILE *sf = fopen(stream_tmp, "wb");
         if (!sf) { fprintf(stderr, "cannot write %s\n", stream_tmp); remove(book_tmp); return 1; }
@@ -1798,6 +1857,7 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
         for (int s = 0; s < n; s++) bad |= wr(sf, &j.nb[s], 8, 1);
         bad |= wr(sf, &gen, 8, 1);
         bad |= wr(sf, &flags, 4, 1);
+        if (flags & 1u) { uint32_t d32 = (uint32_t)g_pq_d; bad |= wr(sf, &d32, 4, 1); }
         if (flags & 4u) {
             uint32_t nr = (uint32_t)n_raw;
             bad |= wr(sf, &nr, 4, 1);
@@ -1869,7 +1929,7 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
             h = fnv1a(nm, strlen(nm), h);
             if (!j.is_raw[s]) rb |= fnv_range(bf, j.book_off[s], bookbytes, &h, buf, bufsz);
             if (j.nb[s]) {
-                rb |= fnv_range(sf, j.idx_off[s], j.nb[s], &h, buf, bufsz);
+                rb |= fnv_range(sf, j.idx_off[s], j.nb[s] * idxw, &h, buf, bufsz);
                 rb |= fnv_range(sf, j.mn_off[s], j.nb[s] * 2, &h, buf, bufsz);
                 rb |= fnv_range(sf, j.sc_off[s], j.nb[s] * 2, &h, buf, bufsz);
             }
@@ -1924,6 +1984,7 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
     uint64_t stream_bytes = stream_size;
     uint64_t denom = tot_weights + tot_raw;
     double rate = denom ? (double)stream_bytes * 8.0 / (double)denom : 0.0;
+    if (g_n_skipped) printf("skipped %d non-weight tensors (--skip-unsupported)\n", g_n_skipped);
     double crate = denom ? (double)(stream_bytes + book_bytes) * 8.0 / (double)denom : 0.0;
     char pathbuf[1024];
     snprintf(pathbuf, sizeof(pathbuf), "%s.report.txt", out_prefix);
@@ -1986,6 +2047,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--pq") == 0 && i + 1 < argc) g_pq_d = (int)strtol(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--budgets") == 0) g_budgets = 1;
         else if (strcmp(argv[i], "--embed-fp16") == 0) g_embed_fp16 = 1;
+        else if (strcmp(argv[i], "--raw-names") == 0 && i + 1 < argc) { g_raw_names = argv[++i]; g_raw_any = 1; }
+        else if (strcmp(argv[i], "--raw-small") == 0 && i + 1 < argc) { g_raw_small = strtoull(argv[++i], NULL, 10); g_raw_any = 1; }
+        else if (strcmp(argv[i], "--skip-unsupported") == 0) g_skip_unsupported = 1;
         else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) g_threads = (int)strtol(argv[++i], NULL, 10);
         else if (argv[i][0] != '-') shard_paths[n_shard_paths++] = argv[i];   /* no fixed cap: sized from argc */
         else { fprintf(stderr, "bad argument: %s\n", argv[i]); return 1; }
@@ -1997,7 +2061,8 @@ int main(int argc, char **argv)
             "usage: nq2-quantize --out PREFIX shard.safetensors [more shards]\n"
             "         [--block 256] [--entries 256] [--budget N]\n"
             "         [--filter a,b] [--sample-blocks N] [--iters N]\n"
-            "         [--threads N]   (default: logical CPUs; output identical for any N)\n");
+            "         [--threads N]   (default: logical CPUs; output identical for any N)\n"
+            "         [--raw-names a,b] [--raw-small N] [--skip-unsupported]\n");
         return 1;
     }
     if (entries > 256) {
@@ -2032,13 +2097,14 @@ int main(int argc, char **argv)
         fprintf(stderr, "--format must be 1, 2, or 3\n");
         return 1;
     }
-    if ((g_pq_d || g_budgets || g_embed_fp16) && books_mode != 1) {
-        fprintf(stderr, "--pq, --budgets, and --embed-fp16 need "
+    if (g_embed_fp16) g_raw_any = 1;
+    if ((g_pq_d || g_budgets || g_raw_any) && books_mode != 1) {
+        fprintf(stderr, "--pq, --budgets, and the raw options need "
                 "--books per-tensor\n");
         return 1;
     }
-    if ((g_pq_d || g_budgets || g_embed_fp16) && g_format != 3) {
-        fprintf(stderr, "--pq, --budgets, and --embed-fp16 are "
+    if ((g_pq_d || g_budgets || g_raw_any) && g_format != 3) {
+        fprintf(stderr, "--pq, --budgets, and the raw options are "
                 "format v3 options\n");
         return 1;
     }
@@ -2124,7 +2190,7 @@ int main(int argc, char **argv)
         }
         /* Flat v3 per-tensor books on more than one thread: the
          * parallel, byte-identical, RAM-bounded path. */
-        if (g_format == 3 && !g_pq_d && !g_budgets && !g_residual
+        if (g_format == 3 && !g_budgets && !g_residual
                 && g_threads > 1)
             return per_tensor_parallel(out_prefix, block, entries, iters,
                                        tensor_sample_cap);
@@ -2149,7 +2215,7 @@ int main(int argc, char **argv)
             TensorInfo *ti = g_scope[s].tensor;
             printf("tensor %d/%d %s: %llu blocks\n", s + 1, g_n_scope,
                    ti->name, (unsigned long long)(ti->count / block));
-            if (g_embed_fp16 && strstr(ti->name, "embed_tokens")) {
+            if (tensor_is_raw(ti, block)) {
                 if (store_one_tensor_fp16(s, &outs[s]) != 0) return 1;
                 outs[s].block = block;
                 printf("  stored as raw float16 (no book, no "
