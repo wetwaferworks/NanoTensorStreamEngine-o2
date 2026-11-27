@@ -15,7 +15,8 @@
 #   - no "accumulator:" line is printed.
 #
 # Usage: sh tools/test-streamtest-truncation.sh [streamtest-binary]
-# Run from the repo root. The binary defaults to the scratch
+# Run from the repo root. Prints SKIP and exits 0 when the fixtures are
+# absent. The binary defaults to the scratch
 # build if present, else ./nq2-streamtest from build.sh.
 set -u
 W=$(pwd)
@@ -23,6 +24,22 @@ BIN=${1:-$W/nq2-streamtest}
 PACK=$W/results/sigma-full-b256-v2run.nq2
 BOOK=$W/results/sigma-full-b256-v2run.nq2book
 SHARDS="$W/sigma-3b/model-00001-of-00002.safetensors $W/sigma-3b/model-00002-of-00002.safetensors"
+# The fixtures are the frozen Sigma baseline pack and the Sigma-3B
+# shards. They are not in the repository (weights never are), so a
+# fresh clone skips with a clear message instead of failing cold.
+missing=""
+for f in "$PACK" "$BOOK" $SHARDS; do
+    [ -r "$f" ] || missing="$missing $f"
+done
+if [ -n "$missing" ]; then
+    echo "SKIP: fixtures not present:$missing"
+    echo "SKIP: place the frozen pack under results/ and the Sigma-3B shards under sigma-3b/ to run this test"
+    exit 0
+fi
+if [ ! -x "$BIN" ]; then
+    echo "FAIL: fixtures are present but the streamtest binary $BIN is not built"
+    exit 1
+fi
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 
