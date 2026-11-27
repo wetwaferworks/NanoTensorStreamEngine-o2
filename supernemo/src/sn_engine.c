@@ -491,7 +491,9 @@ int main(int argc, char **argv)
         else if (!strncmp(line, "FRAME", 5)) { /* ignored */ }
         else if (!strncmp(line, "PROMPT ", 7)) { unescape(line + 7); run_turn(&e, line + 7); }
         else if (L > 0) { printf("ERROR unknown command\n"); fflush(stdout); }
-        if (line != e.pending_cmd && !e.pending_cmd) { /* keep buffer for reuse */ }
+        free(line);
+        line = NULL;
+        cap = 0;
     }
     free(line);
     media_clear(&e);
