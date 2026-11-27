@@ -104,6 +104,24 @@ int main(int argc, char **argv)
             else for (uint64_t k = 0; k < n; k++) if (part[k] != full[f0 + k]) { part_ok = 0; break; }
             free(part);
         }
+        /* fused matvec against expand + naive double dot (matrices only) */
+        const char *mv = "n/a";
+        if (t->cols >= 4 && t->count % t->cols == 0 && t->count / t->cols >= 2 && !(t->cols & 3) && !t->raw) {
+            int cols = (int)t->cols, rows = (int)(t->count / t->cols);
+            float *xv = (float *)malloc(sizeof(float) * (size_t)cols); double *Pv = (double *)malloc(sizeof(double) * (size_t)(cols + 1));
+            float *bk = (float *)malloc(p.book_floats * 4); float *yy = (float *)malloc(sizeof(float) * (size_t)rows);
+            unsigned st = 77u; Pv[0] = 0;
+            for (int j = 0; j < cols; j++) { st = st * 1664525u + 1013904223u; xv[j] = ((float)((st >> 8) & 0xffff) / 32768.0f - 1.0f); Pv[j + 1] = Pv[j] + xv[j]; }
+            int ok = sn_load_book(&p, &r, t, bk) == 0;
+            int ra = rows / 3, rb = rows - rows / 5; if (rb <= ra) { ra = 0; rb = rows; }
+            ok = ok && sn_pq_rows(&p, &r, t, bk, cols, xv, Pv, ra, rb, yy) == 0;
+            double worst = 0, scale = 0;
+            for (int rr = ra; rr < rb && ok; rr++) { double a = 0; for (int j = 0; j < cols; j++) a += (double)full[(size_t)rr * cols + j] * xv[j]; double d = fabs(a - yy[rr - ra]); if (d > worst) worst = d; if (fabs(a) > scale) scale = fabs(a); }
+            mv = (ok && worst <= 1e-4 * (scale + 1e-9) + 1e-5) ? "matvec ok" : "MATVEC MISMATCH";
+            if (strcmp(mv, "matvec ok") != 0) bad = 1;
+            free(xv); free(Pv); free(bk); free(yy);
+        }
+        printf("%s | ", mv);
         printf("%-72s %s %10llu weights  relL2 %.4f  partial-slice %s\n", t->name, t->raw ? "raw   " : "packed", (unsigned long long)t->count, r2 > 0 ? sqrt(e2 / r2) : 0.0, part_ok ? "ok" : "MISMATCH");
         if (!part_ok) bad = 1;
         nchk++; free(src); free(full);

@@ -13,7 +13,16 @@ static int seek64(FILE *f, uint64_t off)
 #endif
 }
 
+float sn_f16_lut[65536];
+static int lut_ready = 0;
+static float f16_slow(uint16_t h);
+
 float sn_f16_to_f32(uint16_t h)
+{
+    return lut_ready ? sn_f16_lut[h] : f16_slow(h);
+}
+
+static float f16_slow(uint16_t h)
 {
     uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
     uint32_t exp = (h >> 10) & 0x1fu, mant = h & 0x3ffu, bits;
@@ -67,7 +76,7 @@ const sn_tensor *sn_pack_find(const sn_pack *p, const char *name)
  * Header line starts with "name". Returns the count for a name via a
  * simple linear merge: the sidecar is sorted like the manifest is not,
  * so build a temporary table. */
-typedef struct { char *name; uint64_t count; } shape_ent;
+typedef struct { char *name; uint64_t count; uint32_t cols; } shape_ent;
 
 static int load_shapes(const char *path, shape_ent **out, int *nout)
 {
@@ -86,6 +95,10 @@ static int load_shapes(const char *path, shape_ent **out, int *nout)
         e[n].name = (char *)malloc(strlen(line) + 1);
         strcpy(e[n].name, line);
         e[n].count = strtoull(t3 + 1, NULL, 10);
+        {   /* last dimension of "AxBxC" */
+            char *sh = t2 + 1; char *lx = strrchr(sh, 'x');
+            e[n].cols = (uint32_t)strtoul(lx && lx < t3 ? lx + 1 : sh, NULL, 10);
+        }
         n++;
     }
     fclose(f);
@@ -96,6 +109,10 @@ static int load_shapes(const char *path, shape_ent **out, int *nout)
 int sn_pack_open(sn_pack *p, const char *prefix, const char *shapes_tsv)
 {
     memset(p, 0, sizeof(*p));
+    if (!lut_ready) {
+        for (uint32_t i = 0; i < 65536; i++) sn_f16_lut[i] = f16_slow((uint16_t)i);
+        lut_ready = 1;
+    }
     char path[1100];
     p->prefix = (char *)malloc(strlen(prefix) + 1);
     strcpy(p->prefix, prefix);
@@ -202,6 +219,7 @@ int sn_pack_open(sn_pack *p, const char *prefix, const char *shapes_tsv)
         while (seh[h] >= 0) { if (strcmp(se[seh[h]].name, nm) == 0) { found = seh[h]; break; } h = (h + 1) & (uint64_t)(se_cap - 1); }
         if (found < 0 && t->raw) { fprintf(stderr, "sn_pack: %s is raw but missing from the shapes sidecar\n", nm); bad = 1; break; }
         t->count = found >= 0 ? se[found].count : nbl * p->block;
+        t->cols = found >= 0 ? se[found].cols : 0;
         if (!t->raw) { t->book_off = book_hdr + book_i * p->book_floats * 4; book_i++; }
         else { t->raw_off = 0; /* set below */ }
     }
@@ -296,4 +314,95 @@ int sn_expand(const sn_pack *p, sn_rd *r, const sn_tensor *t,
     }
     free(idx); free(mn); free(sc); free(book); free(blk);
     return rc;
+}
+
+int sn_load_book(const sn_pack *p, sn_rd *r, const sn_tensor *t, float *book)
+{
+    if (t->raw) return -1;
+    if (seek64(r->fb, t->book_off) != 0) return -1;
+    return fread(book, 4, p->book_floats, r->fb) == p->book_floats ? 0 : -1;
+}
+
+#define SN_SLAB 1024u
+
+int sn_pq_rows(const sn_pack *p, sn_rd *r, const sn_tensor *t,
+               const float *book, int cols, const float *x, const double *P,
+               int r0, int r1, float *y)
+{
+    const uint32_t B = p->block, nsub = p->nsub, E = p->entries;
+    if (t->raw || p->pq_d != 4 || cols <= 0 || (cols & 3) || r1 <= r0) return -1;
+    if ((uint64_t)r1 * (uint64_t)cols > t->count) return -1;
+    const uint64_t flat0 = (uint64_t)r0 * (uint64_t)cols;
+    const uint64_t flat1 = (uint64_t)r1 * (uint64_t)cols;
+    const uint64_t b_lo = flat0 / B, b_hi = (flat1 + B - 1) / B;
+    uint8_t *idx = (uint8_t *)malloc((size_t)SN_SLAB * nsub);
+    uint16_t *mn = (uint16_t *)malloc(SN_SLAB * 2), *sc = (uint16_t *)malloc(SN_SLAB * 2);
+    if (!idx || !mn || !sc) { free(idx); free(mn); free(sc); return -1; }
+    int rc = 0;
+    double acc = 0.0;
+    for (uint64_t bs = b_lo; bs < b_hi && !rc; bs += SN_SLAB) {
+        uint64_t be = bs + SN_SLAB < b_hi ? bs + SN_SLAB : b_hi, nb = be - bs;
+        uint64_t g0 = t->block0 + bs;
+        if (seek64(r->fs, p->body_off + g0 * nsub) != 0 || fread(idx, nsub, nb, r->fs) != nb) { rc = -1; break; }
+        if (seek64(r->fs, p->body_off + p->tot_blocks * nsub + g0 * 2) != 0 || fread(mn, 2, nb, r->fs) != nb) { rc = -1; break; }
+        if (seek64(r->fs, p->body_off + p->tot_blocks * (nsub + 2ull) + g0 * 2) != 0 || fread(sc, 2, nb, r->fs) != nb) { rc = -1; break; }
+        for (uint64_t b = 0; b < nb; b++) {
+            const uint64_t bf0 = (bs + b) * B;
+            uint64_t cur = bf0 > flat0 ? bf0 : flat0;
+            const uint64_t hi = bf0 + B < flat1 ? bf0 + B : flat1;
+            const float m = sn_f16_lut[mn[b]], s = sn_f16_lut[sc[b]];
+            const uint8_t *ix = idx + b * nsub;
+            while (cur < hi) {
+                uint64_t row = cur / (uint64_t)cols, col = cur - row * (uint64_t)cols;
+                uint64_t row_end = (row + 1) * (uint64_t)cols;
+                uint64_t seg_end = row_end < hi ? row_end : hi;
+                uint32_t sub0 = (uint32_t)((cur - bf0) >> 2), sub1 = (uint32_t)((seg_end - bf0) >> 2);
+                const float *xs = x + col;
+                float dotc = 0.0f;
+                for (uint32_t sub = sub0; sub < sub1; sub++) {
+                    const float *c = book + ((size_t)sub * E + ix[sub]) * 4;
+                    uint32_t j = (sub - sub0) << 2;
+                    dotc += c[0] * xs[j] + c[1] * xs[j + 1] + c[2] * xs[j + 2] + c[3] * xs[j + 3];
+                }
+                uint64_t len = seg_end - cur;
+                acc += (double)m * (P[col + len] - P[col]) + (double)s * (double)dotc;
+                if (seg_end == row_end) { y[row - (uint64_t)r0] = (float)acc; acc = 0.0; }
+                cur = seg_end;
+            }
+        }
+    }
+    free(idx); free(mn); free(sc);
+    return rc;
+}
+
+int sn_raw_rows(const sn_pack *p, sn_rd *r, const sn_tensor *t, int cols,
+                const float *x, int r0, int r1, float *y)
+{
+    (void)p;
+    if (!t->raw || cols <= 0 || r1 <= r0 || (uint64_t)r1 * (uint64_t)cols > t->count) return -1;
+    int rows_per = (1 << 20) / cols; if (rows_per < 1) rows_per = 1;
+    uint16_t *buf = (uint16_t *)malloc((size_t)rows_per * (size_t)cols * 2);
+    if (!buf) return -1;
+    int rc = 0;
+    for (int a = r0; a < r1 && !rc; a += rows_per) {
+        int b = a + rows_per < r1 ? a + rows_per : r1;
+        size_t n = (size_t)(b - a) * (size_t)cols;
+        if (seek64(r->fs, t->raw_off + (uint64_t)a * (uint64_t)cols * 2) != 0 || fread(buf, 2, n, r->fs) != n) { rc = -1; break; }
+        for (int row = a; row < b; row++) {
+            const uint16_t *w = buf + (size_t)(row - a) * (size_t)cols;
+            double acc = 0.0;
+            for (int j = 0; j < cols; j++) acc += (double)sn_f16_lut[w[j]] * x[j];
+            y[row - r0] = (float)acc;
+        }
+    }
+    free(buf);
+    return rc;
+}
+
+int sn_raw_read16(const sn_pack *p, sn_rd *r, const sn_tensor *t, uint64_t first, uint64_t n, uint16_t *out)
+{
+    (void)p;
+    if (!t->raw || first + n > t->count) return -1;
+    if (seek64(r->fs, t->raw_off + first * 2) != 0) return -1;
+    return fread(out, 2, n, r->fs) == n ? 0 : -1;
 }
