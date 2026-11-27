@@ -35,7 +35,7 @@ Every result will be published with its negatives, as Lane 4 was.
 
 ## Verification
 
-- ThreadSanitizer runs for the zero-mutex engines, with receipts committed ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
+- **ThreadSanitizer:** done for the self-contained zero-mutex pool, the DTC adversarial suite, and the Little Nemo unit suites that need no private checkpoint. Receipt and runner are in [docs/tsan/](tsan/RECEIPT-2026-11-27.md) ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 - A tokenizer-based evaluation of Little Nemo, so quality is scored on text and not only on top-1 of one diffusion denoiser step.
 - **Scaler cache:** the Python wrapper's scaled-image cache is a lock-free snapshot dictionary; the one `threading.Lock` in the tree is gone ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 

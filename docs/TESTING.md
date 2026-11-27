@@ -139,4 +139,4 @@ The suites run on tiny random-weight packs written by `sn_mktiny` and `nq2-quant
 
 ## Sanitizers and thread checking
 
-The C suites run silent under ASan and UBSan (a review pass in 2026-11-24). **There are no ThreadSanitizer receipts in this repository**; see [ZERO-MUTEX.md](ZERO-MUTEX.md) for what is and is not established about the zero-mutex design. Running them is on the [roadmap](ROADMAP.md).
+The C suites run silent under ASan and UBSan (a review pass in 2026-11-24). ThreadSanitizer receipts for the self-contained zero-mutex engines and Little Nemo unit suites are in [docs/tsan/](tsan/RECEIPT-2026-11-27.md); rerun with `./docs/tsan/run-tsan.sh` on Linux or WSL. See [ZERO-MUTEX.md](ZERO-MUTEX.md) for what that record covers and what it leaves out.

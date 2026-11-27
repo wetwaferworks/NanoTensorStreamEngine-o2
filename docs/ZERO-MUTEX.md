@@ -74,8 +74,14 @@ started workers is served serially on the caller.
   put. The C scaler itself has no globals, no locks and no threads.
 - Thread creation itself uses `CreateThread` / `pthread_create`; there is no
   blocking primitive after that.
-- **Sanitizer records.** This repository carries no ThreadSanitizer run record.
-  The Precision Gate `--threads 1` phase-boundary fault recorded on 2026-11-25
+- **Sanitizer records.** A ThreadSanitizer receipt for the self-contained
+  zero-mutex engines is in [docs/tsan/RECEIPT-2026-11-27.md](tsan/RECEIPT-2026-11-27.md),
+  produced by [docs/tsan/run-tsan.sh](tsan/run-tsan.sh). On WSL Ubuntu 24.04
+  with gcc 13.3, the handshake pool hashed identically at 1, 2 and 12
+  workers, `nq2-dc-adv` held all 23 checks, and the Little Nemo mamba,
+  attention, guard, SIMD and tokenizer suites passed with no TSan reports.
+  Checkpoint suites and a TSan run of the live triforce engine are not in
+  that receipt. The Precision Gate `--threads 1` phase-boundary fault recorded on 2026-11-25
   ("the prior pass did not drain"; ordinal 0's slot still claimed) is not an
   undetermined race. Miss Archie's Round 6 note identified the root cause:
   `pipe_pass_boundary()` ran twice at ordinal 0 in one pass, because both
@@ -86,8 +92,7 @@ started workers is served serially on the caller.
   (`nq2-infer-triforce.c`), which now also carries the rest of the Precision
   Gate. The DTC hostile-geometry fuzz
   pass ran under ASan and UBSan with zero reports, and the Little Nemo suite is
-  silent under both. Running the engines under ThreadSanitizer is on the
-  [roadmap](ROADMAP.md).
+  silent under both.
 - A grep for the usual lock names (`pthread_mutex`, `pthread_cond`,
   `CRITICAL_SECTION`, `SRWLOCK`, `CONDITION_VARIABLE`, `CreateMutex`,
   `CreateEvent`) across the C sources finds none, and the Python scaler cache
