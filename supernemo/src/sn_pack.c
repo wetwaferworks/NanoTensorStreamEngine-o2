@@ -406,3 +406,56 @@ int sn_raw_read16(const sn_pack *p, sn_rd *r, const sn_tensor *t, uint64_t first
     if (seek64(r->fs, t->raw_off + first * 2) != 0) return -1;
     return fread(out, 2, n, r->fs) == n ? 0 : -1;
 }
+
+/* Like sn_expand, but the tensor's book is already in memory (loaded once with sn_load_book), so expanding
+ * many slabs of one tensor does not re-read its 256 KB book each time. Raw tensors need no book. */
+int sn_expand_book(const sn_pack *p, sn_rd *r, const sn_tensor *t, const float *book,
+                   uint64_t first, uint64_t n, float *out)
+{
+    if (first + n > t->count) return -1;
+    if (n == 0) return 0;
+    if (t->raw) {
+        enum { CH = 8192 };
+        uint16_t tmp[CH];
+        if (seek64(r->fs, t->raw_off + first * 2) != 0) return -1;
+        for (uint64_t done = 0; done < n; ) {
+            uint64_t c = n - done < CH ? n - done : CH;
+            if (fread(tmp, 2, c, r->fs) != c) return -1;
+            for (uint64_t i = 0; i < c; i++) out[done + i] = sn_f16_to_f32(tmp[i]);
+            done += c;
+        }
+        return 0;
+    }
+    uint32_t B = p->block, nsub = p->nsub, d = p->pq_d ? p->pq_d : B, E = p->entries;
+    uint64_t b_lo = first / B, b_hi = (first + n + B - 1) / B, nbk = b_hi - b_lo;
+    if (b_hi > t->nblocks) return -1;
+    uint64_t g0 = t->block0 + b_lo;
+    uint8_t *idx = (uint8_t *)malloc(nbk * nsub);
+    uint16_t *mn = (uint16_t *)malloc(nbk * 2), *sc = (uint16_t *)malloc(nbk * 2);
+    float *blk = (float *)malloc((size_t)B * 4);
+    if (!idx || !mn || !sc || !blk) { free(idx); free(mn); free(sc); free(blk); return -1; }
+    int rc = 0;
+    if (seek64(r->fs, p->body_off + g0 * nsub) != 0 || fread(idx, nsub, nbk, r->fs) != nbk) rc = -1;
+    if (!rc && (seek64(r->fs, p->body_off + p->tot_blocks * nsub + g0 * 2) != 0 || fread(mn, 2, nbk, r->fs) != nbk)) rc = -1;
+    if (!rc && (seek64(r->fs, p->body_off + p->tot_blocks * (nsub + 2ull) + g0 * 2) != 0 || fread(sc, 2, nbk, r->fs) != nbk)) rc = -1;
+    if (!rc) {
+        for (uint64_t b = 0; b < nbk; b++) {
+            float m = sn_f16_to_f32(mn[b]), sv = sn_f16_to_f32(sc[b]);
+            if (p->pq_d) {
+                for (uint32_t sub = 0; sub < nsub; sub++) {
+                    const float *c = book + ((uint64_t)sub * E + idx[b * nsub + sub]) * d;
+                    for (uint32_t i = 0; i < d; i++) blk[sub * d + i] = m + sv * c[i];
+                }
+            } else {
+                const float *c = book + (uint64_t)idx[b * nsub] * B;
+                for (uint32_t i = 0; i < B; i++) blk[i] = m + sv * c[i];
+            }
+            uint64_t w0 = (b_lo + b) * B;
+            uint64_t lo = w0 < first ? first : w0;
+            uint64_t hi = w0 + B > first + n ? first + n : w0 + B;
+            for (uint64_t w = lo; w < hi; w++) out[w - first] = blk[w - w0];
+        }
+    }
+    free(idx); free(mn); free(sc); free(blk);
+    return rc;
+}

@@ -16,6 +16,8 @@
 #define SN_MODEL_H
 
 #include <stdint.h>
+#include "sn_pack.h"
+#include "../../littlenemo/src/pool.h"
 
 #define SN_MAX_LAYERS 256
 
@@ -51,6 +53,12 @@ void sn_model_reset(sn_model *m);
  * state is already invalid; -3 if the context is full. */
 int sn_model_step(sn_model *m, int token, float *logits);
 int sn_model_pos(const sn_model *m);
+/* Same as sn_model_step, but the input is an embedding vector of hidden floats (vision tokens). */
+int sn_model_step_embed(sn_model *m, const float *embed, float *logits);
+/* For the vision tower: it reads the same pack and runs on the same zero-mutex pool. */
+const sn_pack *sn_model_pack(const sn_model *m);
+nemo_pool *sn_model_pool(sn_model *m);
+
 
 /* Optional telemetry: called per layer entered and per MoE routing. */
 typedef void (*sn_layer_cb)(void *user, int layer, char type);

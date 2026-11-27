@@ -26,20 +26,21 @@ Work lives in D:\scratch\ntse-o2-supervl-quant-2026-11-27 (branch scratch/superv
 | MoE block math (`src/sn_moe.*`) | Done, 15 fixture checks pass (routing rules, unbiased weights, ties, double-precision reference). The router tie and epsilon rules are from the published structure; the upstream reference is not on this machine, so confirm against a reference run |
 | Mamba-2 and attention kernels | Exist in `littlenemo/src` (parameterised math: heads, head_dim, groups, state); the forward driver there is hard-coded to Nano dims |
 | Tokenizer, protocol, GUI | Exist (Little Nemo tokenizer reads tokenizer.json; protocol v3 already has `MOE` lines and `moe=` READY key; GUI shows "SuperNemo engine not available yet") |
-| SuperNemo forward driver | NOT written: geometry-driven stack, pack-backed weight fetch, expert cache, prefill/decode, chat template |
-| RADIO vision tower + projector | NOT written (second phase, text first) |
+| SuperNemo forward driver (`src/sn_model.*`) | Done: geometry from config.json, fused PQ matvec straight from the pack, experts per lane; 35 stack checks on a tiny model (lane-count bit-identical, dense reference, exact reset replay). Real-pack speed unmeasured until the quantize publishes |
+| Protocol v3 adapter (`src/sn_engine.c`, `supernemo.ini`) | Done: READY (`moe=512`, `media=image` when the pack has vision tensors), HW, PREFILL, LAYER/MOE/TICK telemetry, THINK/TOK split, STATS, MEM, STOP polling, `--below-normal`; chat template is the checkpoint's own ChatML (system block, `<think>` handling); images via MEDIA (stb_image decode, the processor's dynamic-resolution rule, torch-style antialiased bicubic) |
+| RADIO vision tower + projector (`src/sn_vision.*`, `src/sn_image.*`) | Done: 32 blocks, CPE position resample, pixel shuffle v2, mlp1; matches an independent double-precision reference to 1e-6 relative on a tiny pack (non-square grids included) and is bit-identical on 1 and 5 lanes. Video and audio are not built |
 | CUDA lane for MoE | NOT written (CPU first; a 4 GB card cannot hold more than hot experts) |
 
 ## Phases
 
-1. **Text path on CPU from the pack** (next): `sn_forward.c` with a geometry struct (from config.json, no hard-coded 4480s),
+1. **Text path on CPU from the pack** (done, see above; real-pack numbers pending): `sn_forward.c` with a geometry struct (from config.json, no hard-coded 4480s),
    per-layer fetch through `sn_expand` on the 12-lane pool, expert expansion on demand with an LRU of expanded experts,
    layer-major prefill, chat template from tokenizer_config. Gate: stack runs, logits finite, state reset bit-exact, thread count
    does not change a bit; then a prompt battery against the raw bf16 checkpoint on a few layers (per-layer relative error), and
    argmax agreement on short prompts as the honest quality number.
-2. **Engine adapter**: `engine_gui`-style binary speaking protocol v3 (READY with moe=512, MOE telemetry lines), wired into the
+2. **Engine adapter** (done): `engine_gui`-style binary speaking protocol v3 (READY with moe=512, MOE telemetry lines), wired into the
    `[supernemo]` section of littlenemo.ini so the NTSE chat window can select it.
-3. **Vision**: RADIO blocks (LayerNorm, qkv, GELU MLP), CPE position embedding resample, pixel shuffle, mlp1; image tokens into
+3. **Vision** (done for images): RADIO blocks (LayerNorm, qkv, GELU MLP), CPE position embedding resample, pixel shuffle, mlp1; image tokens into
    the stream at `<image>` positions.
 4. **Speed**: CUDA expert kernels (PQ4 decode in registers as DTC does for dense), hot-expert residency, MTP speculative decode.
 

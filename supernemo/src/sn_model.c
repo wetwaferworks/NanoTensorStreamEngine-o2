@@ -418,6 +418,8 @@ void sn_model_reset(sn_model *m)
 
 /* ------------------------------------------------------------- step */
 
+static int step_core(sn_model *m, float *logits);
+
 int sn_model_step(sn_model *m, int token, float *logits)
 {
     const sn_geom *g = &m->g;
@@ -426,6 +428,26 @@ int sn_model_step(sn_model *m, int token, float *logits)
     if (!m->state_valid) return -2;
     if (m->n_pos >= m->max_pos) return -3;
     if (sn_expand(&m->pack, &m->main_rd, m->emb, (uint64_t)token * H, (uint64_t)H, m->x) != 0) return -1;
+    return step_core(m, logits);
+}
+
+/* The same step, but the input is an embedding vector (hidden floats), e.g. a projected image patch. */
+int sn_model_step_embed(sn_model *m, const float *embed, float *logits)
+{
+    int H = m->g.hidden;
+    if (!m->state_valid) return -2;
+    if (m->n_pos >= m->max_pos) return -3;
+    memcpy(m->x, embed, (size_t)H * sizeof(float));
+    return step_core(m, logits);
+}
+
+const sn_pack *sn_model_pack(const sn_model *m) { return &m->pack; }
+nemo_pool *sn_model_pool(sn_model *m) { return &m->pool; }
+
+static int step_core(sn_model *m, float *logits)
+{
+    const sn_geom *g = &m->g;
+    int H = g->hidden;
     for (int i = 0; i < g->n_layers; i++) {
         const layer_t *l = &m->L[i];
         char type = g->types[i];

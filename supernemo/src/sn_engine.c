@@ -6,7 +6,7 @@
  *
  * Speaks the same line protocol as nemo-engine (littlenemo/PROTOCOL.md): PROMPT, STOP, RESET, QUIT in;
  * READY, HW, PREFILL, LAYER, MOE, THINK/TOK, TICK, STATS, MEM, DONE out. MEDIA lines are refused with a
- * plain reason until the RADIO vision tower lands. Greedy decoding, the same discipline as Little Nemo.
+ * plain reason when the pack carries no vision tensors; images go through the RADIO tower (sn_vision) at PROMPT time. Greedy decoding, the same discipline as Little Nemo.
  * The chat template is the checkpoint's own (chat_template.jinja): ChatML with <think> handling.
  *
  * Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX. */
@@ -18,6 +18,8 @@
 #include <stdint.h>
 
 #include "sn_model.h"
+#include "sn_vision.h"
+#include "sn_image.h"
 #include "../../littlenemo/src/pool.h"
 #include "../../littlenemo/src/tokenizer.h"
 
@@ -76,8 +78,17 @@ static long peak_kb(void)
 #include "sn_engine_text.inc"
 
 /* ---- engine state ---- */
+#define MAX_MEDIA 8
+typedef struct {
+    int id, wp, hp, tokens;
+    unsigned char *rgb; int w, h;
+} media_t;
+
 typedef struct {
     sn_model *m;
+    sn_vision *vis;
+    int max_patches, img_id;
+    media_t media[MAX_MEDIA]; int n_media;
     nemo_tokenizer *tk;
     int max_new, max_pos, think_default, turns, pos;
     int eos_a, eos_b;
@@ -125,7 +136,78 @@ static int argmax(const float *l, int n)
     return b;
 }
 
-static void engine_reset(engine *e) { sn_model_reset(e->m); e->turns = 0; e->pos = 0; }
+static void media_clear(engine *e)
+{
+    for (int i = 0; i < e->n_media; i++) free(e->media[i].rgb);
+    e->n_media = 0;
+}
+
+static void engine_reset(engine *e) { sn_model_reset(e->m); e->turns = 0; e->pos = 0; media_clear(e); }
+
+/* percent-decode in place (RFC 3986, UTF-8 bytes) */
+static void pct_decode(char *s)
+{
+    char *o = s;
+    while (*s) {
+        if (*s == '%' && s[1] && s[2]) {
+            char h[3] = { s[1], s[2], 0 }; char *end;
+            long v = strtol(h, &end, 16);
+            if (*end == 0) { *o++ = (char)v; s += 3; continue; }
+        }
+        *o++ = *s++;
+    }
+    *o = 0;
+}
+static void pct_encode(const char *in, char *out, size_t cap)
+{
+    size_t n = 0;
+    for (; *in && n + 4 < cap; in++) {
+        unsigned char c = (unsigned char)*in;
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~') out[n++] = (char)c;
+        else n += (size_t)sprintf(out + n, "%%%02X", c);
+    }
+    out[n] = 0;
+}
+static void media_err(int id, const char *reason)
+{
+    char q[512]; pct_encode(reason, q, sizeof q);
+    printf("MEDIA_ERR id=%d reason=%s\n", id, q); fflush(stdout);
+}
+
+/* MEDIA id=<n> type=<image|video> mime=<m> bytes=<n> [w= h=] name=<pct> path=<pct> */
+static void handle_media(engine *e, char *line)
+{
+    int id = 0; long bytes = -1; char type[16] = "", path[1100] = "";
+    for (char *tok = strtok(line + 5, " "); tok; tok = strtok(NULL, " ")) {
+        if (!strncmp(tok, "id=", 3)) id = atoi(tok + 3);
+        else if (!strncmp(tok, "type=", 5)) { strncpy(type, tok + 5, sizeof type - 1); type[sizeof type - 1] = 0; }
+        else if (!strncmp(tok, "bytes=", 6)) bytes = atol(tok + 6);
+        else if (!strncmp(tok, "path=", 5)) { strncpy(path, tok + 5, sizeof path - 1); path[sizeof path - 1] = 0; pct_decode(path); }
+    }
+    if (!e->vis) { media_err(id, "this SuperNemo pack has no vision tensors; text only"); return; }
+    if (strcmp(type, "image")) { media_err(id, "this engine accepts images only; video is not supported yet"); return; }
+    if (e->n_media >= MAX_MEDIA) { media_err(id, "too many attachments for one turn (limit 8)"); return; }
+    for (int i = 0; i < e->n_media; i++) if (e->media[i].id == id) { media_err(id, "duplicate attachment id"); return; }
+    FILE *f = path[0] ? fopen(path, "rb") : NULL;
+    if (!f) { media_err(id, "the file does not exist on the engine's machine (it needs a shared path)"); return; }
+    fseek(f, 0, SEEK_END); long sz = ftell(f); fclose(f);
+    if (bytes >= 0 && sz != bytes) { media_err(id, "the file size does not match bytes="); return; }
+    media_t *mt = &e->media[e->n_media];
+    memset(mt, 0, sizeof *mt);
+    char why[256];
+    if (sn_image_load(path, &mt->rgb, &mt->w, &mt->h, why, sizeof why) != 0) { media_err(id, why); return; }
+    const sn_vgeom *vg = sn_vision_geom(e->vis);
+    /* the checkpoint's own rule first (budget 13312 patches, at least 1024); only when the image itself is bigger than
+     * this machine should chew on (--max-patches) is it planned again with the smaller budget (small images keep the
+     * reference's scale-up to about 1024 patches) */
+    sn_image_plan(mt->w, mt->h, vg->patch, vg->shuffle, 1024, 13312, &mt->wp, &mt->hp);
+    long natural = (long)(mt->w / vg->patch + 1) * (long)(mt->h / vg->patch + 1);   /* about the image's own patch count */
+    if (mt->wp * mt->hp > e->max_patches && natural > e->max_patches)
+        sn_image_plan(mt->w, mt->h, vg->patch, vg->shuffle, 1024, e->max_patches > 64 ? e->max_patches : 64, &mt->wp, &mt->hp);
+    mt->id = id; mt->tokens = mt->wp * mt->hp / (vg->shuffle * vg->shuffle);
+    e->n_media++;
+    printf("MEDIA_OK id=%d type=image tokens=%d\n", id, mt->tokens); fflush(stdout);
+}
 
 static int strip_tag(char *s, const char *tag)
 {
@@ -135,12 +217,13 @@ static int strip_tag(char *s, const char *tag)
 }
 
 /* Feed an already-templated text through the model and generate. */
-static int run_templated(engine *e, const char *text, int think_on)
+static int run_templated(engine *e, const char *text, int think_on, const float *embeds, int n_embeds)
 {
     int V = sn_model_geom(e->m)->vocab;
-    int *ids = (int *)malloc(sizeof(int) * 16384);
+    int cap_ids = (int)strlen(text) + 16;
+    int *ids = (int *)malloc(sizeof(int) * (size_t)cap_ids);
     if (!ids) return -1;
-    int n = nemo_tokenizer_encode(e->tk, text, ids, 16384);
+    int n = nemo_tokenizer_encode(e->tk, text, ids, cap_ids);
     if (n <= 0) { free(ids); printf("ERROR prompt could not be tokenized\n"); fflush(stdout); return -1; }
     if (e->pos + n + 8 > e->max_pos) {
         free(ids); engine_reset(e);
@@ -148,8 +231,11 @@ static int run_templated(engine *e, const char *text, int think_on)
         fflush(stdout); return -1;
     }
     double t0 = now_ms();
+    int ei = 0, Hh = sn_model_geom(e->m)->hidden;
     for (int i = 0; i < n; i++) {
-        int rc = sn_model_step(e->m, ids[i], i == n - 1 ? e->logits : NULL);
+        int rc;
+        if (n_embeds > 0 && ids[i] == e->img_id && ei < n_embeds) rc = sn_model_step_embed(e->m, embeds + (size_t)(ei++) * Hh, i == n - 1 ? e->logits : NULL);
+        else rc = sn_model_step(e->m, ids[i], i == n - 1 ? e->logits : NULL);
         if (rc != 0) { free(ids); engine_reset(e); printf("ERROR forward pass failed during prompt; state reset\n"); fflush(stdout); return -1; }
     }
     double prefill_ms = now_ms() - t0;
@@ -206,19 +292,52 @@ static void run_turn(engine *e, const char *user_text)
     if (strip_tag(u, "/no_think")) think_on = 0; else if (strip_tag(u, "/think")) think_on = 1;
     char *b = u; while (*b == ' ' || *b == '\t' || *b == '\n') b++;
     size_t L = strlen(b); while (L && (b[L - 1] == ' ' || b[L - 1] == '\t' || b[L - 1] == '\n')) b[--L] = 0;
-    if (L == 0) { free(u); free(tpl); printf("ERROR empty prompt\n"); fflush(stdout); return; }
-    /* chat_template.jinja: an (empty) system block first, then user, then the generation prompt.
-     * Later turns open with the "\n" that follows the previous <|im_end|>; the reply itself is already in the state. */
-    snprintf(tpl, ul + 512, "%s<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n%s",
-             e->turns == 0 ? "<|im_start|>system\n<|im_end|>\n" : "\n", b, think_on ? "<think>\n" : "<think></think>");
-    run_templated(e, tpl, think_on);
+    if (L == 0 && e->n_media == 0) { free(u); free(tpl); printf("ERROR empty prompt\n"); fflush(stdout); return; }
+    /* Images first, then the text (chat_template.jinja render_content). Each <image> placeholder becomes
+     * <img> + one <image> token per projected patch group + </img>, as the checkpoint's processor does. */
+    const sn_vgeom *vg = e->vis ? sn_vision_geom(e->vis) : NULL;
+    int Hh = sn_model_geom(e->m)->hidden;
+    size_t need = ul + 1024, total_tok = 0;
+    for (int k = 0; k < e->n_media; k++) { need += 64 + (size_t)e->media[k].tokens * 8; total_tok += (size_t)e->media[k].tokens; }
+    free(tpl); tpl = (char *)malloc(need);
+    float *embeds = NULL;
+    if (!tpl) { free(u); media_clear(e); printf("ERROR out of memory\n"); fflush(stdout); return; }
+    if (e->n_media > 0) {
+        embeds = (float *)malloc(total_tok * (size_t)Hh * sizeof(float));
+        if (!embeds) { free(u); free(tpl); media_clear(e); printf("ERROR out of memory for image embeddings\n"); fflush(stdout); return; }
+        size_t at = 0;
+        for (int k = 0; k < e->n_media; k++) {
+            media_t *mt = &e->media[k];
+            const float mean[3] = { 0.48145466f, 0.4578275f, 0.40821073f }, sd[3] = { 0.26862954f, 0.26130258f, 0.27577711f };
+            double t0 = now_ms();
+            float *pix = sn_image_prepare(mt->rgb, mt->w, mt->h, mt->wp, mt->hp, vg->patch, mean, sd);
+            int rc = pix ? sn_vision_embed(e->vis, pix, mt->hp * vg->patch, mt->wp * vg->patch, embeds + at * (size_t)Hh) : -1;
+            free(pix);
+            if (rc != 0) { free(u); free(tpl); free(embeds); media_clear(e); printf("ERROR the vision tower failed on an image\n"); fflush(stdout); return; }
+            at += (size_t)mt->tokens;
+            printf("EXPAND tensor=vision.%d ms=%.0f tokens=%d\n", mt->id, now_ms() - t0, mt->tokens);
+            fflush(stdout);
+        }
+    }
+    size_t w = 0;
+    w += (size_t)sprintf(tpl + w, "%s<|im_start|>user\n", e->turns == 0 ? "<|im_start|>system\n<|im_end|>\n" : "\n");
+    for (int k = 0; k < e->n_media; k++) {
+        if (e->n_media > 1) w += (size_t)sprintf(tpl + w, "<image %d>", k + 1);
+        w += (size_t)sprintf(tpl + w, "<img>");
+        for (int t = 0; t < e->media[k].tokens; t++) { memcpy(tpl + w, "<image>", 7); w += 7; }
+        w += (size_t)sprintf(tpl + w, "</img>");
+    }
+    w += (size_t)sprintf(tpl + w, "%s<|im_end|>\n<|im_start|>assistant\n%s", b, think_on ? "<think>\n" : "<think></think>");
+    run_templated(e, tpl, think_on, embeds, (int)total_tok);
+    free(embeds);
+    media_clear(e);
     free(u); free(tpl);
 }
 
 int main(int argc, char **argv)
 {
     const char *pack = NULL, *shapes = NULL, *config = NULL, *tokf = NULL, *ask = NULL;
-    int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0;
+    int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0, max_patches = 1024, no_vision = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pack") && i + 1 < argc) pack = argv[++i];
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) shapes = argv[++i];
@@ -228,6 +347,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--max-pos") && i + 1 < argc) max_pos = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--max-new") && i + 1 < argc) max_new = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--ask") && i + 1 < argc) ask = argv[++i];
+        else if (!strcmp(argv[i], "--max-patches") && i + 1 < argc) max_patches = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--no-vision")) no_vision = 1;
         else if (!strcmp(argv[i], "--think")) think = 1;
         else if (!strcmp(argv[i], "--below-normal")) below = 1;
         else if (!strcmp(argv[i], "--chat") || !strcmp(argv[i], "--serve-stdio")) { /* accepted for GUI parity */ }
@@ -256,10 +377,19 @@ int main(int argc, char **argv)
     const sn_geom *g = sn_model_geom(e.m);
     e.logits = (float *)malloc((size_t)g->vocab * 4);
     if (!e.logits) return 1;
+    e.max_patches = max_patches;
+    e.img_id = nemo_tokenizer_special(e.tk, "<image>");
+    if (!no_vision && !ask) {
+        sn_vgeom vg;
+        if (e.img_id >= 0 && sn_vgeom_load(&vg, config, g->hidden) == 0) {
+            e.vis = sn_vision_open(sn_model_pack(e.m), sn_model_pool(e.m), sn_model_threads(e.m), &vg);
+            if (!e.vis) fprintf(stderr, "sn-engine: vision tower not available; text only\n");
+        }
+    }
     int cores = nemo_cores();
     if (!e.quiet) sn_model_set_hooks(e.m, on_layer_cb, on_moe_cb, NULL);
-    printf("READY nemo-engine 3 model=SuperNemo weights=packed layers=%d cores=%d threads=%d mode=custom simd=0 accel=cpu chat=1 think=%d moe=%d\n",
-           g->n_layers, cores, sn_model_threads(e.m), think, g->moe_experts);
+    printf("READY nemo-engine 3 model=SuperNemo weights=packed layers=%d cores=%d threads=%d mode=custom simd=0 accel=cpu chat=1 think=%d moe=%d%s\n",
+           g->n_layers, cores, sn_model_threads(e.m), think, g->moe_experts, e.vis ? " media=image" : "");
     printf("HW cores=%d threads=%d accel=cpu\n", cores, sn_model_threads(e.m));
     fflush(stdout);
     if (ask) { run_turn(&e, ask); return 0; }
@@ -273,16 +403,15 @@ int main(int argc, char **argv)
         if (!strncmp(line, "QUIT", 4)) break;
         else if (!strncmp(line, "RESET", 5)) { engine_reset(&e); printf("DONE\n"); fflush(stdout); }
         else if (!strncmp(line, "STOP", 4)) { /* nothing running */ }
-        else if (!strncmp(line, "MEDIA", 5)) {
-            int id = 0; const char *p = strstr(line, "id="); if (p) id = atoi(p + 3);
-            printf("MEDIA_ERR id=%d reason=the%%20SuperNemo%%20vision%%20tower%%20is%%20not%%20built%%20yet%%3B%%20text%%20only\n", id); fflush(stdout);
-        }
+        else if (!strncmp(line, "MEDIA", 5)) handle_media(&e, line);
         else if (!strncmp(line, "FRAME", 5)) { /* ignored */ }
         else if (!strncmp(line, "PROMPT ", 7)) { unescape(line + 7); run_turn(&e, line + 7); }
         else if (L > 0) { printf("ERROR unknown command\n"); fflush(stdout); }
         if (line != e.pending_cmd && !e.pending_cmd) { /* keep buffer for reuse */ }
     }
     free(line);
+    media_clear(&e);
+    sn_vision_close(e.vis);
     sn_model_close(e.m);
     return 0;
 }

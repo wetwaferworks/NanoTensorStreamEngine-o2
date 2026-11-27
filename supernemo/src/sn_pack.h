@@ -57,6 +57,10 @@ void sn_rd_close(sn_rd *r);
 int sn_expand(const sn_pack *p, sn_rd *r, const sn_tensor *t,
               uint64_t first, uint64_t n, float *out);
 
+/* sn_expand with the tensor's book supplied by the caller (see sn_load_book); NULL book is fine for raw tensors. */
+int sn_expand_book(const sn_pack *p, sn_rd *r, const sn_tensor *t, const float *book,
+                   uint64_t first, uint64_t n, float *out);
+
 float sn_f16_to_f32(uint16_t h);
 
 /* 65536-entry float16 -> float32 table, filled once by sn_pack_open before
