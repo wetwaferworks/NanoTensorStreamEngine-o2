@@ -1,0 +1,475 @@
+{
+  "model": "SuperNemo (Nemotron 3.5 Super VL, NanoTensor pack)",
+  "started": "2026-11-27 13:21:41 -0500",
+  "conditions": {
+    "engine": "sn-engine built from the scratch branch with the raw k/v loader fix (commit 5ce3b8d)",
+    "lane": "CUDA, --gpu-mb 3000 (273 tensors, 2830 MB resident), routed experts on the CPU, --threads 12, DTC auto, RAM expert cache 4096 MB, no VRAM expert cache, speculative decoding off",
+    "pack": "Nemotron 3.5 Super VL NanoTensor pack (124.45B weights, per-tensor books, RMS frame, PQ d4, tensors of 1,048,576 weights or fewer raw)",
+    "machine": "RTX 3050 Ti Laptop 4 GB, i5-12450H (12 threads), 16 GB RAM, Windows",
+    "decoding": "greedy, chat on, thinking off, RESET between items (sn-engine acknowledges RESET with DONE)",
+    "max_new": "16 for questions, 320 for essays; one long-lived engine per part so the expert cache stays warm",
+    "priority": "--below-normal and BelowNormal runner",
+    "items": "questions 5, 15, 28, 31, 44 and essays 3, 7 from the same files as Little Nemo",
+    "other load": "a LithoKraft window open for most of the run; the GPU-quantizer runner was checked before and after every item and never ran a GPU or heavy step (no pauses, no overlap)"
+  },
+  "wall_s": 1105.909,
+  "gpu_whole_run": {
+    "vram_used_peak_mib": 3822,
+    "gpu_util_mean": 20.8,
+    "samples": 1032
+  },
+  "questions": {
+    "command": [
+      "<scratch>\\build\\quiz\\bin\\sn-engine.exe",
+      "--max-new",
+      "16",
+      "--pack",
+      "<models>\\nemotron-3.5-super-vl-nanotensor\\nemotron-3.5-super-vl",
+      "--shapes",
+      "<models>\\nemotron-3.5-super-vl-nanotensor\\nemotron-3.5-super-vl.shapes.tsv",
+      "--config",
+      "<models>\\nemotron-3.5-super-vl-120b-a12b-bf16\\original\\config.json",
+      "--tokenizer",
+      "<models>\\nemotron-3.5-super-vl-120b-a12b-bf16\\original\\tokenizer.json",
+      "--threads",
+      "12",
+      "--below-normal",
+      "--gpu-mb",
+      "3000"
+    ],
+    "ready_line": "READY nemo-engine 3 model=SuperNemo weights=packed layers=88 cores=12 threads=12 mode=custom simd=0 accel=cuda chat=1 think=0 moe=512 media=image",
+    "hw_line": null,
+    "max_new": 16,
+    "engine_launches": 1,
+    "pauses_for_other_jobs": [],
+    "load_s": 4.956,
+    "wall_s": 243.868,
+    "gpu": {
+      "vram_used_peak_mib": 3685,
+      "gpu_util_mean": 8.8,
+      "samples": 223
+    },
+    "score": {
+      "n": 5,
+      "passes": 5,
+      "hedges": 0,
+      "fails": 0,
+      "score": "5/5"
+    },
+    "summary": {
+      "prefill_tps": {
+        "mean": 0.917,
+        "min": 0.884,
+        "median": 0.913,
+        "max": 0.962
+      },
+      "decode_tps": {
+        "mean": 0.295,
+        "min": 0.258,
+        "median": 0.2932,
+        "max": 0.3325
+      },
+      "decode_tps_pooled": 0.209,
+      "prefill_tps_pooled": 0.917,
+      "gen_tokens": 11,
+      "prompt_tokens": 158,
+      "ram_peak_mb": 708.0,
+      "vram_card_peak_mib": 3685,
+      "expand_steps": 0,
+      "dtc_steps": 0
+    },
+    "pooled": {
+      "generated_tokens": 11,
+      "decode_ms": 52518,
+      "decode_tps_pooled": 0.209,
+      "prompt_tokens": 158,
+      "prefill_ms": 172392,
+      "prefill_tps_pooled": 0.917
+    },
+    "items": [
+      {
+        "id": 5,
+        "category": "math",
+        "prompt": "What is the square root of 144? Answer with just the answer.",
+        "gold": "12",
+        "accepted_aliases": [
+          "twelve"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "12",
+        "first_answer_line": "12",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 33,
+          "prefill_ms": 35311,
+          "prefill_tps": 0.935,
+          "gen_tokens": 2,
+          "gen_ms": 45496,
+          "decode_tps": 0.2731,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 692.7,
+          "wall_s": 45.496,
+          "vram_used_peak_mib": 3685,
+          "gpu_util_mean": 7.5,
+          "samples": 42
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      },
+      {
+        "id": 15,
+        "category": "capital",
+        "prompt": "What is the capital of Australia? Answer with just the answer.",
+        "gold": "Canberra",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Sydney",
+          "Melbourne"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Canberra",
+        "first_answer_line": "Canberra",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 32794,
+          "prefill_tps": 0.884,
+          "gen_tokens": 2,
+          "gen_ms": 42920,
+          "decode_tps": 0.2932,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 706.5,
+          "wall_s": 42.92,
+          "vram_used_peak_mib": 3677,
+          "gpu_util_mean": 8.0,
+          "samples": 39
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      },
+      {
+        "id": 28,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+        "gold": "He",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "H",
+          "Hl",
+          "Hm"
+        ],
+        "case_sensitive": true,
+        "answer_full": "He",
+        "first_answer_line": "He",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 33752,
+          "prefill_tps": 0.889,
+          "gen_tokens": 1,
+          "gen_ms": 41084,
+          "decode_tps": 0.258,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 706.7,
+          "wall_s": 41.084,
+          "vram_used_peak_mib": 3677,
+          "gpu_util_mean": 7.2,
+          "samples": 37
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      },
+      {
+        "id": 31,
+        "category": "date",
+        "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+        "gold": "1776",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "1776",
+        "first_answer_line": "1776",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 34,
+          "prefill_ms": 37256,
+          "prefill_tps": 0.913,
+          "gen_tokens": 4,
+          "gen_ms": 52609,
+          "decode_tps": 0.3325,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 708.0,
+          "wall_s": 52.609,
+          "vram_used_peak_mib": 3677,
+          "gpu_util_mean": 12.0,
+          "samples": 48
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      },
+      {
+        "id": 44,
+        "category": "science",
+        "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+        "gold": "Jupiter",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Earth",
+          "Saturn",
+          "Neptune",
+          "Uranus"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Jupiter",
+        "first_answer_line": "Jupiter",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 33279,
+          "prefill_tps": 0.962,
+          "gen_tokens": 2,
+          "gen_ms": 42801,
+          "decode_tps": 0.3193,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 708.0,
+          "wall_s": 42.802,
+          "vram_used_peak_mib": 3677,
+          "gpu_util_mean": 10.3,
+          "samples": 39
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      }
+    ]
+  },
+  "essays": {
+    "command": [
+      "<scratch>\\build\\quiz\\bin\\sn-engine.exe",
+      "--max-new",
+      "320",
+      "--pack",
+      "<models>\\nemotron-3.5-super-vl-nanotensor\\nemotron-3.5-super-vl",
+      "--shapes",
+      "<models>\\nemotron-3.5-super-vl-nanotensor\\nemotron-3.5-super-vl.shapes.tsv",
+      "--config",
+      "<models>\\nemotron-3.5-super-vl-120b-a12b-bf16\\original\\config.json",
+      "--tokenizer",
+      "<models>\\nemotron-3.5-super-vl-120b-a12b-bf16\\original\\tokenizer.json",
+      "--threads",
+      "12",
+      "--below-normal",
+      "--gpu-mb",
+      "3000"
+    ],
+    "ready_line": "READY nemo-engine 3 model=SuperNemo weights=packed layers=88 cores=12 threads=12 mode=custom simd=0 accel=cuda chat=1 think=0 moe=512 media=image",
+    "hw_line": null,
+    "max_new": 320,
+    "engine_launches": 1,
+    "pauses_for_other_jobs": [],
+    "load_s": 5.147,
+    "wall_s": 861.337,
+    "gpu": {
+      "vram_used_peak_mib": 3822,
+      "gpu_util_mean": 24.1,
+      "samples": 809
+    },
+    "score": {
+      "n": 2,
+      "passes": 2,
+      "facts_hit": 11,
+      "facts_total": 13,
+      "forbidden_total": 0,
+      "score": "2/2"
+    },
+    "summary": {
+      "prefill_tps": {
+        "mean": 0.98,
+        "min": 0.97,
+        "median": 0.991,
+        "max": 0.991
+      },
+      "decode_tps": {
+        "mean": 0.355,
+        "min": 0.3543,
+        "median": 0.3552,
+        "max": 0.3552
+      },
+      "decode_tps_pooled": 0.351,
+      "prefill_tps_pooled": 0.981,
+      "gen_tokens": 273,
+      "prompt_tokens": 72,
+      "ram_peak_mb": 709.8,
+      "vram_card_peak_mib": 3822,
+      "expand_steps": 0,
+      "dtc_steps": 0
+    },
+    "pooled": {
+      "generated_tokens": 273,
+      "decode_ms": 776788,
+      "decode_tps_pooled": 0.351,
+      "prompt_tokens": 72,
+      "prefill_ms": 73421,
+      "prefill_tps_pooled": 0.981
+    },
+    "items": [
+      {
+        "id": 3,
+        "topic": "seasons",
+        "prompt": "Write a short factual essay of about 150 words. Explain what causes the seasons on Earth.",
+        "answer_full": "The seasons on Earth are caused by the tilt of the planet's axis, not by the distance between the Earth and the Sun. Earth's axis is tilted at an angle of about 23.5 degrees relative to its orbital plane. As Earth orbits the Sun, this tilt causes different parts of the planet to receive varying amounts of sunlight. When the Northern Hemisium is tilted toward the Sun, it experiences summer, while the Southern Hemisium experiences winter. As Earth continues its orbit, the tilt changes, leading to spring and autumn. This axial tilt is the primary cause of seasonal changes.",
+        "grade": "pass",
+        "required_facts": 5,
+        "facts_found": 4,
+        "fraction": 0.8,
+        "found": [
+          {
+            "fact": "Earth's axis is tilted",
+            "matched_text": "tilt"
+          },
+          {
+            "fact": "tilt is about 23.5 degrees",
+            "matched_text": "23.5 degrees"
+          },
+          {
+            "fact": "Earth orbits the Sun",
+            "matched_text": "orbit"
+          },
+          {
+            "fact": "sunlight angle or directness changes",
+            "matched_text": "angle"
+          }
+        ],
+        "missed": [
+          "hemispheres have opposite seasons"
+        ],
+        "forbidden_claims_checked": [
+          "seasons are caused by distance from the Sun"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 37,
+          "prefill_ms": 37325,
+          "prefill_tps": 0.991,
+          "gen_tokens": 119,
+          "gen_ms": 376918,
+          "decode_tps": 0.3543,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 695.1,
+          "wall_s": 376.919,
+          "vram_used_peak_mib": 3677,
+          "gpu_util_mean": 23.5,
+          "samples": 354
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      },
+      {
+        "id": 7,
+        "topic": "dna",
+        "prompt": "Write a short factual essay of about 150 words. Explain the structure of DNA.",
+        "answer_full": "DNA, or deoxyriucleic acid, is a molecule that carries the genetic instructions used in the growth, development, and functioning of all known living organisms. It is composed of two strands coiled around each other to form a double helix. Each strand is made of a sugar-phosphate backbone, with nitrogen bases attached to the sugar. The four types of nitrogen bases are adenine, cytosine, guanine, and thymine. These bases pair up in a specific manner: adenine pairs with thymine, and cytosine pairs with guanine. The sequence of these bases along the DNA strand encodes biological information. The structure of DNA was discovered by James Watson and Francis Crick in 1953, revealing how genetic information is stored and passed on.",
+        "grade": "pass",
+        "required_facts": 8,
+        "facts_found": 7,
+        "fraction": 0.875,
+        "found": [
+          {
+            "fact": "double helix",
+            "matched_text": "double helix"
+          },
+          {
+            "fact": "adenine",
+            "matched_text": "adenine"
+          },
+          {
+            "fact": "thymine",
+            "matched_text": "thymine"
+          },
+          {
+            "fact": "guanine",
+            "matched_text": "guanine"
+          },
+          {
+            "fact": "cytosine",
+            "matched_text": "cytosine"
+          },
+          {
+            "fact": "A pairs with T and G with C",
+            "matched_text": "adenine pairs with thymine"
+          },
+          {
+            "fact": "sugar-phosphate backbone",
+            "matched_text": "phosphate"
+          }
+        ],
+        "missed": [
+          "nucleotides"
+        ],
+        "forbidden_claims_checked": [
+          "adenine pairs with cytosine or guanine",
+          "triple helix"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 35,
+          "prefill_ms": 36096,
+          "prefill_tps": 0.97,
+          "gen_tokens": 154,
+          "gen_ms": 473291,
+          "decode_tps": 0.3552,
+          "stopped": 0,
+          "dtc_steps": null,
+          "expand_steps": null,
+          "ram_peak_mb": 709.8,
+          "wall_s": 473.291,
+          "vram_used_peak_mib": 3822,
+          "gpu_util_mean": 24.9,
+          "samples": 444
+        },
+        "other_job_gate": {
+          "before": "clear",
+          "after": "clear",
+          "overlap": false
+        }
+      }
+    ]
+  }
+}

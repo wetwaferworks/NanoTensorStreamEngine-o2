@@ -1,0 +1,89 @@
+{
+  "what": "One-shot SuperNemo speed probes before the quiz run, each a fresh process (--ask, 12 threads, --below-normal). Only the engine's STATS, SPEC and MEM lines and the reply are kept.",
+  "prompts": {
+    "short": "What is the capital of France? Answer in one word.",
+    "long": "List the eight planets of the solar system in order from the Sun, separated by commas."
+  },
+  "runs": [
+    {
+      "time_et": "13:03:08",
+      "run": "cpu-default",
+      "flags": "",
+      "wall_s": 56,
+      "vram_card_peak_mib": 629,
+      "stats_line": "STATS tokens=1 ms=53966 tps=0.1317 ms_per_tok=7594.1 gbs_avg=0 peak_mb=579.5 prompt_tokens=28 prompt_ms=39604 prompt_tps=0.707 stopped=0 lane=cpu gen_tps=0.1317 ttft_ms=39604",
+      "mem_line": "MEM peak_mb=579.5",
+      "reply": "Paris",
+      "prompt": "short"
+    },
+    {
+      "time_et": "13:03:57",
+      "run": "gpu3000",
+      "flags": "--gpu-mb 3000",
+      "wall_s": 49,
+      "vram_card_peak_mib": 3677,
+      "stats_line": "STATS tokens=1 ms=42947 tps=0.2883 ms_per_tok=3468.9 gbs_avg=0 peak_mb=685.2 prompt_tokens=28 prompt_ms=36024 prompt_tps=0.777 stopped=0 lane=cuda gen_tps=0.2883 ttft_ms=36024",
+      "mem_line": "MEM peak_mb=685.2",
+      "reply": "Paris",
+      "prompt": "short"
+    },
+    {
+      "time_et": "13:04:59",
+      "run": "gpu3000-spec3",
+      "flags": "--gpu-mb 3000 --spec --draft-len 3",
+      "wall_s": 62,
+      "vram_card_peak_mib": 3677,
+      "stats_line": "STATS tokens=1 ms=54836 tps=0.0665 ms_per_tok=15031.7 gbs_avg=0 peak_mb=1234.7 prompt_tokens=28 prompt_ms=36518 prompt_tps=0.767 stopped=0 lane=cuda gen_tps=0.0665 ttft_ms=36518",
+      "spec_line": "SPEC cycles=1 drafted=3 accepted=0 accept_rate=0.000",
+      "mem_line": "MEM peak_mb=1234.7",
+      "reply": "Paris",
+      "prompt": "short"
+    },
+    {
+      "time_et": "13:07:38",
+      "run": "long-gpu3000",
+      "flags": "--gpu-mb 3000",
+      "wall_s": 107,
+      "vram_card_peak_mib": 3677,
+      "stats_line": "STATS tokens=17 ms=99701 tps=0.3350 ms_per_tok=2985.3 gbs_avg=0 peak_mb=687.1 prompt_tokens=35 prompt_ms=45029 prompt_tps=0.777 stopped=0 lane=cuda gen_tps=0.3350 ttft_ms=45029",
+      "mem_line": "MEM peak_mb=687.1",
+      "reply": "Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune",
+      "prompt": "long"
+    },
+    {
+      "time_et": "13:09:30",
+      "run": "long-gpu3000-spec3",
+      "flags": "--gpu-mb 3000 --spec --draft-len 3",
+      "wall_s": 113,
+      "vram_card_peak_mib": 3677,
+      "stats_line": "STATS tokens=17 ms=106215 tps=0.2820 ms_per_tok=3546.7 gbs_avg=0 peak_mb=1243.2 prompt_tokens=35 prompt_ms=42844 prompt_tps=0.817 stopped=0 lane=cuda gen_tps=0.2820 ttft_ms=42844",
+      "spec_line": "SPEC cycles=5 drafted=15 accepted=12 accept_rate=0.800",
+      "mem_line": "MEM peak_mb=1243.2",
+      "reply": "Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune",
+      "prompt": "long"
+    },
+    {
+      "time_et": "13:11:18",
+      "run": "long-gpu3000-spec1",
+      "flags": "--gpu-mb 3000 --spec --draft-len 1",
+      "wall_s": 108,
+      "vram_card_peak_mib": 3677,
+      "stats_line": "STATS tokens=17 ms=100267 tps=0.3075 ms_per_tok=3251.9 gbs_avg=0 peak_mb=872.6 prompt_tokens=35 prompt_ms=42243 prompt_tps=0.829 stopped=0 lane=cuda gen_tps=0.3075 ttft_ms=42243",
+      "spec_line": "SPEC cycles=9 drafted=9 accepted=8 accept_rate=0.889",
+      "mem_line": "MEM peak_mb=872.6",
+      "reply": "Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune",
+      "prompt": "long"
+    },
+    {
+      "time_et": "13:14:10",
+      "run": "long-cpu-default",
+      "flags": "",
+      "wall_s": 172,
+      "vram_card_peak_mib": 629,
+      "stats_line": "STATS tokens=17 ms=169127 tps=0.1419 ms_per_tok=7046.0 gbs_avg=0 peak_mb=580.5 prompt_tokens=35 prompt_ms=42426 prompt_tps=0.825 stopped=0 lane=cpu gen_tps=0.1419 ttft_ms=42426",
+      "mem_line": "MEM peak_mb=580.5",
+      "reply": "Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune",
+      "prompt": "long"
+    }
+  ]
+}

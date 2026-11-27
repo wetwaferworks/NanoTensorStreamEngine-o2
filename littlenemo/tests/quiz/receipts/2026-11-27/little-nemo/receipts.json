@@ -1,0 +1,2230 @@
+{
+  "model": "Little Nemo (Nemotron Nano 9B v2, CUDA pack)",
+  "started": "2026-11-27 12:52:49 -0500",
+  "conditions": {
+    "engine": "nemo-engine-cuda built from scratch-branch head 5214304 (same steps as accel/build-nemo-gpu.ps1)",
+    "lane": "CUDA chosen by calibration; dtc=on, expand=auto, full_path=fast, prefill_chunk=64, int8 lm_head",
+    "pack": "Nemotron Nano 9B v2 PQ d4 pack nemo9b-pq4-L.nq2 (2,048,980,932 bytes), the pack of the 2026-11-26 7/10 record",
+    "machine": "RTX 3050 Ti Laptop 4 GB, i5-12450H (12 threads), 16 GB RAM, Windows",
+    "decoding": "greedy, chat template on, thinking off, RESET between items",
+    "max_new": "16 for questions, 320 for essays; one engine process per part",
+    "priority": "engine and runner BelowNormal",
+    "other load": "SuperVL post-pack check finishing on the CPU; a LithoKraft window open; other GPU jobs parked"
+  },
+  "wall_s": 320.613,
+  "gpu_whole_run": {
+    "vram_used_peak_mib": 3841,
+    "gpu_util_mean": 84.5,
+    "samples": 302
+  },
+  "questions": {
+    "command": [
+      "<scratch>\\build\\quiz\\bin\\nemo-engine-cuda.exe",
+      "<models>\\nemotron-nano-9b-v2\\original",
+      "<models>\\nemotron-nano-9b-v2\\original\\tokenizer.json",
+      "--chat",
+      "--max-new",
+      "16",
+      "--cuda-pack",
+      "<scratch>\\data\\cuda-probe-gui\\nemo9b-pq4-L.nq2"
+    ],
+    "ready_line": "READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=1 think=0",
+    "hw_line": "HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=cached dtc=on expand=auto host_threads=1 prefill_chunk=64 full_path=fast tok_overlap=1",
+    "max_new": 16,
+    "engine_launches": 1,
+    "pauses_for_other_jobs": [],
+    "load_s": 22.456,
+    "wall_s": 92.224,
+    "gpu": {
+      "vram_used_peak_mib": 3841,
+      "gpu_util_mean": 75.0,
+      "samples": 87
+    },
+    "score": {
+      "n": 50,
+      "passes": 36,
+      "hedges": 0,
+      "fails": 14,
+      "score": "36/50"
+    },
+    "summary": {
+      "prefill_tps": {
+        "mean": 74.753,
+        "min": 44.455,
+        "median": 77.172,
+        "max": 86.349
+      },
+      "decode_tps": {
+        "mean": 16.474,
+        "min": 12.331,
+        "median": 16.477,
+        "max": 20.58
+      },
+      "decode_tps_pooled": 11.632,
+      "prefill_tps_pooled": 73.914,
+      "gen_tokens": 800,
+      "prompt_tokens": 1438,
+      "ram_peak_mb": 306.5,
+      "vram_card_peak_mib": 3841,
+      "expand_steps": 177,
+      "dtc_steps": 673
+    },
+    "pooled": {
+      "generated_tokens": 800,
+      "decode_ms": 49319,
+      "decode_tps_pooled": 16.221,
+      "prompt_tokens": 1438,
+      "prefill_ms": 19455,
+      "prefill_tps_pooled": 73.914
+    },
+    "items": [
+      {
+        "id": 1,
+        "category": "math",
+        "prompt": "What is 12 times 12? Answer with just the answer.",
+        "gold": "144",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "144\n \n\n\n\n\n144\n \n",
+        "first_answer_line": "144",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 675,
+          "prefill_tps": 44.455,
+          "gen_tokens": 16,
+          "gen_ms": 1737,
+          "decode_tps": 15.073,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 275.7,
+          "wall_s": 1.738,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 99.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 2,
+        "category": "math",
+        "prompt": "What is 15 plus 27? Answer with just the answer.",
+        "gold": "42",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "42\n\n\n\n\n\n\n42\n\n\n\n4",
+        "first_answer_line": "42",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 368,
+          "prefill_tps": 81.51,
+          "gen_tokens": 16,
+          "gen_ms": 1348,
+          "decode_tps": 16.338,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.392,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 3,
+        "category": "math",
+        "prompt": "What is 100 minus 37? Answer with just the answer.",
+        "gold": "63",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "63\n\n\n\n\n\n\n63\n\n\n\n6",
+        "first_answer_line": "63",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 31,
+          "prefill_ms": 373,
+          "prefill_tps": 83.004,
+          "gen_tokens": 16,
+          "gen_ms": 1309,
+          "decode_tps": 17.123,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.322,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 4,
+        "category": "math",
+        "prompt": "What is 72 divided by 8? Answer with just the answer.",
+        "gold": "9",
+        "accepted_aliases": [
+          "nine"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "7\n\n\n72 divided by 8 is 9.\n \n",
+        "first_answer_line": "7",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 436,
+          "prefill_tps": 68.805,
+          "gen_tokens": 16,
+          "gen_ms": 1430,
+          "decode_tps": 16.104,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.445,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 99.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 5,
+        "category": "math",
+        "prompt": "What is the square root of 144? Answer with just the answer.",
+        "gold": "12",
+        "accepted_aliases": [
+          "twelve"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "42\n\n\n\n\n\n\n42\n\n\n\n4",
+        "first_answer_line": "42",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 31,
+          "prefill_ms": 370,
+          "prefill_tps": 83.814,
+          "gen_tokens": 16,
+          "gen_ms": 1350,
+          "decode_tps": 16.342,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.364,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 6,
+        "category": "math",
+        "prompt": "What is 2 to the power of 10? Answer with just the answer.",
+        "gold": "1024",
+        "accepted_aliases": [
+          "1,024"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "2 to the power of 10 is 1024.\n ",
+        "first_answer_line": "2 to the power of 10 is 1024.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 371,
+          "prefill_tps": 86.349,
+          "gen_tokens": 16,
+          "gen_ms": 1149,
+          "decode_tps": 20.58,
+          "stopped": 0,
+          "dtc_steps": 17,
+          "expand_steps": 0,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.163,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 7,
+        "category": "math",
+        "prompt": "What is 25 percent of 200? Answer with just the answer.",
+        "gold": "50",
+        "accepted_aliases": [
+          "fifty"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "50\n\n\n50\n\n50\n50\n5",
+        "first_answer_line": "50",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 432,
+          "prefill_tps": 74.056,
+          "gen_tokens": 16,
+          "gen_ms": 1227,
+          "decode_tps": 20.142,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.242,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 8,
+        "category": "math",
+        "prompt": "What is 13 times 3? Answer with just the answer.",
+        "gold": "39",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "49\n\n\n\n13 times 3 is 49.\n",
+        "first_answer_line": "49",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 428,
+          "prefill_tps": 67.828,
+          "gen_tokens": 16,
+          "gen_ms": 1344,
+          "decode_tps": 17.48,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.357,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 9,
+        "category": "math",
+        "prompt": "What is 1000 divided by 8? Answer with just the answer.",
+        "gold": "125",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "125\n\n\n\n\n\n125\n\n\n\n",
+        "first_answer_line": "125",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 372,
+          "prefill_tps": 86.124,
+          "gen_tokens": 16,
+          "gen_ms": 1217,
+          "decode_tps": 18.949,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.232,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 10,
+        "category": "math",
+        "prompt": "What is 3 cubed? Answer with just the answer.",
+        "gold": "27",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "3 cubed is 27.\n \n\n\n\n\n\n\n\n\n",
+        "first_answer_line": "3 cubed is 27.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 416,
+          "prefill_tps": 64.956,
+          "gen_tokens": 16,
+          "gen_ms": 1317,
+          "decode_tps": 17.762,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.331,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 91.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 11,
+        "category": "capital",
+        "prompt": "What is the capital of France? Answer with just the answer.",
+        "gold": "Paris",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "Paris\n\n\nParis\n is the capital of France.\n (This is a",
+        "first_answer_line": "Paris",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 356,
+          "prefill_tps": 75.827,
+          "gen_tokens": 16,
+          "gen_ms": 1390,
+          "decode_tps": 15.483,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.404,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 12,
+        "category": "capital",
+        "prompt": "What is the capital of Japan? Answer with just the answer.",
+        "gold": "Tokyo",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "Tokyo\n\n\n\n\n\nTokyo\n (capital)\n is the capital of",
+        "first_answer_line": "Tokyo",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 357,
+          "prefill_tps": 75.638,
+          "gen_tokens": 16,
+          "gen_ms": 1449,
+          "decode_tps": 14.665,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.462,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 13,
+        "category": "capital",
+        "prompt": "What is the capital of Italy? Answer with just the answer.",
+        "gold": "Rome",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "Rome\n\n\n or Rome\n (Italy)\n\n, capital of Italy\n",
+        "first_answer_line": "Rome",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 351,
+          "prefill_tps": 76.943,
+          "gen_tokens": 16,
+          "gen_ms": 1373,
+          "decode_tps": 15.678,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.387,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 14,
+        "category": "capital",
+        "prompt": "What is the capital of Canada? Answer with just the answer.",
+        "gold": "Ottawa",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Toronto",
+          "Montreal",
+          "Vancouver"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Toronto\n\n\n\n\n\n (Canada)\n is the capital of Canada.\n",
+        "first_answer_line": "Toronto",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 354,
+          "prefill_tps": 76.357,
+          "gen_tokens": 16,
+          "gen_ms": 1510,
+          "decode_tps": 13.851,
+          "stopped": 0,
+          "dtc_steps": 11,
+          "expand_steps": 6,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.525,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 15,
+        "category": "capital",
+        "prompt": "What is the capital of Australia? Answer with just the answer.",
+        "gold": "Canberra",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Sydney",
+          "Melbourne"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The capital of Australia is Canberra.\n \n\n (Capital of Australia is Canberra)\n",
+        "first_answer_line": "The capital of Australia is Canberra.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 353,
+          "prefill_tps": 76.47,
+          "gen_tokens": 16,
+          "gen_ms": 1504,
+          "decode_tps": 13.911,
+          "stopped": 0,
+          "dtc_steps": 11,
+          "expand_steps": 6,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.521,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 16,
+        "category": "capital",
+        "prompt": "What is the capital of Germany? Answer with just the answer.",
+        "gold": "Berlin",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Bonn",
+          "Munich"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Berlin\n\n\n\n\n\n (Berlin, Germany)\n is the capital of",
+        "first_answer_line": "Berlin",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 357,
+          "prefill_tps": 75.695,
+          "gen_tokens": 16,
+          "gen_ms": 1328,
+          "decode_tps": 16.49,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.341,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 17,
+        "category": "capital",
+        "prompt": "What is the capital of Egypt? Answer with just the answer.",
+        "gold": "Cairo",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Alexandria"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Cairo\n\n (capital city of Egypt)\n \n\n (Capital city of",
+        "first_answer_line": "Cairo",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 415,
+          "prefill_tps": 65.018,
+          "gen_tokens": 16,
+          "gen_ms": 1631,
+          "decode_tps": 13.173,
+          "stopped": 0,
+          "dtc_steps": 9,
+          "expand_steps": 8,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.644,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 18,
+        "category": "capital",
+        "prompt": "What is the capital of Spain? Answer with just the answer.",
+        "gold": "Madrid",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Barcelona"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The capital of Spain is Madrid.\n \n\n (Spain is a country, and",
+        "first_answer_line": "The capital of Spain is Madrid.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 350,
+          "prefill_tps": 77.172,
+          "gen_tokens": 16,
+          "gen_ms": 1311,
+          "decode_tps": 16.662,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.326,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 19,
+        "category": "capital",
+        "prompt": "What is the capital of Kenya? Answer with just the answer.",
+        "gold": "Nairobi",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Mombasa"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The capital of Kenya is Nairobi.\n However, since the question asks for the capital",
+        "first_answer_line": "The capital of Kenya is Nairobi.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 353,
+          "prefill_tps": 76.571,
+          "gen_tokens": 16,
+          "gen_ms": 1251,
+          "decode_tps": 17.816,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.267,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 20,
+        "category": "capital",
+        "prompt": "What is the capital of Brazil? Answer with just the answer.",
+        "gold": "Brasilia",
+        "accepted_aliases": [
+          "Brasília"
+        ],
+        "listed_wrong_answers": [
+          "Rio de Janeiro",
+          "Sao Paulo",
+          "São Paulo"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The capital of Brazil is Brasília.\n \n\n (Capital city of Brazil is",
+        "first_answer_line": "The capital of Brazil is Brasília.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 349,
+          "prefill_tps": 77.357,
+          "gen_tokens": 16,
+          "gen_ms": 1432,
+          "decode_tps": 14.792,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.446,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 21,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+        "gold": "Au",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Ag",
+          "Go"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for gold is Au.\n \n\n (This is a placeholder question",
+        "first_answer_line": "The chemical symbol for gold is Au.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 357,
+          "prefill_tps": 78.414,
+          "gen_tokens": 16,
+          "gen_ms": 1381,
+          "decode_tps": 15.641,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.396,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 22,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for silver? Answer with just the answer.",
+        "gold": "Ag",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Au",
+          "Si",
+          "Sv"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for silver is Ag.\n \n\n (Silver is a chemical",
+        "first_answer_line": "The chemical symbol for silver is Ag.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 358,
+          "prefill_tps": 78.312,
+          "gen_tokens": 16,
+          "gen_ms": 1380,
+          "decode_tps": 15.66,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.394,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 90.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 23,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for iron? Answer with just the answer.",
+        "gold": "Fe",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Ir"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for iron is Fe.\n (This is a placeholder question, as",
+        "first_answer_line": "The chemical symbol for iron is Fe.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 353,
+          "prefill_tps": 79.305,
+          "gen_tokens": 16,
+          "gen_ms": 1443,
+          "decode_tps": 14.684,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.457,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 24,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for sodium? Answer with just the answer.",
+        "gold": "Na",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "So",
+          "S",
+          "Sd"
+        ],
+        "case_sensitive": true,
+        "answer_full": "Na\n\n\nThe chemical symbol for sodium is Na.\n \n\n (",
+        "first_answer_line": "Na",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 420,
+          "prefill_tps": 66.712,
+          "gen_tokens": 16,
+          "gen_ms": 1321,
+          "decode_tps": 17.767,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.335,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 25,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for potassium? Answer with just the answer.",
+        "gold": "K",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "P",
+          "Po",
+          "Pt"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for potassium is K.\n \n\n\n\n\n\n (K",
+        "first_answer_line": "The chemical symbol for potassium is K.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 357,
+          "prefill_tps": 78.427,
+          "gen_tokens": 16,
+          "gen_ms": 1448,
+          "decode_tps": 14.667,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.462,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 26,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for oxygen? Answer with just the answer.",
+        "gold": "O",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Ox",
+          "Os"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for oxygen is O.\n (O)\n\n\n\n\n\n",
+        "first_answer_line": "The chemical symbol for oxygen is O.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 356,
+          "prefill_tps": 78.715,
+          "gen_tokens": 16,
+          "gen_ms": 1197,
+          "decode_tps": 19.032,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.211,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 27,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for lead? Answer with just the answer.",
+        "gold": "Pb",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Le",
+          "Ld",
+          "L"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for lead is Pb.\n \n\n (Pb)\n\n\n ",
+        "first_answer_line": "The chemical symbol for lead is Pb.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 358,
+          "prefill_tps": 78.292,
+          "gen_tokens": 16,
+          "gen_ms": 1379,
+          "decode_tps": 15.669,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.394,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 28,
+        "category": "chem-symbol",
+        "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+        "gold": "He",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "H",
+          "Hl",
+          "Hm"
+        ],
+        "case_sensitive": true,
+        "answer_full": "The chemical symbol for helium is He.\n \n\n (Note: This answer is",
+        "first_answer_line": "The chemical symbol for helium is He.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 355,
+          "prefill_tps": 78.823,
+          "gen_tokens": 16,
+          "gen_ms": 1507,
+          "decode_tps": 13.901,
+          "stopped": 0,
+          "dtc_steps": 11,
+          "expand_steps": 6,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.522,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 93.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 29,
+        "category": "date",
+        "prompt": "In what year did humans first land on the Moon? Answer with just the answer.",
+        "gold": "1969",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "The first time humans landed on the Moon was in 1969.\n",
+        "first_answer_line": "The first time humans landed on the Moon was in 1969.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 31,
+          "prefill_ms": 432,
+          "prefill_tps": 71.774,
+          "gen_tokens": 16,
+          "gen_ms": 1276,
+          "decode_tps": 18.959,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.291,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 30,
+        "category": "date",
+        "prompt": "In what year did World War II end? Answer with just the answer.",
+        "gold": "1945",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "World War II ended in 1945.\n \n\n\n\n\n",
+        "first_answer_line": "World War II ended in 1945.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 363,
+          "prefill_tps": 79.795,
+          "gen_tokens": 16,
+          "gen_ms": 1268,
+          "decode_tps": 17.691,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.283,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 31,
+        "category": "date",
+        "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+        "gold": "1776",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "1789\n (year the United States Declaration of Independence was adopted)\n",
+        "first_answer_line": "1789",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 377,
+          "prefill_tps": 84.853,
+          "gen_tokens": 16,
+          "gen_ms": 1226,
+          "decode_tps": 18.858,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.239,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 32,
+        "category": "date",
+        "prompt": "In what year did the Berlin Wall fall? Answer with just the answer.",
+        "gold": "1989",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "The Berlin Wall fell in 1989.\n However, the question asks",
+        "first_answer_line": "The Berlin Wall fell in 1989.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 366,
+          "prefill_tps": 79.146,
+          "gen_tokens": 16,
+          "gen_ms": 1285,
+          "decode_tps": 17.434,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.299,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 33,
+        "category": "date",
+        "prompt": "In what year did Christopher Columbus first reach the Americas? Answer with just the answer.",
+        "gold": "1492",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "1492\n (year)\n or 1492 (year",
+        "first_answer_line": "1492",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 31,
+          "prefill_ms": 378,
+          "prefill_tps": 82.03,
+          "gen_tokens": 16,
+          "gen_ms": 1235,
+          "decode_tps": 18.695,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.249,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 34,
+        "category": "date",
+        "prompt": "In what year did the Titanic sink? Answer with just the answer.",
+        "gold": "1912",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "1912\n (year the Titanic sank)\n \n\n\n",
+        "first_answer_line": "1912",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 433,
+          "prefill_tps": 66.948,
+          "gen_tokens": 16,
+          "gen_ms": 1418,
+          "decode_tps": 16.252,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.433,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 35,
+        "category": "date",
+        "prompt": "In what year did World War I begin? Answer with just the answer.",
+        "gold": "1914",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "World War I began in 1914.\n However, the question asks",
+        "first_answer_line": "World War I began in 1914.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 366,
+          "prefill_tps": 79.341,
+          "gen_tokens": 16,
+          "gen_ms": 1211,
+          "decode_tps": 18.949,
+          "stopped": 0,
+          "dtc_steps": 16,
+          "expand_steps": 1,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.225,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 36,
+        "category": "units",
+        "prompt": "How many centimeters are in one meter? Answer with just the answer.",
+        "gold": "100",
+        "accepted_aliases": [
+          "one hundred"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "100\n centimeters are in one meter.\n (100)\n",
+        "first_answer_line": "100",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 367,
+          "prefill_tps": 78.992,
+          "gen_tokens": 16,
+          "gen_ms": 1339,
+          "decode_tps": 16.477,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.353,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 37,
+        "category": "units",
+        "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+        "gold": "1000",
+        "accepted_aliases": [
+          "1,000",
+          "one thousand"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "44.39 grams\n (grams per kilogram)\n \n 4",
+        "first_answer_line": "44.39 grams",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 423,
+          "prefill_tps": 66.189,
+          "gen_tokens": 16,
+          "gen_ms": 1697,
+          "decode_tps": 12.568,
+          "stopped": 0,
+          "dtc_steps": 8,
+          "expand_steps": 9,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.71,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 38,
+        "category": "units",
+        "prompt": "How many seconds are in one hour? Answer with just the answer.",
+        "gold": "3600",
+        "accepted_aliases": [
+          "3,600"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "60\n seconds.\n (60)\n seconds.\n (60) seconds",
+        "first_answer_line": "60",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 362,
+          "prefill_tps": 77.438,
+          "gen_tokens": 16,
+          "gen_ms": 1276,
+          "decode_tps": 17.517,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.291,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 39,
+        "category": "units",
+        "prompt": "How many inches are in one foot? Answer with just the answer.",
+        "gold": "12",
+        "accepted_aliases": [
+          "twelve"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "60\n inches are in one foot.\n (60 inches in one foot",
+        "first_answer_line": "60",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 420,
+          "prefill_tps": 66.615,
+          "gen_tokens": 16,
+          "gen_ms": 1332,
+          "decode_tps": 17.563,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.347,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 40,
+        "category": "units",
+        "prompt": "How many feet are in one yard? Answer with just the answer.",
+        "gold": "3",
+        "accepted_aliases": [
+          "three"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "There are 3 feet in one yard.\n \n\n(3)\n ",
+        "first_answer_line": "There are 3 feet in one yard.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 361,
+          "prefill_tps": 77.47,
+          "gen_tokens": 16,
+          "gen_ms": 1462,
+          "decode_tps": 14.548,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.477,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 41,
+        "category": "units",
+        "prompt": "How many days are in a leap year? Answer with just the answer.",
+        "gold": "366",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "365"
+        ],
+        "case_sensitive": false,
+        "answer_full": "There are 365 days in a leap year.\n (This is a",
+        "first_answer_line": "There are 365 days in a leap year.",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 29,
+          "prefill_ms": 423,
+          "prefill_tps": 68.6,
+          "gen_tokens": 16,
+          "gen_ms": 1394,
+          "decode_tps": 16.491,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.408,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 42,
+        "category": "units",
+        "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+        "gold": "1000",
+        "accepted_aliases": [
+          "1,000",
+          "one thousand"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "1\n\n \n\n1 liter is equal to 1000",
+        "first_answer_line": "1",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 361,
+          "prefill_tps": 83.033,
+          "gen_tokens": 16,
+          "gen_ms": 1527,
+          "decode_tps": 13.739,
+          "stopped": 0,
+          "dtc_steps": 11,
+          "expand_steps": 6,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.541,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.0,
+          "samples": 2
+        }
+      },
+      {
+        "id": 43,
+        "category": "science",
+        "prompt": "At sea level, at how many degrees Celsius does water boil? Answer with just the answer.",
+        "gold": "100",
+        "accepted_aliases": [
+          "one hundred"
+        ],
+        "listed_wrong_answers": [
+          "212"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The boiling point of water at sea level is approximately 100 degrees Celsius",
+        "first_answer_line": "The boiling point of water at sea level is approximately 100 degrees Celsius",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 33,
+          "prefill_ms": 422,
+          "prefill_tps": 78.162,
+          "gen_tokens": 16,
+          "gen_ms": 1231,
+          "decode_tps": 19.793,
+          "stopped": 0,
+          "dtc_steps": 17,
+          "expand_steps": 0,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.249,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 44,
+        "category": "science",
+        "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+        "gold": "Jupiter",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Earth",
+          "Saturn",
+          "Neptune",
+          "Uranus"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The largest planet in our solar system is Earth.\n However, this is incorrect as",
+        "first_answer_line": "The largest planet in our solar system is Earth.",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 30,
+          "prefill_ms": 440,
+          "prefill_tps": 68.13,
+          "gen_tokens": 16,
+          "gen_ms": 1443,
+          "decode_tps": 15.967,
+          "stopped": 0,
+          "dtc_steps": 13,
+          "expand_steps": 4,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.459,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 45,
+        "category": "science",
+        "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+        "gold": "Mercury",
+        "accepted_aliases": [],
+        "listed_wrong_answers": [
+          "Venus",
+          "Earth",
+          "Mars"
+        ],
+        "case_sensitive": false,
+        "answer_full": "Mars.\n (Mars is a planet, not a planet itself, but it is",
+        "first_answer_line": "Mars.",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 428,
+          "prefill_tps": 65.429,
+          "gen_tokens": 16,
+          "gen_ms": 1726,
+          "decode_tps": 12.331,
+          "stopped": 0,
+          "dtc_steps": 8,
+          "expand_steps": 9,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.74,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 46,
+        "category": "science",
+        "prompt": "What is the chemical formula for water? Answer with just the answer.",
+        "gold": "H2O",
+        "accepted_aliases": [
+          "H₂O"
+        ],
+        "listed_wrong_answers": [
+          "HO2",
+          "H2O2",
+          "CO2"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The chemical formula for water is H₂O.\n (H₂O)\n\n",
+        "first_answer_line": "The chemical formula for water is H₂O.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 424,
+          "prefill_tps": 66.085,
+          "gen_tokens": 16,
+          "gen_ms": 1327,
+          "decode_tps": 17.733,
+          "stopped": 0,
+          "dtc_steps": 14,
+          "expand_steps": 3,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.34,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 47,
+        "category": "science",
+        "prompt": "How many continents are there on Earth? Answer with just the answer.",
+        "gold": "7",
+        "accepted_aliases": [
+          "seven"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "There are 7 continents on Earth.\n (This answer is a single number,",
+        "first_answer_line": "There are 7 continents on Earth.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 422,
+          "prefill_tps": 66.417,
+          "gen_tokens": 16,
+          "gen_ms": 1450,
+          "decode_tps": 15.565,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.466,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 99.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 48,
+        "category": "science",
+        "prompt": "How many legs does an insect have? Answer with just the answer.",
+        "gold": "6",
+        "accepted_aliases": [
+          "six"
+        ],
+        "listed_wrong_answers": [
+          "8",
+          "eight"
+        ],
+        "case_sensitive": false,
+        "answer_full": "The number of legs an insect has varies by species, but most insects have two",
+        "first_answer_line": "The number of legs an insect has varies by species, but most insects have two",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 423,
+          "prefill_tps": 66.133,
+          "gen_tokens": 16,
+          "gen_ms": 1272,
+          "decode_tps": 18.87,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.287,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.5,
+          "samples": 2
+        }
+      },
+      {
+        "id": 49,
+        "category": "science",
+        "prompt": "What is the hardest natural substance? Answer with just the answer.",
+        "gold": "diamond",
+        "accepted_aliases": [
+          "diamonds"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "The hardest natural substance is a mineral or mineral.\n \n\n\n\n\n\n",
+        "first_answer_line": "The hardest natural substance is a mineral or mineral.",
+        "grade": "fail",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 27,
+          "prefill_ms": 354,
+          "prefill_tps": 76.318,
+          "gen_tokens": 16,
+          "gen_ms": 1445,
+          "decode_tps": 14.678,
+          "stopped": 0,
+          "dtc_steps": 12,
+          "expand_steps": 5,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.458,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.0,
+          "samples": 1
+        }
+      },
+      {
+        "id": 50,
+        "category": "general",
+        "prompt": "Who wrote the play Romeo and Juliet? Answer with just the answer.",
+        "gold": "Shakespeare",
+        "accepted_aliases": [
+          "William Shakespeare"
+        ],
+        "listed_wrong_answers": [],
+        "case_sensitive": false,
+        "answer_full": "The play \"Rome and Juliet\" was written by William Shakespeare.\n However, since",
+        "first_answer_line": "The play \"Rome and Juliet\" was written by William Shakespeare.",
+        "grade": "pass",
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 28,
+          "prefill_ms": 360,
+          "prefill_tps": 77.809,
+          "gen_tokens": 16,
+          "gen_ms": 1271,
+          "decode_tps": 17.575,
+          "stopped": 0,
+          "dtc_steps": 15,
+          "expand_steps": 2,
+          "ram_peak_mb": 306.5,
+          "wall_s": 1.285,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 100.0,
+          "samples": 1
+        }
+      }
+    ]
+  },
+  "essays": {
+    "command": [
+      "<scratch>\\build\\quiz\\bin\\nemo-engine-cuda.exe",
+      "<models>\\nemotron-nano-9b-v2\\original",
+      "<models>\\nemotron-nano-9b-v2\\original\\tokenizer.json",
+      "--chat",
+      "--max-new",
+      "320",
+      "--cuda-pack",
+      "<scratch>\\data\\cuda-probe-gui\\nemo9b-pq4-L.nq2"
+    ],
+    "ready_line": "READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=1 think=0",
+    "hw_line": "HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=cached dtc=on expand=auto host_threads=1 prefill_chunk=64 full_path=fast tok_overlap=1",
+    "max_new": 320,
+    "engine_launches": 1,
+    "pauses_for_other_jobs": [],
+    "load_s": 22.581,
+    "wall_s": 227.516,
+    "gpu": {
+      "vram_used_peak_mib": 3841,
+      "gpu_util_mean": 88.3,
+      "samples": 215
+    },
+    "score": {
+      "n": 10,
+      "passes": 4,
+      "facts_hit": 36,
+      "facts_total": 62,
+      "forbidden_total": 0,
+      "score": "4/10"
+    },
+    "summary": {
+      "prefill_tps": {
+        "mean": 61.995,
+        "min": 34.924,
+        "median": 59.828,
+        "max": 77.346
+      },
+      "decode_tps": {
+        "mean": 16.117,
+        "min": 15.443,
+        "median": 16.163,
+        "max": 16.32
+      },
+      "decode_tps_pooled": 15.641,
+      "prefill_tps_pooled": 58.673,
+      "gen_tokens": 3200,
+      "prompt_tokens": 344,
+      "ram_peak_mb": 306.6,
+      "vram_card_peak_mib": 3841,
+      "expand_steps": 3216,
+      "dtc_steps": 0
+    },
+    "pooled": {
+      "generated_tokens": 3200,
+      "decode_ms": 198722,
+      "decode_tps_pooled": 16.103,
+      "prompt_tokens": 344,
+      "prefill_ms": 5863,
+      "prefill_tps_pooled": 58.673
+    },
+    "items": [
+      {
+        "id": 1,
+        "topic": "photosynthesis",
+        "prompt": "Write a short factual essay of about 150 words. Explain how photosynthesis works in plants.",
+        "answer_full": "**Title: How Photosynthesis Works in Plants: A Simple Explanation**  \n  \n**Introduction**  \n Photosynthesis is the process by which plants convert sunlight into energy, allowing them to grow and thrive in their environment.  \n\n  \n\n **The Process**  \n 1. **Light Absorption**: Plants absorb sunlight through their leaves, which contain chlorophyll, a pigment that captures light energy.  \n 2. **Energy Conversion**: The absorbed light energy is converted into chemical energy, which the plant can use for growth and development.  \n 3. **Carbon Fixation**: The energy is used to convert carbon dioxide (from the air) into sugar (or glucose), a process called carbon fixation.  \n\n   **Conclusion**  \n  By harnessing sunlight and converting it into usable energy, photosynthesis allows plants to thrive in environments where sunlight is available. This process is fundamental to the survival of plants in the natural world.\"  \n\n  \n\n *Word count: 150*\n\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words)\n\n\n (150 words",
+        "grade": "fail",
+        "required_facts": 7,
+        "facts_found": 4,
+        "fraction": 0.5714,
+        "found": [
+          {
+            "fact": "uses light energy",
+            "matched_text": "sunlight"
+          },
+          {
+            "fact": "takes in carbon dioxide",
+            "matched_text": "carbon dioxide"
+          },
+          {
+            "fact": "makes glucose or sugar",
+            "matched_text": "glucose"
+          },
+          {
+            "fact": "chlorophyll absorbs the light",
+            "matched_text": "chlorophyll"
+          }
+        ],
+        "missed": [
+          "uses water",
+          "releases oxygen",
+          "happens in chloroplasts"
+        ],
+        "forbidden_claims_checked": [
+          "photosynthesis happens in the mitochondria",
+          "plants take in oxygen and give off carbon dioxide during photosynthesis"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 34,
+          "prefill_ms": 974,
+          "prefill_tps": 34.924,
+          "gen_tokens": 320,
+          "gen_ms": 20701,
+          "decode_tps": 16.234,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 276.1,
+          "wall_s": 20.702,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.6,
+          "samples": 19
+        }
+      },
+      {
+        "id": 2,
+        "topic": "water cycle",
+        "prompt": "Write a short factual essay of about 150 words. Explain the water cycle.",
+        "answer_full": "The water cycle is a fundamental process in Earth's hydrology, involving the continuous movement of water through the environment. It begins with evaporation, where water in the oceans, oceans, and other bodies of water evaporates into the atmosphere due to solar radiation and temperature differences. This evaporation creates water vapor that rises and moves upward, eventually conding and returning to the Earth as precipitation. The water cycle is a continuous process that ensures the continuous movement of water from the oceans to the atmosphere and back to the oceans, maintaining the balance in the global water budget.\n\n\n\n\n\n\n\n\n\n\n\n. \n\n The water cycle is a continuous process that ensures the continuous movement of water from the oceans to the atmosphere and back to the oceans, maintaining the balance in the global water budget.\n</think>\n\n The water cycle is a continuous process that ensures the continuous movement of water from the oceans to the atmosphere and back to the oceans, maintaining the balance in the global water budget.\n \n\n \n . \n \n \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . \n . ",
+        "grade": "fail",
+        "required_facts": 6,
+        "facts_found": 3,
+        "fraction": 0.5,
+        "found": [
+          {
+            "fact": "evaporation",
+            "matched_text": "evaporat"
+          },
+          {
+            "fact": "precipitation (rain or snow)",
+            "matched_text": "precipitat"
+          },
+          {
+            "fact": "driven by the Sun's heat",
+            "matched_text": "solar"
+          }
+        ],
+        "missed": [
+          "condensation",
+          "collection, runoff or infiltration",
+          "clouds form"
+        ],
+        "forbidden_claims_checked": [
+          "condensation turns liquid water into vapor",
+          "evaporation turns vapor into liquid"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 414,
+          "prefill_tps": 77.346,
+          "gen_tokens": 320,
+          "gen_ms": 20035,
+          "decode_tps": 16.32,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 321,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.084,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 96.8,
+          "samples": 19
+        }
+      },
+      {
+        "id": 3,
+        "topic": "seasons",
+        "prompt": "Write a short factual essay of about 150 words. Explain what causes the seasons on Earth.",
+        "answer_full": "**Title: The Rhythmic Dance of Earth's Seasons**  \n  \n The changing of Earth’s seasons is driven by its axial tilt, which creates a dynamic interplay between the planet’s orbit and its rotation. As Earth orbits the Sun in a nearly circular orbit, its axial tilt—approximately 23.5 degrees—ensures that different latitudes experience distinct seasonal patterns. This tilt means that regions near the equator receive consistent, year-round sunlight, while higher latitudes experience seasonal variation due to the Sun’s angle of incidence. The gravitational influence of the Moon, through its gravitational pull, further influences these cycles, creating a rhythmic interplay between the two. This interplay—between the Earth’s axial tilt and the Moon’s gravitational pull—creates the cyclical pattern of seasons, ensuring that the equator remains the axis of this rhythmic dance. Thus, the seasons are a result of this rhythmic interplay, with the Earth’s rotation and orbit creating a dynamic, seasonal cycle.\n  \n\n\n\n\n\n\n\n\n\n (150 words)\n\n\n\n\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (1",
+        "grade": "pass",
+        "required_facts": 5,
+        "facts_found": 4,
+        "fraction": 0.8,
+        "found": [
+          {
+            "fact": "Earth's axis is tilted",
+            "matched_text": "tilt"
+          },
+          {
+            "fact": "tilt is about 23.5 degrees",
+            "matched_text": "23.5 degrees"
+          },
+          {
+            "fact": "Earth orbits the Sun",
+            "matched_text": "orbit"
+          },
+          {
+            "fact": "sunlight angle or directness changes",
+            "matched_text": "angle"
+          }
+        ],
+        "missed": [
+          "hemispheres have opposite seasons"
+        ],
+        "forbidden_claims_checked": [
+          "seasons are caused by distance from the Sun"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 35,
+          "prefill_ms": 622,
+          "prefill_tps": 56.228,
+          "gen_tokens": 320,
+          "gen_ms": 20335,
+          "decode_tps": 16.244,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.35,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.4,
+          "samples": 19
+        }
+      },
+      {
+        "id": 4,
+        "topic": "human heart",
+        "prompt": "Write a short factual essay of about 150 words. Explain how the human heart works.",
+        "answer_full": "**Title: The Human Heart: A Marvel of Engineering****\n\nThe human heart, a complex yet efficient organ, operates through a series of coordinated processes to sustain life. At its core is the heart, which functions as a pump, distributing blood throughout the body via the circular action of the heart. This organ, composed of four chambers, a valve system, and a muscular structure, operates through rhythmic contractions known as peristalsis. These rhythmic contractions ensure continuous blood circulation, preventing stagn and maintaining a steady supply to the body. The heart’s efficiency relies on its ability to maintain a steady pressure in the circulatory system, ensuring that every cell receives oxygen and nutrients. This efficient design allows the heart to meet the body’s demands while remaining adaptable to physiological changes, such as changes in activity or environmental conditions. In essence, the heart’s design is a marvel of engineering, balancing efficiency and adaptability in one organ.\n (150 words)\n\n\n\n\n\n\n\n\n (150 words)\n\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (15",
+        "grade": "fail",
+        "required_facts": 7,
+        "facts_found": 3,
+        "fraction": 0.4286,
+        "found": [
+          {
+            "fact": "four chambers",
+            "matched_text": "four chambers"
+          },
+          {
+            "fact": "oxygen",
+            "matched_text": "oxygen"
+          },
+          {
+            "fact": "valves",
+            "matched_text": "valve"
+          }
+        ],
+        "missed": [
+          "atria",
+          "ventricles",
+          "pumps blood to the lungs for oxygen",
+          "arteries or veins or aorta"
+        ],
+        "forbidden_claims_checked": [
+          "the heart has three chambers",
+          "blood is blue"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 34,
+          "prefill_ms": 622,
+          "prefill_tps": 54.706,
+          "gen_tokens": 320,
+          "gen_ms": 20337,
+          "decode_tps": 16.242,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.351,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 19
+        }
+      },
+      {
+        "id": 5,
+        "topic": "world war ii",
+        "prompt": "Write a short factual essay of about 150 words. Summarize the main facts about World War II.",
+        "answer_full": "World War II (1939–1945) was a global conflict involving multiple nations, characterized by extreme destruction and loss of life. It began with the invasion of Poland by Nazi Germany in 1.39, followed by the rise of the Axis powers (Germany, Italy, and Japan) and the Allied coalition (Britain, the Soviet Union, and others). Key events included the 1939 invasion of Poland, the 1941 entry of the U.S. and Soviet Union into the Allied side, and the 1945 atomic bombings on Hiroshima and Nagasaki. The war ended with the Allies' victory, the fall of the Axis, and the establishment of the United Nations in 1945 to prevent future conflicts. The war's human toll was unprecedented, with an estimated 70 million deaths, making it one of the deadliest conflicts in history.\n The war underscined the need for international cooperation and the dangers of totalitarian regimes.\n The outcome was the disintegration of the Axis powers and the rise of a new global order focused on peace and cooperation.\n</think>\n\nWorld War II (1939–1945) was a global conflict marked by unprecedented devastation and geopolitical upheaval. It began with the 1939 invasion of Poland by Nazi Germany, followed by the Axis powers' (Germany, Italy, and Japan) aggressive expansion through Axis-aligned alliances. The war involved over 60 countries, with the Axis powers (Germany, Italy,",
+        "grade": "pass",
+        "required_facts": 7,
+        "facts_found": 6,
+        "fraction": 0.8571,
+        "found": [
+          {
+            "fact": "began in 1939",
+            "matched_text": "1939"
+          },
+          {
+            "fact": "ended in 1945",
+            "matched_text": "1945"
+          },
+          {
+            "fact": "Germany invaded Poland",
+            "matched_text": "Poland"
+          },
+          {
+            "fact": "Allies",
+            "matched_text": "Allied"
+          },
+          {
+            "fact": "Axis",
+            "matched_text": "Axis"
+          },
+          {
+            "fact": "Hitler or Nazi Germany",
+            "matched_text": "Nazi"
+          }
+        ],
+        "missed": [
+          "Pearl Harbor attack"
+        ],
+        "forbidden_claims_checked": [
+          "ended in 1918",
+          "began in 1914"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 38,
+          "prefill_ms": 635,
+          "prefill_tps": 59.828,
+          "gen_tokens": 320,
+          "gen_ms": 21370,
+          "decode_tps": 15.443,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 306.6,
+          "wall_s": 21.385,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 86.7,
+          "samples": 20
+        }
+      },
+      {
+        "id": 6,
+        "topic": "declaration of independence",
+        "prompt": "Write a short factual essay of about 150 words. Explain the history of the United States Declaration of Independence.",
+        "answer_full": "The United States Declaration of Independence, adopted on July 4, 1776, is a pivotal document in U.S. history, symbolizing the nation's assertion of independence from British rule. Drafted by the Continental Congress in 1776, the document was signed by 56 of the 56 signatories, with the majority of the 56 signatories being from the 13 colonies. The Declaration of Independence was a bold and strategic move by the American colonists to declare their independence from the British Crown, which was a significant turning point in the American Revolution. The document's content, including its declaration of the colonies' independence, was a bold and strategic move by the American colonists to assert their independence from the British Crown. The Declaration of Independence is a cornerstone of U.S. history, reflecting the nation's commitment to liberty and self-governance.\n The document's content, including its declaration of the colonies' independence, was a bold and strategic move by the American colonists to assert their independence from the British Crown. The Declaration of Independence is a cornerstone of U.S. history, symbolizing the nation's commitment to liberty and self-govern.\n\n\n The Declaration of Independence is a foundational document in U.S. history, representing the nation's dedication to liberty and self-govern.\n The Declaration of Independence is a foundational document in U.S. history, representing the nation's commitment to liberty and self-govern. The Declaration of Independence is a cornerstone of U.S. history, symbolizing the nation's dedication to liberty",
+        "grade": "fail",
+        "required_facts": 6,
+        "facts_found": 4,
+        "fraction": 0.6667,
+        "found": [
+          {
+            "fact": "1776",
+            "matched_text": "1776"
+          },
+          {
+            "fact": "July 4",
+            "matched_text": "July 4"
+          },
+          {
+            "fact": "Continental Congress",
+            "matched_text": "Continental Congress"
+          },
+          {
+            "fact": "independence from Great Britain",
+            "matched_text": "British"
+          }
+        ],
+        "missed": [
+          "Thomas Jefferson drafted it",
+          "Philadelphia"
+        ],
+        "forbidden_claims_checked": [
+          "George Washington wrote it",
+          "adopted in 1789 or 1787"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 38,
+          "prefill_ms": 638,
+          "prefill_tps": 59.598,
+          "gen_tokens": 320,
+          "gen_ms": 20450,
+          "decode_tps": 16.163,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.478,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.6,
+          "samples": 20
+        }
+      },
+      {
+        "id": 7,
+        "topic": "dna",
+        "prompt": "Write a short factual essay of about 150 words. Explain the structure of DNA.",
+        "answer_full": "**Title: The Structure of DNA: A Fundamental Biological Concept****\n\nThe structure of DNA refers to the specific arrangement of its components within the cell. DNA is a double-stranded molecule composed of a sugar-phosphate backbone and a series of nitrogenous bases. The two strands of DNA run in parallel, with each base pair connected by a sugar-phosphate linkage. This linkage allows for flexibility and dynamic interactions with other molecules in the cell. The structure of DNA is essential for genetic inheritance and the regulation of cellular functions, as it determines how genetic information is stored and expressed within the cell.\n**\n\n\n\n\n\n\n\n\n\n\n\n (150 words)\n\n\n\n\n\n\n\n\n (150 words)\n\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (150 words)\n\n\n\n (1",
+        "grade": "fail",
+        "required_facts": 8,
+        "facts_found": 1,
+        "fraction": 0.125,
+        "found": [
+          {
+            "fact": "sugar-phosphate backbone",
+            "matched_text": "phosphate"
+          }
+        ],
+        "missed": [
+          "double helix",
+          "nucleotides",
+          "adenine",
+          "thymine",
+          "guanine",
+          "cytosine",
+          "A pairs with T and G with C"
+        ],
+        "forbidden_claims_checked": [
+          "adenine pairs with cytosine or guanine",
+          "triple helix"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 33,
+          "prefill_ms": 480,
+          "prefill_tps": 68.722,
+          "gen_tokens": 320,
+          "gen_ms": 20307,
+          "decode_tps": 16.15,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 321,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.323,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 19
+        }
+      },
+      {
+        "id": 8,
+        "topic": "solar system",
+        "prompt": "Write a short factual essay of about 150 words. Describe our solar system.",
+        "answer_full": "**Title: Our Solar System: A Cosographic Overview**  \n  \n The solar system consists of one star, eight planets, and various smaller celestial bodies. The Sun, a G-type star, is the system’s central star, with an average temperature of 5,500°C and a diameter of 1.4 million km. The planets are Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, and Neptune, each with unique orbital characteristics and atmospheric features. Earth, for instance, has a single moon, while Mars has two. The asteroid belt lies between Mars and Jupiter, containing numerous asteroids. The system also includes dwarf planets like Pluto and Ceres, as well as the Kuiinoids of the outer regions. The solar system is a dynamic and complex structure, with each component playing a role in the dynamics of the system.\n The planets are arranged in a specific order, with each having distinct orbital patterns and atmospheric compositions. The system’s structure is a testament to the vastness of space, where each component contributes to the overall structure of the solar system.\n The planets are arranged in a specific order, with each having unique orbital characteristics and atmospheric compositions. The system includes a variety of celestial bodies, including planets, moons, and asteroids, each with its own set of features and characteristics. The solar system is a complex and intricate structure, with each component playing a role in the overall structure of the system. The planets are arranged in a specific order, with each having unique orbital patterns and atmospheric compositions. The system includes a variety of",
+        "grade": "pass",
+        "required_facts": 6,
+        "facts_found": 5,
+        "fraction": 0.8333,
+        "found": [
+          {
+            "fact": "eight planets",
+            "matched_text": "eight planets"
+          },
+          {
+            "fact": "the Sun is a star",
+            "matched_text": "star"
+          },
+          {
+            "fact": "Mercury is closest to the Sun",
+            "matched_text": "Mercury"
+          },
+          {
+            "fact": "Jupiter is the largest planet",
+            "matched_text": "Jupiter"
+          },
+          {
+            "fact": "Earth is one of the planets",
+            "matched_text": "Earth"
+          }
+        ],
+        "missed": [
+          "gravity holds it together"
+        ],
+        "forbidden_claims_checked": [
+          "nine planets",
+          "largest planet is not Jupiter",
+          "Pluto is a planet (not dwarf)"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 422,
+          "prefill_tps": 75.767,
+          "gen_tokens": 320,
+          "gen_ms": 20304,
+          "decode_tps": 16.105,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 321,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.318,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 19
+        }
+      },
+      {
+        "id": 9,
+        "topic": "vaccines",
+        "prompt": "Write a short factual essay of about 150 words. Explain how vaccines work.",
+        "answer_full": "**Title: How Vaccines Work: A Simple Explanation** (150 words)**\n\n  \n\n Vaccines work by stimulating the body's immune system to produce a protective response. When a vaccine is administered, it typically contains weakened or inactivated components of the pathogen (e.g., a virus or bacterium) that is causing an illness. This allows the immune system to recognize and \"remember\" the specific threat.  \n\n                                        \n\n   1. **Triggering the Immune System**: The vaccine introduces antigens (e.g., proteins from the pathogen) into the body. These antigens are recognized as foreign by the immune system, triggering it to produce antibodies or specialized immune cells (like T-cells or B-cells) that can target and neutralize the actual pathogen.  \n   2. **Memory and Specificity**: Once the immune system identifies the specific pathogen, it generates memory cells that \"remember\" the threat. This ensures the body can quickly recognize and respond to the same pathogen if it reappe.  \n   3. **Safety and Efficacy**: Vaccines are designed to be safe and effective. By using weakened or inactivated components of the pathogen, the immune system can effectively target and neutralize the threat without causing harm.  \n   4. **Herd Immunity**: Some vaccines (e.g., the *Meas* or *Polio* vaccine) protect not only the individual but also the broader population, reducing disease spread in communities.  \n\n  ",
+        "grade": "pass",
+        "required_facts": 5,
+        "facts_found": 5,
+        "fraction": 1.0,
+        "found": [
+          {
+            "fact": "immune system",
+            "matched_text": "immune system"
+          },
+          {
+            "fact": "antigen or weakened, inactivated or piece of a pathogen",
+            "matched_text": "antigens"
+          },
+          {
+            "fact": "antibodies",
+            "matched_text": "antibodies"
+          },
+          {
+            "fact": "memory cells",
+            "matched_text": "memory cells"
+          },
+          {
+            "fact": "prevents disease",
+            "matched_text": "protect"
+          }
+        ],
+        "missed": [],
+        "forbidden_claims_checked": [
+          "vaccines cause autism",
+          "vaccines are antibiotics"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 32,
+          "prefill_ms": 420,
+          "prefill_tps": 76.209,
+          "gen_tokens": 320,
+          "gen_ms": 20277,
+          "decode_tps": 16.125,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 321,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.292,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 98.5,
+          "samples": 19
+        }
+      },
+      {
+        "id": 10,
+        "topic": "newton's laws",
+        "prompt": "Write a short factual essay of about 150 words. Explain Isaac Newton's three laws of motion.",
+        "answer_full": "**Title: Isaac Newton's Three Laws of Motion**  \n  \n Isaac Newton's three laws of motion, formulated in the 17th century, revolutionized the understanding of motion and its relationship to force. These principles are foundational to classical mechanics and remain essential in physics.  \n\n                        \n    \n.  \n  \n  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n.  \n  \n",
+        "grade": "fail",
+        "required_facts": 5,
+        "facts_found": 1,
+        "fraction": 0.2,
+        "found": [
+          {
+            "fact": "Isaac Newton",
+            "matched_text": "Newton"
+          }
+        ],
+        "missed": [
+          "first law: inertia",
+          "second law: F = ma",
+          "third law: equal and opposite reaction",
+          "acceleration"
+        ],
+        "forbidden_claims_checked": [
+          "force equals mass times velocity",
+          "Einstein formulated the laws of motion"
+        ],
+        "forbidden_found": [],
+        "engine_error": null,
+        "profile": {
+          "prompt_tokens": 36,
+          "prefill_ms": 636,
+          "prefill_tps": 56.625,
+          "gen_tokens": 320,
+          "gen_ms": 20469,
+          "decode_tps": 16.145,
+          "stopped": 0,
+          "dtc_steps": 0,
+          "expand_steps": 322,
+          "ram_peak_mb": 306.6,
+          "wall_s": 20.484,
+          "vram_used_peak_mib": 3841,
+          "gpu_util_mean": 97.8,
+          "samples": 19
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "what": "Questions 8, 5 and 4 rerun in a fresh engine in a different order to show the wrong answers are not state left from the question before",
+  "started": "2026-11-27 12:59:51 -0500",
+  "command": [
+    "<scratch>\\build\\quiz\\bin\\nemo-engine-cuda.exe",
+    "<models>\\nemotron-nano-9b-v2\\original",
+    "<models>\\nemotron-nano-9b-v2\\original\\tokenizer.json",
+    "--chat",
+    "--max-new",
+    "16",
+    "--cuda-pack",
+    "<scratch>\\data\\cuda-probe-gui\\nemo9b-pq4-L.nq2"
+  ],
+  "items": [
+    {
+      "id": 8,
+      "prompt": "What is 13 times 3? Answer with just the answer.",
+      "answer_full": "49\n\n\n\n13 times 3 is 49.\n",
+      "first_answer_line": "49",
+      "grade": "fail"
+    },
+    {
+      "id": 5,
+      "prompt": "What is the square root of 144? Answer with just the answer.",
+      "answer_full": "42\n\n\n\n\n\n\n42\n\n\n\n4",
+      "first_answer_line": "42",
+      "grade": "fail"
+    },
+    {
+      "id": 4,
+      "prompt": "What is 72 divided by 8? Answer with just the answer.",
+      "answer_full": "7\n\n\n72 divided by 8 is 9.\n \n",
+      "first_answer_line": "7",
+      "grade": "fail"
+    }
+  ]
+}

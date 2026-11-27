@@ -115,6 +115,10 @@ Every essay ran to the 320-token cap, and the predictor sent every essay step th
 
 The first question's prefill (about 44 tokens/s) and the first essay's (about 35) include warm-up; the rest sit near 65 to 86 tokens/s for these 20 to 40 token prompts. Decode matches the published 15 to 22 tokens/s range.
 
+## Receipts
+
+Every prompt, gold answer, full model answer, grade, fact list and per-item timing for both models is published in [littlenemo/tests/quiz/receipts/](../littlenemo/tests/quiz/receipts/README.md) (`2026-11-27/little-nemo/` and `2026-11-27/supernemo/`, with the SuperNemo speed probe), scrubbed of machine paths.
+
 ## How to rerun
 
     python littlenemo/tests/quiz/run_round.py \
@@ -122,7 +126,7 @@ The first question's prefill (about 44 tokens/s) and the first essay's (about 35
         --checkpoint /path/to/nemotron-nano-9b-v2 \
         --cuda-pack /path/to/the.nq2 --out results.json
 
-`python littlenemo/tests/quiz/test_round_grade.py` checks the question set and rubric without a model: every gold answer and alias passes, every listed wrong answer fails, no gold answer appears in its own prompt (so an echo cannot pass), element symbols are matched case-sensitively, and a sample essay with a forbidden claim fails. The full essay texts and per-item numbers from this run stay in the private run folder with the other run data.
+`python littlenemo/tests/quiz/test_round_grade.py` checks the question set and rubric without a model: every gold answer and alias passes, every listed wrong answer fails, no gold answer appears in its own prompt (so an echo cannot pass), element symbols are matched case-sensitively, and a sample essay with a forbidden claim fails. The full essay texts and per-item numbers are in the receipts above.
 
 ## SuperNemo, the same graders on a smaller set
 
