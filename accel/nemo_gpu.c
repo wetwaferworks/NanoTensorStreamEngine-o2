@@ -246,6 +246,32 @@ static int ck(nemo_gpu *g, CUresult r, const char *what) {
     return -1;
 }
 
+/* NVRTC options every compile uses, after the architecture flag. They
+ * live at file scope so the kernel digest below covers them too. */
+static const char *const nvrtc_fixed_opts[] = {"--fmad=false", "--std=c++11", "--ftz=false", "--prec-div=true", "--prec-sqrt=true"};
+#define NVRTC_FIXED_OPTS ((int)(sizeof nvrtc_fixed_opts / sizeof nvrtc_fixed_opts[0]))
+
+static uint64_t fnv1a64(uint64_t h, const void *p, size_t n) {
+    const unsigned char *b = (const unsigned char *)p;
+    for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 0x100000001b3ull; }
+    return h;
+}
+/* Digest of what the GPU will actually run: the kernel source text and
+ * the fixed NVRTC options. The calibration cache keys on it, so editing
+ * a kernel invalidates a cached pass even if nothing else changed. */
+uint64_t nemo_gpu_kernel_digest(void) {
+    uint64_t h = fnv1a64(0xcbf29ce484222325ull, nemo_gpu_cuda_src, sizeof nemo_gpu_cuda_src - 1);
+    for (int i = 0; i < NVRTC_FIXED_OPTS; i++) {
+        h = fnv1a64(h, "\0", 1);
+        h = fnv1a64(h, nvrtc_fixed_opts[i], strlen(nvrtc_fixed_opts[i]));
+    }
+    return h;
+}
+/* When this translation unit was compiled. Any rebuild of the lane
+ * changes it, which covers host-side changes to the self-test that the
+ * kernel digest cannot see. */
+const char *nemo_gpu_build_id(void) { return __DATE__ " " __TIME__; }
+
 static char *compile(nemo_gpu *g, int maj, int min, int real, char *why, size_t wl) {
     nvrtcProgram p = NULL;
     if (g->rtc.Create(&p, nemo_gpu_cuda_src, "nemo_gpu.cu", 0, NULL, NULL) != 0) {
@@ -253,8 +279,10 @@ static char *compile(nemo_gpu *g, int maj, int min, int real, char *why, size_t 
     }
     char arch[64];
     snprintf(arch, sizeof arch, "--gpu-architecture=%s_%d%d", real ? "sm" : "compute", maj, min);
-    const char *opts[] = {arch, "--fmad=false", "--std=c++11", "--ftz=false", "--prec-div=true", "--prec-sqrt=true"};
-    if (g->rtc.Compile(p, 6, opts) != 0) {
+    const char *opts[1 + NVRTC_FIXED_OPTS];
+    opts[0] = arch;
+    for (int i = 0; i < NVRTC_FIXED_OPTS; i++) opts[1 + i] = nvrtc_fixed_opts[i];
+    if (g->rtc.Compile(p, 1 + NVRTC_FIXED_OPTS, opts) != 0) {
         size_t ls = 0; char log[400] = "";
         g->rtc.LogSize(p, &ls);
         if (ls > 1 && ls < (1u << 20)) { char *f = (char *)malloc(ls); if (f && g->rtc.Log(p, f) == 0) snprintf(log, sizeof log, "%s", f); free(f); }
@@ -1350,6 +1378,19 @@ static int synth_make(nemo_gpu *g, synth *t, int rows, int cols, int host_ref) {
         || up_mc(g, &t->w.mc, (const uint8_t *)t->mn, (const uint8_t *)t->sc, nb)) return -1;
     return 0;
 }
+/* The self-test makes exactly this many synthetic tensors: two
+ * correctness shapes and one throughput shape. synth_slot hands out
+ * zeroed slots and refuses past the end, so an added shape fails the
+ * self-test instead of writing past the stack array; nt counts every
+ * slot handed out, so cleanup frees each one exactly once, partial
+ * uploads included (synth_free skips anything never allocated). */
+#define SELFTEST_SYNTHS 3
+static synth *synth_slot(synth *t, int *nt, int cap) {
+    if (*nt < 0 || *nt >= cap) return NULL;
+    synth *s = &t[(*nt)++];
+    memset(s, 0, sizeof *s);
+    return s;
+}
 static void synth_free(nemo_gpu *g, synth *t) {
     CUdeviceptr d[6] = {t->w.idx, t->w.mn, t->w.sc, t->w.mc, t->w.book, t->w.bookh};
     for (int i = 0; i < 6; i++) if (d[i]) g->cu.MemFree(d[i]);
@@ -1380,7 +1421,8 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
     g->half_book = 6;
     kernel_choice(g);   /* the self-test checks the kernels the engine will run */
     int rc = -1;
-    synth t[2]; int nt = 0;
+    synth t[SELFTEST_SYNTHS]; int nt = 0;
+    memset(t, 0, sizeof t);
     float *x = NULL, *y = NULL;
     CUdeviceptr dx = 0, dy = 0, dout = 0;
     if (load_cuda(g, why, wl)) goto out;
@@ -1399,9 +1441,9 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
         int shp[2][2] = {{64, 512}, {32, 4480}};
         r->dtc_exact = r->full_exact = 1;
         for (int si = 0; si < 2; si++) {
-            synth *T = &t[nt];
+            synth *T = synth_slot(t, &nt, SELFTEST_SYNTHS);
+            if (!T) { snprintf(why, wl, "selftest: no synthetic tensor slot left"); goto out; }
             if (synth_make(g, T, shp[si][0], shp[si][1], 1)) { snprintf(why, wl, "synthetic upload failed: %s", g->err); goto out; }
-            nt++;
             for (int mode = 0; mode < 2; mode++) {
                 g->exact = mode;
                 if (pq_gemv(g, &T->w, dx, dy) || ck(g, g->cu.CtxSynchronize(), "selftest")
@@ -1419,9 +1461,9 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
     }
     /* throughput: one in_proj-sized PQ GEMV (22656 x 4480) and a raw read */
     {
-        synth *T = &t[nt];
+        synth *T = synth_slot(t, &nt, SELFTEST_SYNTHS);
+        if (!T) { snprintf(why, wl, "selftest: no synthetic tensor slot left"); goto out; }
         if (synth_make(g, T, 22656, 4480, 0)) { snprintf(why, wl, "bench upload failed: %s", g->err); goto out; }
-        nt++;
         double wts = 22656.0 * 4480.0;
         for (int mode = 0; mode < 2; mode++) {
             g->exact = mode;

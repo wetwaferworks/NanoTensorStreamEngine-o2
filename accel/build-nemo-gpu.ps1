@@ -58,6 +58,9 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_prefill.c accel\obj\ne
 if ($LASTEXITCODE) { throw 'prefill test' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_hostsplit.c accel\obj\nemo_gpu.o accel\obj\nemo_predict.o @testln -o accel\bin\test_nemo_hostsplit.exe -lm -lpsapi
 if ($LASTEXITCODE) { throw 'hostsplit test' }
+# host-only: self-test slot bounds and the calibration kernel digest (compiles nemo_gpu.c itself)
+gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_selftest_slots.c @testln -o accel\bin\test_nemo_selftest_slots.exe -lm -lpsapi
+if ($LASTEXITCODE) { throw 'selftest-slots test' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_tokpipe.c accel\obj\nemo_tokpipe.o accel\obj\ln_tokenizer.o accel\obj\ln_json.o accel\obj\ln_pool.o -o accel\bin\test_nemo_tokpipe.exe -lm
 if ($LASTEXITCODE) { throw 'tokpipe test' }
 

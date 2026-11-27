@@ -13,7 +13,9 @@
 #include <sys/stat.h>
 #endif
 
-#define CALIB_VERSION 1
+/* 2: the key also carries the kernel digest and the lane's build stamp,
+ * so a rebuilt binary or changed kernel source recalibrates. */
+#define CALIB_VERSION 2
 
 static double qpc_ms(void) {
 #ifdef _WIN32
@@ -183,8 +185,9 @@ void nemo_calib_run(nemo_calib *c, const char *override, int recal, int have_pac
     cache_path(c);
     char dev[128] = ""; int drv = 0, rm = 0, rn = 0;
     int have_cuda = nemo_gpu_identify(dev, sizeof dev, &drv, &rm, &rn) == 0;
-    snprintf(c->key, sizeof c->key, "v%d|gpu=%s|driver=%d|nvrtc=%d.%d|pack=%d", CALIB_VERSION,
-             have_cuda ? dev : "none", drv, rm, rn, have_pack);
+    snprintf(c->key, sizeof c->key, "v%d|gpu=%s|driver=%d|nvrtc=%d.%d|pack=%d|kernels=%016llx|build=%s", CALIB_VERSION,
+             have_cuda ? dev : "none", drv, rm, rn, have_pack,
+             (unsigned long long)nemo_gpu_kernel_digest(), nemo_gpu_build_id());
     int forced_cuda = override && !strcmp(override, "cuda");
     int forced_cpu = override && !strcmp(override, "cpu");
     if (!recal && cache_read(c) == 0) {

@@ -108,6 +108,11 @@ typedef struct {
 int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl);
 /* Driver version and device name only (no context): the calibration key. */
 int nemo_gpu_identify(char *device, size_t dl, int *driver, int *nvrtc_major, int *nvrtc_minor);
+/* FNV-1a 64 of the CUDA kernel source and the fixed NVRTC options, and
+ * the compile stamp of the lane. The calibration cache key carries both,
+ * so a rebuilt binary or an edited kernel never reuses a cached pass. */
+uint64_t nemo_gpu_kernel_digest(void);
+const char *nemo_gpu_build_id(void);
 /* Identity-check a format-v3 PQ pack (stream + book + manifest
  * digests, kind, trailing end line). No device. Returns 0, or -1
  * with a reason in why. */
