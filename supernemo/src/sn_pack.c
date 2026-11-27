@@ -210,6 +210,10 @@ int sn_pack_open(sn_pack *p, const char *prefix, const char *shapes_tsv)
         sn_tensor *t = &p->t[i];
         t->name = (char *)malloc(strlen(nm) + 1); strcpy(t->name, nm);
         t->raw = strcmp(kind, "raw") == 0;
+        if (strcmp(kind, "raw") != 0 && strcmp(kind, "packed") != 0) {
+            fprintf(stderr, "sn_pack: %s has unknown kind %s\n", nm, kind); bad = 1; break; }
+        if (bk != p->block) {
+            fprintf(stderr, "sn_pack: block size of %s disagrees with the stream\n", nm); bad = 1; break; }
         t->block0 = b0; t->nblocks = nbl;
         if (b0 != blk_acc || nbl != nb[i]) { fprintf(stderr, "sn_pack: manifest block range of %s disagrees with the stream\n", nm); bad = 1; break; }
         blk_acc += nbl;
@@ -222,6 +226,20 @@ int sn_pack_open(sn_pack *p, const char *prefix, const char *shapes_tsv)
         t->cols = found >= 0 ? se[found].cols : 0;
         if (!t->raw) { t->book_off = book_hdr + book_i * p->book_floats * 4; book_i++; }
         else { t->raw_off = 0; /* set below */ }
+    }
+    if (!bad) {
+        int saw_end = 0;
+        while (fgets(line, sizeof(line), mf)) {
+            size_t n = strlen(line);
+            while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
+            if (!line[0]) continue;
+            if (strcmp(line, "end") == 0) { saw_end = 1; break; }
+            /* optional gate lines (and any other trailer) may precede end */
+        }
+        if (!saw_end) {
+            fprintf(stderr, "sn_pack: manifest is missing its trailing end line\n");
+            bad = 1;
+        }
     }
     fclose(mf);
     for (int i = 0; i < nse; i++) free(se[i].name);
