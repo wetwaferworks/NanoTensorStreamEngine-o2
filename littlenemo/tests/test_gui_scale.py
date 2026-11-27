@@ -6,6 +6,8 @@ unit tests live in gui/native/test_nemo_scale.c and are run separately.
 import os
 import sys
 import tempfile
+import threading
+import inspect
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "gui"))
@@ -44,6 +46,12 @@ def main():
     expect(back[0] == 10 and back[3] == 255 and back[4:8] == b"\0\0\0\0"
            and back[11] == 128 and abs(back[8] - 64) <= 1,
            "unpremultiply recovers straight alpha (within 1)")
+
+    # No lock remains in the wrapper (source-level; does not need the DLL).
+    scale_src = inspect.getsource(sc)
+    expect("threading" not in scale_src and "_cache_lock" not in scale_src
+           and not hasattr(sc, "_cache_lock"),
+           "nemo_scale has no threading import and no cache lock")
 
     if not sc.available():
         print("note: native scaler not loaded; skipping live scale checks")
@@ -102,6 +110,44 @@ def main():
     b = sc.load_sized(table, 48, "lanczos3")
     expect(a is not None and b is not None and a.size == b.size == (48, 48),
            "cached load_sized returns the requested size twice")
+    expect(a is b, "cache hit returns the same image object")
+
+    # Eviction stays within the bound.
+    sc.clear_cache()
+    evict_im = Image.new("RGBA", (4, 4), (9, 8, 7, 255))
+    evict_ok = True
+    for i in range(sc._CACHE_MAX + 32):
+        got = sc.cached_scale_image(evict_im, 2, 2, "nearest", key=("evict", i))
+        if got is None:
+            evict_ok = False
+            break
+    expect(evict_ok and len(sc._cache) <= sc._CACHE_MAX,
+           "cache stays at or under _CACHE_MAX after overflow")
+
+    # Concurrent get/put/clear must not raise and must return the size.
+    sc.clear_cache()
+    conc_im = Image.new("RGBA", (8, 8), (1, 2, 3, 255))
+    errors = []
+
+    def worker():
+        try:
+            for i in range(40):
+                out = sc.cached_scale_image(conc_im, 6, 6, "nearest",
+                                            key=("conc", i % 8))
+                if out is None or out.size != (6, 6):
+                    errors.append("bad result %r" % (None if out is None else out.size,))
+                if i % 7 == 0:
+                    sc.clear_cache()
+        except Exception as exc:
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    expect(not errors, "lock-free cache is safe under concurrent get/put/clear")
+    sc.clear_cache()
 
     # Fallback contract: when available() is forced off, load_sized
     # must not resample (it returns the 64 px prebuilt for dest 48).

@@ -37,7 +37,7 @@ Every result will be published with its negatives, as Lane 4 was.
 
 - ThreadSanitizer runs for the zero-mutex engines, with receipts committed ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 - A tokenizer-based evaluation of Little Nemo, so quality is scored on text and not only on top-1 of one diffusion denoiser step.
-- Replace the Python scaler cache lock (the one lock in the tree) with a lock-free structure, or drop the cache.
+- **Scaler cache:** the Python wrapper's scaled-image cache is a lock-free snapshot dictionary; the one `threading.Lock` in the tree is gone ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 
 ## Documentation
 

@@ -351,8 +351,10 @@ library, `littlenemo/gui/native/` (`nemo_scale.c`), loaded from Python with `cty
 - RGBA8 with premultiplied alpha; filters `NEMO_SCALE_NEAREST` (integer snap, used by
   Pixel Nemo), `NEMO_SCALE_LANCZOS3` and `NEMO_SCALE_MITCHELL`.
 - Bounded and overflow-checked: `MAX_DIM` 8192, `MAX_PIXELS` 4096 x 4096.
-- No globals, no locks in C. The Python wrapper keeps a cache in a dict guarded by one
-  `threading.Lock`, the only lock in the tree ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
+- No globals, no locks in C. The Python wrapper keeps a scaled-image cache as a
+  lock-free snapshot dictionary: readers hold the current dict, writers publish a
+  new one, and a generation number keeps `clear_cache` from being overwritten by a
+  late put. There is no lock in the tree ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 - If the library is missing, the GUI falls back to the nearest prebuilt asset size and
   does not resample in Python.
 

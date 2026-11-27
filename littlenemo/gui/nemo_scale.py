@@ -14,7 +14,6 @@ so Tk / Pillow can display them.
 
 import ctypes
 import os
-import threading
 
 NEAREST = 0
 LANCZOS3 = 1
@@ -30,11 +29,15 @@ FILTER_NAMES = {
 
 # A tiny, process-local cache of scaled RGBA bytes. The C library has
 # no globals; this cache lives only in Python and is keyed by
-# (source identity, dest size, filter). A lock is used only around
-# the cache dict — never around the C call, and never held while
-# scaling. Callers on the Tk thread typically don't contend.
+# (source identity, dest size, filter). The dict is replaced as a
+# whole, so readers and writers never take a lock: a reader holds a
+# local reference to the current snapshot, and a writer builds a new
+# dict and binds it. A generation number keeps clear_cache from being
+# overwritten by a late put. A lost concurrent put is fine for a
+# cache (the next call just scales again). Callers on the Tk thread
+# typically do not contend.
 _cache = {}
-_cache_lock = threading.Lock()
+_cache_gen = 0
 _CACHE_MAX = 256
 
 _lib = None
@@ -226,25 +229,32 @@ def scale_image(im, dst_w, dst_h, filter="lanczos3"):
 
 
 def _cache_get(key):
-    with _cache_lock:
-        return _cache.get(key)
+    return _cache.get(key)
 
 
 def _cache_put(key, value):
-    with _cache_lock:
-        if len(_cache) >= _CACHE_MAX:
-            # Drop an arbitrary oldest-inserted key; insertion order
-            # is enough here (CPython 3.7+).
-            try:
-                _cache.pop(next(iter(_cache)))
-            except StopIteration:
-                pass
-        _cache[key] = value
+    global _cache
+    gen = _cache_gen
+    cur = _cache
+    if cur.get(key) is value:
+        return
+    new = dict(cur)
+    if key not in new and len(new) >= _CACHE_MAX:
+        # Drop an arbitrary oldest-inserted key; insertion order
+        # is enough here (CPython 3.7+).
+        try:
+            new.pop(next(iter(new)))
+        except StopIteration:
+            pass
+    new[key] = value
+    if _cache_gen == gen:
+        _cache = new
 
 
 def clear_cache():
-    with _cache_lock:
-        _cache.clear()
+    global _cache, _cache_gen
+    _cache_gen += 1
+    _cache = {}
 
 
 def cached_scale_image(im, dst_w, dst_h, filter="lanczos3", key=None):

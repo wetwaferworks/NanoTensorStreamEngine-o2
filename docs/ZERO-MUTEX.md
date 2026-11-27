@@ -68,10 +68,10 @@ started workers is served serially on the caller.
 - "Zero mutexes" is a property of our code, not of the CUDA and OpenCL runtimes:
   the vendor drivers use internal locks.
 - The Python front end is outside the rule's scope (it renders and relays, and
-  does no model work), and it is not lock-free: `nemo_scale.py` keeps one
-  `threading.Lock` around its small scaled-image cache dictionary, never around the
-  C call and never while scaling. The C scaler itself has no globals, no locks and
-  no threads.
+  does no model work). The scaled-image cache in `nemo_scale.py` is a lock-free
+  snapshot dictionary: readers hold a local reference, writers publish a new dict,
+  and a generation number keeps `clear_cache` from being overwritten by a late
+  put. The C scaler itself has no globals, no locks and no threads.
 - Thread creation itself uses `CreateThread` / `pthread_create`; there is no
   blocking primitive after that.
 - **Sanitizer records.** This repository carries no ThreadSanitizer run record.
@@ -87,8 +87,8 @@ started workers is served serially on the caller.
   [roadmap](ROADMAP.md).
 - A grep for the usual lock names (`pthread_mutex`, `pthread_cond`,
   `CRITICAL_SECTION`, `SRWLOCK`, `CONDITION_VARIABLE`, `CreateMutex`,
-  `CreateEvent`) across the C sources finds none; the only lock anywhere in the
-  tree is the Python cache lock above.
+  `CreateEvent`) across the C sources finds none, and the Python scaler cache
+  no longer takes a lock either.
 
 ## Credits
 
