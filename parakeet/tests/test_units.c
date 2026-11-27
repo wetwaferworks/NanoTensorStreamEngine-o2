@@ -129,6 +129,153 @@ static void test_st_bounds(void) {
     }
 }
 
+/* ---------- hostile inputs: each must be refused cleanly, never read past a buffer ---------- */
+static int write_bytes(const char *path, const void *b, size_t n) {
+    FILE *f = fopen(path, "wb"); if (!f) return -1;
+    int bad = fwrite(b, 1, n, f) != n; if (fclose(f)) bad = 1; return bad ? -1 : 0;
+}
+static size_t put32(uint8_t *b, uint32_t v) { for (int i = 0; i < 4; i++) b[i] = (uint8_t)(v >> (8 * i)); return 4; }
+static size_t put16(uint8_t *b, uint16_t v) { b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); return 2; }
+/* RIFF/WAVE with one fmt chunk (declared length fmt_len, 16 bytes written) and one data chunk */
+static size_t make_wav(uint8_t *b, uint16_t fmt, uint16_t ch, uint32_t sr, uint16_t bits, uint32_t fmt_len, uint32_t data_len_decl, uint32_t data_bytes) {
+    size_t n = 0;
+    memcpy(b, "RIFF", 4); n += 4; n += put32(b + n, 0); memcpy(b + n, "WAVE", 4); n += 4;
+    memcpy(b + n, "fmt ", 4); n += 4; n += put32(b + n, fmt_len);
+    n += put16(b + n, fmt); n += put16(b + n, ch); n += put32(b + n, sr); n += put32(b + n, sr * ch * (bits / 8u));
+    n += put16(b + n, (uint16_t)(ch * (bits / 8u))); n += put16(b + n, bits);
+    memcpy(b + n, "data", 4); n += 4; n += put32(b + n, data_len_decl);
+    memset(b + n, 0x11, data_bytes); n += data_bytes;
+    return n;
+}
+static void test_wav_hostile(void) {
+    uint8_t b[512]; size_t n; pk_audio a; int rc;
+    struct { const char *what; uint16_t fmt, ch; uint32_t sr; uint16_t bits; uint32_t fmt_len, dlen; } cases[] = {
+        { "PCM with 4 bits per sample (old divide by zero)", 1, 1, 16000, 4, 16, 64 },
+        { "PCM with 0 bits per sample", 1, 1, 16000, 0, 16, 64 },
+        { "PCM with 12 bits per sample (not a byte multiple)", 1, 1, 16000, 12, 16, 64 },
+        { "float with 16 bits per sample", 3, 1, 16000, 16, 16, 64 },
+        { "zero channels", 1, 0, 16000, 16, 16, 64 },
+        { "sample rate 0", 1, 1, 0, 16, 16, 64 },
+        { "sample rate 1 Hz (resampled length would overflow)", 1, 1, 1, 16, 16, 64 },
+        { "fmt chunk shorter than 16 bytes", 1, 1, 16000, 16, 8, 64 },
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        n = make_wav(b, cases[i].fmt, cases[i].ch, cases[i].sr, cases[i].bits, cases[i].fmt_len, cases[i].dlen, 64);
+        write_bytes("pk_hostile.wav", b, n);
+        rc = pk_wav_read("pk_hostile.wav", &a);
+        CHECK(rc != 0, "wav refuses %s (rc=%d)", cases[i].what, rc);
+    }
+    /* data chunk claiming ~4 GB: clamped to the bytes present, no wrap */
+    n = make_wav(b, 1, 1, 16000, 16, 16, 0xFFFFFFF0u, 64);
+    write_bytes("pk_hostile.wav", b, n);
+    rc = pk_wav_read("pk_hostile.wav", &a);
+    CHECK(rc == 0 && a.n == 32, "wav clamps an oversized data length to the file (rc=%d n=%d)", rc, rc ? -1 : a.n);
+    if (!rc) free(a.x);
+    /* an unknown chunk claiming ~4 GB before fmt: the walk ends, nothing is read past the file */
+    n = 0; memcpy(b, "RIFF", 4); n = 8; memcpy(b + n, "WAVE", 4); n += 4;
+    memcpy(b + n, "junk", 4); n += 4; n += put32(b + n, 0xFFFFFFF8u); memset(b + n, 0, 16); n += 16;
+    write_bytes("pk_hostile.wav", b, n);
+    rc = pk_wav_read("pk_hostile.wav", &a);
+    CHECK(rc != 0, "wav with a 4 GB junk chunk and no fmt is refused (rc=%d)", rc);
+    remove("pk_hostile.wav");
+}
+static void test_spm_hostile(void) {
+    char **pieces = NULL; int np = 0, rc;
+    /* valid: two pieces, "a" (normal) and "<0x41>" (byte) */
+    const uint8_t ok[] = { 0x0A, 0x03, 0x0A, 0x01, 'a',
+                           0x0A, 0x0A, 0x0A, 0x06, '<', '0', 'x', '4', '1', '>', 0x18, 0x06 };
+    write_bytes("pk_spm.model", ok, sizeof ok);
+    rc = pk_spm_load("pk_spm.model", &pieces, &np);
+    CHECK(rc == 0 && np == 2 && !strcmp(pieces[0], "a") && !strcmp(pieces[1], "<0x41>"), "spm loads a valid two-piece model (rc=%d n=%d)", rc, np);
+    if (!rc) { int ids[] = { 0, 1 }; char *s = pk_spm_detok(pieces, np, ids, 2); CHECK(!strcmp(s, "aA"), "spm byte piece decodes ('%s')", s); free(s); }
+    struct { const char *what; uint8_t b[12]; size_t n; } bad[] = {
+        { "piece message longer than the file", { 0x0A, 0x7F, 0x0A, 0x01, 'a' }, 5 },
+        { "piece string longer than its message", { 0x0A, 0x03, 0x0A, 0x40, 'a' }, 5 },
+        { "string length of 2^63 (pointer wrap)", { 0x0A, 0x0B, 0x0A, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80 }, 12 },
+        { "skipped field longer than the file", { 0x12, 0x7F, 'x' }, 3 },
+        { "fixed64 field cut short", { 0x09, 1, 2, 3 }, 4 },
+        { "invalid wire type", { 0x0F, 0x00 }, 2 },
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        write_bytes("pk_spm.model", bad[i].b, bad[i].n);
+        char **p2 = NULL; int n2 = 0;
+        rc = pk_spm_load("pk_spm.model", &p2, &n2);
+        CHECK(rc != 0, "spm refuses %s (rc=%d)", bad[i].what, rc);
+    }
+    remove("pk_spm.model");
+}
+static void good_dims(pk_model *m) {
+    memset(m, 0, sizeof *m);
+    m->d_model = 1024; m->n_heads = 8; m->n_layers = 24; m->d_ff = 4096; m->conv_ks = 9; m->sub_ch = 256; m->feat_in = 128;
+    m->vocab = 1024; m->is_tdt = 1; m->n_dur = 5; m->pred_hidden = 640; m->pred_layers = 2; m->joint_hidden = 640;
+    m->j_enc.N = 640; m->j_enc.K = 1024; m->j_pred.N = 640; m->j_pred.K = 640; m->j_out.N = 1024 + 1 + 5; m->j_out.K = 640;
+}
+static void test_model_dims(void) {
+    pk_model m; const int ALL = PK_CHECK_ENCODER | PK_CHECK_DECODER;
+    good_dims(&m); CHECK(pk_model_check_dims(&m, ALL) == 0, "dims: parakeet-tdt-0.6b shapes accepted");
+    struct { const char *what; int field; int value; } bad[] = {
+        { "prediction width 2048 (LSTM state holds 1024)", 0, 2048 },
+        { "joint width 4096 (joint buffers hold 1024)", 1, 4096 },
+        { "9 TDT durations (table holds 8)", 2, 9 },
+        { "head width 512 (attention rows hold 256)", 3, 2 },
+        { "3 LSTM layers", 4, 3 },
+        { "heads that do not divide d_model", 5, 7 },
+        { "even conv kernel", 6, 8 },
+        { "zero d_model", 7, 0 },
+        { "vocabulary 0", 8, 0 },
+    };
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        good_dims(&m);
+        switch (bad[i].field) {
+        case 0: m.pred_hidden = bad[i].value; m.j_pred.K = bad[i].value; break;
+        case 1: m.joint_hidden = bad[i].value; m.j_enc.N = m.j_pred.N = m.j_out.K = bad[i].value; break;
+        case 2: m.n_dur = bad[i].value; m.j_out.N = m.vocab + 1 + bad[i].value; break;
+        case 3: m.n_heads = bad[i].value; break;
+        case 4: m.pred_layers = bad[i].value; break;
+        case 5: m.n_heads = bad[i].value; break;
+        case 6: m.conv_ks = bad[i].value; break;
+        case 7: m.d_model = bad[i].value; break;
+        case 8: m.vocab = bad[i].value; m.j_out.N = 1 + m.n_dur; break;
+        }
+        CHECK(pk_model_check_dims(&m, ALL) != 0, "dims: rejects %s", bad[i].what);
+    }
+    good_dims(&m); m.j_out.N = 1024 + 1 + 4;
+    CHECK(pk_model_check_dims(&m, ALL) != 0, "dims: rejects a joint output that is not vocab + blank + durations");
+    good_dims(&m); m.j_pred.K = 320;
+    CHECK(pk_model_check_dims(&m, ALL) != 0, "dims: rejects a joint prediction input that is not the LSTM width");
+    pk_layer L; memset(&L, 0, sizeof L);
+    good_dims(&m);
+    const int D = m.d_model, F = m.d_ff;
+    pk_lin *ls[] = { &L.ff1_1, &L.ff1_2, &L.ff2_1, &L.ff2_2, &L.q, &L.k, &L.v, &L.o, &L.pos, &L.pw1, &L.pw2 };
+    int nk[][2] = { {F, D}, {D, F}, {F, D}, {D, F}, {D, D}, {D, D}, {D, D}, {D, D}, {D, D}, {2 * D, D}, {D, D} };
+    for (int i = 0; i < 11; i++) { ls[i]->N = nk[i][0]; ls[i]->K = nk[i][1]; }
+    CHECK(pk_model_check_layer(&m, &L) == 0, "dims: a consistent encoder layer is accepted");
+    L.pw1.N = D;   /* GLU would read 2*D per row from a D-wide output */
+    CHECK(pk_model_check_layer(&m, &L) != 0, "dims: rejects pointwise_conv1 that is not 2*d_model wide");
+}
+static void test_st_shapes(void) {
+    float four[4] = { 1, 2, 3, 4 }; pk_st st; int rc;
+    const char *more = "{\"w\":{\"dtype\":\"F32\",\"shape\":[8],\"data_offsets\":[0,16]}}";
+    if (write_st("pk_st_shape.st", more, four, 16) == 0) {
+        rc = pk_st_open(&st, "pk_st_shape.st");
+        CHECK(rc == -9, "pk_st_open refuses a shape larger than its bytes (rc=%d)", rc);
+        pk_st_close(&st);
+    }
+    const char *five = "{\"w\":{\"dtype\":\"F32\",\"shape\":[1,1,1,1,4],\"data_offsets\":[0,16]}}";
+    if (write_st("pk_st_shape.st", five, four, 16) == 0) {
+        rc = pk_st_open(&st, "pk_st_shape.st");
+        CHECK(rc == -8, "pk_st_open refuses more than four dimensions (rc=%d)", rc);
+        pk_st_close(&st);
+    }
+    const char *okj = "{\"w\":{\"dtype\":\"F32\",\"shape\":[2,2],\"data_offsets\":[0,16]}}";
+    if (write_st("pk_st_shape.st", okj, four, 16) == 0) {
+        rc = pk_st_open(&st, "pk_st_shape.st");
+        CHECK(rc == 0, "pk_st_open accepts a shape that matches its bytes (rc=%d)", rc);
+        pk_st_close(&st);
+    }
+    remove("pk_st_shape.st");
+}
+
 static void test_with_model(const char *dir) {
     pk_model m; if (pk_model_load(&m, dir)) { CHECK(0, "model load %s", dir); return; }
     CHECK(m.n_layers == 24 && m.d_model == 1024 && m.n_heads == 8 && m.vocab == 1024 && m.is_tdt == 1 && m.n_dur == 5,
@@ -145,6 +292,7 @@ static void test_with_model(const char *dir) {
 
 int main(int argc, char **argv) {
     test_fft(); test_gemm(1); test_gemm(8); test_pool(); test_resample(); test_wav(); test_mel_synthetic(); test_spm_synth(); test_st_bounds();
+    test_wav_hostile(); test_spm_hostile(); test_model_dims(); test_st_shapes();
     if (argc > 1) test_with_model(argv[1]);
     printf("%d PASS / %d FAIL\n", passes, fails);
     return fails ? 1 : 0;

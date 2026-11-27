@@ -18,8 +18,16 @@ static const pk_tensor *need(const pk_model *m, const char *name, int *err) {
     if (!t) { fprintf(stderr, "parakeet-c: missing tensor %s\n", name); *err = 1; }
     return t;
 }
-static float *getf(const pk_model *m, const char *name, int *err) {
-    const pk_tensor *t = need(m, name, err); return t ? pk_tensor_f32(t) : NULL;
+/* Same, but the tensor must hold exactly n values: everything later
+ * indexes these vectors by the model dimensions, never by their size. */
+static float *getf_n(const pk_model *m, const char *name, int64_t n, int *err) {
+    const pk_tensor *t = need(m, name, err);
+    if (!t) return NULL;
+    if (pk_tensor_numel(t) != n) {
+        fprintf(stderr, "parakeet-c: tensor %s has %lld values, expected %lld\n", name, (long long)pk_tensor_numel(t), (long long)n);
+        *err = 1; return NULL;
+    }
+    return pk_tensor_f32(t);
 }
 static float *getf_opt(const pk_model *m, const char *name) {
     const pk_tensor *t = pk_st_get(&m->st, name); return t ? pk_tensor_f32(t) : NULL;
@@ -27,10 +35,22 @@ static float *getf_opt(const pk_model *m, const char *name) {
 static void getlin(const pk_model *m, pk_lin *l, const char *wname, const char *bname, int *err) {
     memset(l, 0, sizeof *l);
     const pk_tensor *t = need(m, wname, err); if (!t) return;
-    l->N = (int)t->shape[0]; l->K = (int)(pk_tensor_numel(t) / t->shape[0]);
+    int64_t numel = pk_tensor_numel(t);
+    if (t->ndim < 1 || t->shape[0] <= 0 || t->shape[0] > INT32_MAX || numel % t->shape[0] || numel / t->shape[0] > INT32_MAX
+        || (t->dtype != PK_BF16 && t->dtype != PK_F32 && t->dtype != PK_F16)) {
+        fprintf(stderr, "parakeet-c: weight %s has an unusable shape or type\n", wname); *err = 1; return;
+    }
+    l->N = (int)t->shape[0]; l->K = (int)(numel / t->shape[0]);
     if (t->dtype == PK_BF16) l->w = (const uint16_t *)t->data; else l->wf = pk_tensor_f32(t);
-    l->b = bname ? getf_opt(m, bname) : NULL;
+    l->b = NULL;
+    if (bname) {
+        const pk_tensor *b = pk_st_get(&m->st, bname);
+        if (b && pk_tensor_numel(b) != l->N) { fprintf(stderr, "parakeet-c: bias %s does not match %s\n", bname, wname); *err = 1; return; }
+        if (b) l->b = pk_tensor_f32(b);
+    }
 }
+/* the tensor's dimension i, or -1 when it has fewer dimensions */
+static int64_t dim(const pk_tensor *t, int i) { return t && i < t->ndim ? t->shape[i] : -1; }
 static void lin(float *C, const float *A, const pk_lin *l, int M) {
     if (l->w) pk_gemm_bf16w(C, A, l->w, l->b, M, l->N, l->K);
     else pk_gemm_f32w(C, A, l->wf, l->b, M, l->N, l->K);
@@ -49,6 +69,59 @@ static int find_file(const char *dir, const char *suffix, char *out, int cap) {
 #endif
 }
 
+/* Dimension checks. The decoder works in fixed stack buffers (the LSTM
+ * state, gates, joint vectors, attention query rows and the duration
+ * table) and the encoder sizes its heap buffers from d_model and d_ff,
+ * so a model whose shapes exceed or contradict those sizes is rejected
+ * here, before any decoding. Split in stages because the loader learns
+ * the dimensions in that order. Returns 0 when the model fits. */
+int pk_model_check_dims(const pk_model *m, int stage) {
+    const char *why = NULL;
+    if (stage & PK_CHECK_ENCODER) {
+        if (m->d_model <= 0 || m->d_model > PK_MAX_DIM || (m->d_model & 1)) why = "d_model out of range or odd";
+        else if (m->n_heads <= 0 || m->d_model % m->n_heads) why = "heads do not divide d_model";
+        else if (m->d_model / m->n_heads > PK_MAX_HEAD_DIM) why = "head width exceeds the attention buffer";
+        else if (m->n_layers <= 0 || m->n_layers > PK_MAX_LAYERS) why = "layer count out of range";
+        else if (m->d_ff <= 0 || m->d_ff > PK_MAX_FF) why = "d_ff out of range";
+        else if (m->conv_ks <= 0 || !(m->conv_ks & 1) || m->conv_ks > 1023) why = "conv kernel must be odd and at most 1023";
+        else if (m->sub_ch <= 0 || m->sub_ch > PK_MAX_DIM) why = "subsampling channels out of range";
+        else if (m->feat_in <= 0 || m->feat_in > 8 * PK_MAX_DIM) why = "feature width out of range";
+    }
+    if (!why && (stage & PK_CHECK_DECODER)) {
+        if (m->vocab < 1 || m->vocab > PK_MAX_VOCAB) why = "vocabulary out of range";
+        else if (m->is_tdt == 2) {
+            if (m->ctc.K != m->d_model) why = "CTC head does not take d_model inputs";
+        } else {
+            if (m->pred_hidden <= 0 || m->pred_hidden > PK_MAX_PRED) why = "prediction width exceeds the LSTM buffers";
+            else if (m->pred_layers < 1 || m->pred_layers > 2) why = "LSTM layer count must be 1 or 2";
+            else if (m->joint_hidden <= 0 || m->joint_hidden > PK_MAX_PRED) why = "joint width exceeds the joint buffers";
+            else if (m->j_enc.K != m->d_model) why = "joint encoder input is not d_model";
+            else if (m->j_pred.K != m->pred_hidden || m->j_pred.N != m->joint_hidden) why = "joint prediction projection does not match";
+            else if (m->j_out.K != m->joint_hidden) why = "joint output input is not the joint width";
+            else if (m->n_dur < 0 || m->n_dur > PK_MAX_DUR) why = "duration count out of range";
+            else if (m->j_out.N != m->vocab + 1 + m->n_dur) why = "joint output is not vocab + blank + durations";
+        }
+    }
+    if (why) { fprintf(stderr, "parakeet-c: model rejected: %s\n", why); return -1; }
+    return 0;
+}
+/* every projection in one encoder layer must match d_model and d_ff */
+int pk_model_check_layer(const pk_model *m, const pk_layer *L) {
+    const int D = m->d_model, F = m->d_ff;
+    struct { const pk_lin *l; int n, k; const char *name; } want[] = {
+        {&L->ff1_1, F, D, "feed_forward1.linear1"}, {&L->ff1_2, D, F, "feed_forward1.linear2"},
+        {&L->ff2_1, F, D, "feed_forward2.linear1"}, {&L->ff2_2, D, F, "feed_forward2.linear2"},
+        {&L->q, D, D, "linear_q"}, {&L->k, D, D, "linear_k"}, {&L->v, D, D, "linear_v"}, {&L->o, D, D, "linear_out"},
+        {&L->pos, D, D, "linear_pos"}, {&L->pw1, 2 * D, D, "pointwise_conv1"}, {&L->pw2, D, D, "pointwise_conv2"},
+    };
+    for (size_t i = 0; i < sizeof want / sizeof want[0]; i++)
+        if (want[i].l->N != want[i].n || want[i].l->K != want[i].k) {
+            fprintf(stderr, "parakeet-c: model rejected: %s is %dx%d, expected %dx%d\n", want[i].name, want[i].l->N, want[i].l->K, want[i].n, want[i].k);
+            return -1;
+        }
+    return 0;
+}
+
 int pk_model_load(pk_model *m, const char *dir) {
     memset(m, 0, sizeof *m);
     char path[1024];
@@ -60,36 +133,55 @@ int pk_model_load(pk_model *m, const char *dir) {
     int err = 0; char nm[200];
     const pk_tensor *t;
     /* dimensions */
+    /* Every dimension is read from a tensor shape, which a hostile or
+     * damaged file controls; pk_model_check_dims below rejects anything
+     * the decode buffers cannot hold before any of it is used. */
     t = need(m, "encoder.pre_encode.out.weight", &err); if (err) return -1;
+    if (dim(t, 0) <= 0 || dim(t, 0) > PK_MAX_DIM) { fprintf(stderr, "parakeet-c: bad d_model\n"); return -1; }
     m->d_model = (int)t->shape[0];
     t = need(m, "encoder.pre_encode.conv.0.weight", &err); if (err) return -1;
+    if (dim(t, 0) <= 0 || dim(t, 0) > PK_MAX_DIM) { fprintf(stderr, "parakeet-c: bad subsampling channels\n"); return -1; }
     m->sub_ch = (int)t->shape[0];
-    m->feat_in = (int)(pk_tensor_numel(pk_st_get(&m->st, "encoder.pre_encode.out.weight")) / m->d_model / m->sub_ch) * 8;
-    while (snprintf(nm, sizeof nm, "encoder.layers.%d.norm_out.weight", m->n_layers), pk_st_get(&m->st, nm)) m->n_layers++;
+    {
+        int64_t per = pk_tensor_numel(pk_st_get(&m->st, "encoder.pre_encode.out.weight")) / m->d_model / m->sub_ch;
+        if (per <= 0 || per > PK_MAX_DIM) { fprintf(stderr, "parakeet-c: bad feature width\n"); return -1; }
+        m->feat_in = (int)per * 8;
+    }
+    while (m->n_layers < PK_MAX_LAYERS && (snprintf(nm, sizeof nm, "encoder.layers.%d.norm_out.weight", m->n_layers), pk_st_get(&m->st, nm))) m->n_layers++;
     t = need(m, "encoder.layers.0.self_attn.pos_bias_u", &err); if (err) return -1;
+    if (dim(t, 0) <= 0 || dim(t, 0) > PK_MAX_DIM) { fprintf(stderr, "parakeet-c: bad head count\n"); return -1; }
     m->n_heads = (int)t->shape[0];
     t = need(m, "encoder.layers.0.feed_forward1.linear1.weight", &err); if (err) return -1;
+    if (dim(t, 0) <= 0 || dim(t, 0) > PK_MAX_FF) { fprintf(stderr, "parakeet-c: bad d_ff\n"); return -1; }
     m->d_ff = (int)t->shape[0];
     t = need(m, "encoder.layers.0.conv.depthwise_conv.weight", &err); if (err) return -1;
+    if (dim(t, 2) <= 0 || dim(t, 2) > 1023) { fprintf(stderr, "parakeet-c: bad conv kernel size\n"); return -1; }
     m->conv_ks = (int)t->shape[2];
+    if (pk_model_check_dims(m, PK_CHECK_ENCODER)) return -1;
+    const int64_t D = m->d_model, C = m->sub_ch;
     /* pre-encode */
-    m->c0_w = getf(m, "encoder.pre_encode.conv.0.weight", &err); m->c0_b = getf(m, "encoder.pre_encode.conv.0.bias", &err);
-    m->c2_w = getf(m, "encoder.pre_encode.conv.2.weight", &err); m->c2_b = getf(m, "encoder.pre_encode.conv.2.bias", &err);
-    m->c3_w = getf(m, "encoder.pre_encode.conv.3.weight", &err); m->c3_b = getf(m, "encoder.pre_encode.conv.3.bias", &err);
-    m->c5_w = getf(m, "encoder.pre_encode.conv.5.weight", &err); m->c5_b = getf(m, "encoder.pre_encode.conv.5.bias", &err);
-    m->c6_w = getf(m, "encoder.pre_encode.conv.6.weight", &err); m->c6_b = getf(m, "encoder.pre_encode.conv.6.bias", &err);
+    m->c0_w = getf_n(m, "encoder.pre_encode.conv.0.weight", C * 9, &err); m->c0_b = getf_n(m, "encoder.pre_encode.conv.0.bias", C, &err);
+    m->c2_w = getf_n(m, "encoder.pre_encode.conv.2.weight", C * 9, &err); m->c2_b = getf_n(m, "encoder.pre_encode.conv.2.bias", C, &err);
+    m->c3_w = getf_n(m, "encoder.pre_encode.conv.3.weight", C * C, &err); m->c3_b = getf_n(m, "encoder.pre_encode.conv.3.bias", C, &err);
+    m->c5_w = getf_n(m, "encoder.pre_encode.conv.5.weight", C * 9, &err); m->c5_b = getf_n(m, "encoder.pre_encode.conv.5.bias", C, &err);
+    m->c6_w = getf_n(m, "encoder.pre_encode.conv.6.weight", C * C, &err); m->c6_b = getf_n(m, "encoder.pre_encode.conv.6.bias", C, &err);
     getlin(m, &m->pre_out, "encoder.pre_encode.out.weight", "encoder.pre_encode.out.bias", &err);
+    if (err) return -1;
+    {   /* the flattened subsampler output is C * F3 wide, F3 = ceil(feat_in / 8) */
+        int F1 = (m->feat_in - 1) / 2 + 1, F2 = (F1 - 1) / 2 + 1, F3 = (F2 - 1) / 2 + 1;
+        if (m->pre_out.N != D || (int64_t)m->pre_out.K != C * F3) { fprintf(stderr, "parakeet-c: model rejected: pre_encode.out does not match the subsampler\n"); return -1; }
+    }
     m->L = calloc(m->n_layers, sizeof(pk_layer));
     for (int i = 0; i < m->n_layers; i++) {
         pk_layer *L = &m->L[i];
 #define P(s) (snprintf(nm, sizeof nm, "encoder.layers.%d.%s", i, s), nm)
 #define PB(s) (snprintf(nmb, sizeof nmb, "encoder.layers.%d.%s", i, s), nmb)
         char nmb[200];
-        L->ln_ff1_w = getf(m, P("norm_feed_forward1.weight"), &err); L->ln_ff1_b = getf(m, P("norm_feed_forward1.bias"), &err);
-        L->ln_att_w = getf(m, P("norm_self_att.weight"), &err);     L->ln_att_b = getf(m, P("norm_self_att.bias"), &err);
-        L->ln_conv_w = getf(m, P("norm_conv.weight"), &err);        L->ln_conv_b = getf(m, P("norm_conv.bias"), &err);
-        L->ln_ff2_w = getf(m, P("norm_feed_forward2.weight"), &err); L->ln_ff2_b = getf(m, P("norm_feed_forward2.bias"), &err);
-        L->ln_out_w = getf(m, P("norm_out.weight"), &err);          L->ln_out_b = getf(m, P("norm_out.bias"), &err);
+        L->ln_ff1_w = getf_n(m, P("norm_feed_forward1.weight"), D, &err); L->ln_ff1_b = getf_n(m, P("norm_feed_forward1.bias"), D, &err);
+        L->ln_att_w = getf_n(m, P("norm_self_att.weight"), D, &err);     L->ln_att_b = getf_n(m, P("norm_self_att.bias"), D, &err);
+        L->ln_conv_w = getf_n(m, P("norm_conv.weight"), D, &err);        L->ln_conv_b = getf_n(m, P("norm_conv.bias"), D, &err);
+        L->ln_ff2_w = getf_n(m, P("norm_feed_forward2.weight"), D, &err); L->ln_ff2_b = getf_n(m, P("norm_feed_forward2.bias"), D, &err);
+        L->ln_out_w = getf_n(m, P("norm_out.weight"), D, &err);          L->ln_out_b = getf_n(m, P("norm_out.bias"), D, &err);
         getlin(m, &L->ff1_1, P("feed_forward1.linear1.weight"), PB("feed_forward1.linear1.bias"), &err);
         getlin(m, &L->ff1_2, P("feed_forward1.linear2.weight"), PB("feed_forward1.linear2.bias"), &err);
         getlin(m, &L->ff2_1, P("feed_forward2.linear1.weight"), PB("feed_forward2.linear1.bias"), &err);
@@ -99,14 +191,16 @@ int pk_model_load(pk_model *m, const char *dir) {
         getlin(m, &L->v, P("self_attn.linear_v.weight"), PB("self_attn.linear_v.bias"), &err);
         getlin(m, &L->o, P("self_attn.linear_out.weight"), PB("self_attn.linear_out.bias"), &err);
         getlin(m, &L->pos, P("self_attn.linear_pos.weight"), NULL, &err);
-        L->bias_u = getf(m, P("self_attn.pos_bias_u"), &err); L->bias_v = getf(m, P("self_attn.pos_bias_v"), &err);
+        L->bias_u = getf_n(m, P("self_attn.pos_bias_u"), D, &err); L->bias_v = getf_n(m, P("self_attn.pos_bias_v"), D, &err);
         getlin(m, &L->pw1, P("conv.pointwise_conv1.weight"), PB("conv.pointwise_conv1.bias"), &err);
         getlin(m, &L->pw2, P("conv.pointwise_conv2.weight"), PB("conv.pointwise_conv2.bias"), &err);
-        L->dw = getf(m, P("conv.depthwise_conv.weight"), &err);
+        L->dw = getf_n(m, P("conv.depthwise_conv.weight"), D * m->conv_ks, &err);
         L->dw_b = getf_opt(m, P("conv.depthwise_conv.bias"));
-        float *bw = getf(m, P("conv.batch_norm.weight"), &err), *bb = getf(m, P("conv.batch_norm.bias"), &err);
-        float *bm = getf(m, P("conv.batch_norm.running_mean"), &err), *bv = getf(m, P("conv.batch_norm.running_var"), &err);
+        if (L->dw_b && pk_tensor_numel(pk_st_get(&m->st, P("conv.depthwise_conv.bias"))) != D) { fprintf(stderr, "parakeet-c: bad depthwise bias\n"); err = 1; }
+        float *bw = getf_n(m, P("conv.batch_norm.weight"), D, &err), *bb = getf_n(m, P("conv.batch_norm.bias"), D, &err);
+        float *bm = getf_n(m, P("conv.batch_norm.running_mean"), D, &err), *bv = getf_n(m, P("conv.batch_norm.running_var"), D, &err);
         if (err) return -1;
+        if (pk_model_check_layer(m, L)) return -1;
         L->bn_scale = pk_alloc(sizeof(float) * m->d_model); L->bn_shift = pk_alloc(sizeof(float) * m->d_model);
         for (int c = 0; c < m->d_model; c++) {
             double s = bw[c] / sqrt((double)bv[c] + 1e-5);
@@ -121,14 +215,20 @@ int pk_model_load(pk_model *m, const char *dir) {
     /* decoder / joint (TDT or RNNT) or CTC */
     if (pk_st_get(&m->st, "decoder.prediction.embed.weight")) {
         t = pk_st_get(&m->st, "decoder.prediction.embed.weight");
+        if (t->ndim != 2 || dim(t, 0) < 2 || dim(t, 0) > PK_MAX_VOCAB + 1 || dim(t, 1) <= 0 || dim(t, 1) > PK_MAX_PRED) {
+            fprintf(stderr, "parakeet-c: prediction embedding shape out of range\n"); return -1;
+        }
         m->vocab = (int)t->shape[0] - 1; m->pred_hidden = (int)t->shape[1];
         m->embed = pk_tensor_f32(t);
-        while (snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_ih_l%d", m->pred_layers), pk_st_get(&m->st, nm) && m->pred_layers < 2) m->pred_layers++;
+        while (m->pred_layers < 2 && (snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_ih_l%d", m->pred_layers), pk_st_get(&m->st, nm))) m->pred_layers++;
+        snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_ih_l%d", m->pred_layers);
+        if (m->pred_layers == 2 && pk_st_get(&m->st, nm)) { fprintf(stderr, "parakeet-c: more than 2 LSTM layers is not supported\n"); return -1; }
+        const int64_t PH = m->pred_hidden;
         for (int l = 0; l < m->pred_layers; l++) {
-            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_ih_l%d", l); m->lstm_wih[l] = getf(m, nm, &err);
-            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_hh_l%d", l); m->lstm_whh[l] = getf(m, nm, &err);
-            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.bias_ih_l%d", l); float *b1 = getf(m, nm, &err);
-            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.bias_hh_l%d", l); float *b2 = getf(m, nm, &err);
+            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_ih_l%d", l); m->lstm_wih[l] = getf_n(m, nm, 4 * PH * PH, &err);
+            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.weight_hh_l%d", l); m->lstm_whh[l] = getf_n(m, nm, 4 * PH * PH, &err);
+            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.bias_ih_l%d", l); float *b1 = getf_n(m, nm, 4 * PH, &err);
+            snprintf(nm, sizeof nm, "decoder.prediction.dec_rnn.lstm.bias_hh_l%d", l); float *b2 = getf_n(m, nm, 4 * PH, &err);
             if (err) return -1;
             m->lstm_b[l] = pk_alloc(sizeof(float) * 4 * m->pred_hidden);
             for (int i = 0; i < 4 * m->pred_hidden; i++) m->lstm_b[l][i] = b1[i] + b2[i];
@@ -141,14 +241,20 @@ int pk_model_load(pk_model *m, const char *dir) {
         m->joint_hidden = m->j_enc.N;
         m->n_dur = m->j_out.N - (m->vocab + 1);
         m->is_tdt = m->n_dur > 0;
-        for (int i = 0; i < m->n_dur && i < 8; i++) m->durations[i] = i;
+        if (pk_model_check_dims(m, PK_CHECK_DECODER)) return -1;
+        for (int i = 0; i < m->n_dur; i++) m->durations[i] = i;
     } else if (pk_st_get(&m->st, "decoder.decoder_layers.0.weight")) {
         getlin(m, &m->ctc, "decoder.decoder_layers.0.weight", "decoder.decoder_layers.0.bias", &err);
+        if (err) return -1;
         m->vocab = m->ctc.N - 1; m->is_tdt = 2;
+        if (pk_model_check_dims(m, PK_CHECK_DECODER)) return -1;
     } else { fprintf(stderr, "parakeet-c: no decoder found\n"); return -1; }
     /* mel: use the checkpoint's own filterbank/window when present */
     t = pk_st_get(&m->st, "preprocessor.featurizer.fb");
-    int nmel = t ? (int)t->shape[t->ndim - 2] : m->feat_in;
+    if (t && (t->ndim < 2 || dim(t, t->ndim - 2) != m->feat_in)) {
+        fprintf(stderr, "parakeet-c: mel filterbank does not match the encoder's %d features\n", m->feat_in); return -1;
+    }
+    int nmel = m->feat_in;
     pk_mel_default_fb(&m->mel, nmel);
     if (t && t->shape[t->ndim - 1] == PK_NBIN) { pk_free(m->mel.fb); m->mel.fb = pk_tensor_f32(t); }
     t = pk_st_get(&m->st, "preprocessor.featurizer.window");
@@ -232,7 +338,7 @@ static void att_task(void *vc, int task) {
     int h = task / nqb, i0 = (task % nqb) * ATT_QB, i1 = i0 + ATT_QB; if (i1 > T) i1 = T;
     float *sc = j->scr + (size_t)task * T;
     const float isq = 1.f / sqrtf((float)dk);
-    float qu[256], qv[256];
+    float qu[PK_MAX_HEAD_DIM], qv[PK_MAX_HEAD_DIM];
     for (int i = i0; i < i1; i++) {
         const float *qi = j->q + (size_t)i * D + h * dk;
         for (int d = 0; d < dk; d++) { qu[d] = qi[d] + j->bu[h * dk + d]; qv[d] = qi[d] + j->bv[h * dk + d]; }
@@ -323,12 +429,12 @@ int pk_encode(const pk_model *m, const float *feats, int T, float **enc_out) {
 }
 
 /* ------------------------------------------------------------ decoding */
-typedef struct { float h[2][1024], c[2][1024]; } lstm_state;
+typedef struct { float h[2][PK_MAX_PRED], c[2][PK_MAX_PRED]; } lstm_state;
 static void pred_step(const pk_model *m, int label, const lstm_state *in, lstm_state *out, float *g) {
-    const int H = m->pred_hidden; float gates[4096]; float x[1024];
+    const int H = m->pred_hidden; float gates[4 * PK_MAX_PRED]; float x[PK_MAX_PRED];
     memcpy(x, m->embed + (size_t)label * H, sizeof(float) * H);
     for (int l = 0; l < m->pred_layers; l++) {
-        float gh[4096];
+        float gh[4 * PK_MAX_PRED];
         pk_gemm_f32w(gates, x, m->lstm_wih[l], m->lstm_b[l], 1, 4 * H, H);
         pk_gemm_f32w(gh, in->h[l], m->lstm_whh[l], NULL, 1, 4 * H, H);
         for (int i = 0; i < 4 * H; i++) gates[i] += gh[i];
@@ -362,7 +468,7 @@ int pk_decode_greedy(const pk_model *m, const float *enc, int Te, int **tok_out,
     lin(f, enc, &m->j_enc, Te);
     static lstm_state st, st2;
     memset(&st, 0, sizeof st);
-    float g[1024], gp[1024], hsum[1024], *logits = pk_alloc(sizeof(float) * NO);
+    float g[PK_MAX_PRED], gp[PK_MAX_PRED], hsum[PK_MAX_PRED], *logits = pk_alloc(sizeof(float) * NO);
     int have_g = 0, last = blank;
     const int max_symbols = 10;
     int t = 0;

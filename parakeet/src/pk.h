@@ -99,10 +99,22 @@ typedef struct {
     float *bn_scale, *bn_shift; /* folded batch norm */
 } pk_layer;
 
+/* Largest shapes the runtime accepts. The decode path keeps its LSTM
+ * state, gates, joint vectors and attention rows in fixed stack buffers
+ * sized by these; a model beyond them is rejected at load, never decoded. */
+#define PK_MAX_PRED 1024      /* LSTM hidden and joint width: lstm_state, g/gp/hsum */
+#define PK_MAX_HEAD_DIM 256   /* d_model / n_heads: qu/qv in att_task */
+#define PK_MAX_DUR 8          /* TDT durations: pk_model.durations */
+#define PK_MAX_DIM 8192
+#define PK_MAX_FF 32768
+#define PK_MAX_LAYERS 256
+#define PK_MAX_VOCAB 262144
+#define PK_CHECK_ENCODER 1
+#define PK_CHECK_DECODER 2
 typedef struct {
     int d_model, n_layers, n_heads, d_ff, conv_ks, feat_in, sub_ch;
     int vocab;       /* 1024 tokens; blank = vocab */
-    int n_dur; int durations[8];
+    int n_dur; int durations[PK_MAX_DUR];
     int pred_hidden, joint_hidden, pred_layers;
     int is_tdt;      /* 1 TDT, 0 plain RNNT, 2 CTC */
     /* pre_encode (dw_striding, factor 8) */
@@ -122,6 +134,8 @@ typedef struct {
     pk_st st;
 } pk_model;
 
+int  pk_model_check_dims(const pk_model *m, int stage);   /* 0 when the shapes fit the runtime */
+int  pk_model_check_layer(const pk_model *m, const pk_layer *L);
 int  pk_model_load(pk_model *m, const char *dir);  /* dir with model_weights.safetensors + tokenizer.model */
 void pk_model_free(pk_model *m);
 /* encoder: feats [T][feat_in] -> enc [T'][d_model]; returns T' */

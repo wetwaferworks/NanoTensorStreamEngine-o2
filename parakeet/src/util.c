@@ -256,6 +256,18 @@ int pk_st_open(pk_st *st, const char *path) {
         }
         if (off0 > off1 || off1 > (uint64_t)st->size - 8 - hl) return -7;
         t->data = data0 + off0; t->nbytes = (size_t)(off1 - off0);
+        /* The shape must fit the four stored dimensions and describe
+         * exactly the bytes the offsets name, or a later copy-out reads
+         * past the tensor (or the mapping). */
+        if (t->ndim > 4) return -8;
+        {
+            uint64_t n = 1, es = t->dtype == PK_F32 ? 4 : (t->dtype == PK_BF16 || t->dtype == PK_F16) ? 2 : t->dtype == PK_I64 ? 8 : 0;
+            for (int i = 0; i < t->ndim; i++) {
+                if (t->shape[i] < 0 || (t->shape[i] && n > UINT64_MAX / (uint64_t)t->shape[i])) return -9;
+                n *= (uint64_t)t->shape[i];
+            }
+            if (es && (n > UINT64_MAX / es || n * es != (uint64_t)t->nbytes)) return -9;
+        }
         st->n++;
     }
     return 0;

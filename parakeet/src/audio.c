@@ -41,25 +41,39 @@ int pk_wav_read(const char *path, pk_audio *out) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
     fseek(f, 0, SEEK_END); long sz = ftell(f); fseek(f, 0, SEEK_SET);
+    if (sz < 12) { fclose(f); return sz < 0 ? -1 : -2; }
     uint8_t *b = malloc(sz);
-    if (fread(b, 1, sz, f) != (size_t)sz) { fclose(f); free(b); return -1; }
+    if (!b || fread(b, 1, sz, f) != (size_t)sz) { fclose(f); free(b); return -1; }
     fclose(f);
-    if (sz < 12 || memcmp(b, "RIFF", 4) || memcmp(b + 8, "WAVE", 4)) { free(b); return -2; }
+    if (memcmp(b, "RIFF", 4) || memcmp(b + 8, "WAVE", 4)) { free(b); return -2; }
     int fmt = 0, ch = 0, sr = 0, bits = 0; const uint8_t *data = NULL; uint32_t dlen = 0;
-    long p = 12;
-    while (p + 8 <= sz) {
+    /* 64-bit positions: a chunk length near 4 GB must end the walk, not
+     * wrap a 32-bit long back into the buffer. */
+    int64_t p = 12;
+    while (p + 8 <= (int64_t)sz) {
         uint32_t cl = rd32(b + p + 4);
+        int64_t room = (int64_t)sz - p - 8;
         if (!memcmp(b + p, "fmt ", 4)) {
+            if (cl < 16 || (int64_t)cl > room) { free(b); return -3; }   /* fmt chunk too short to read */
             fmt = rd16(b + p + 8); ch = rd16(b + p + 10); sr = (int)rd32(b + p + 12); bits = rd16(b + p + 22);
             if (fmt == 0xFFFE && cl >= 40) fmt = rd16(b + p + 8 + 24);
         } else if (!memcmp(b + p, "data", 4)) {
             data = b + p + 8; dlen = cl;
-            if ((long)(p + 8 + dlen) > sz) dlen = (uint32_t)(sz - p - 8);
+            if ((int64_t)dlen > room) dlen = (uint32_t)room;
         }
-        p += 8 + cl + (cl & 1);
+        p += 8 + (int64_t)cl + (cl & 1);
     }
-    if (!data || ch <= 0 || sr <= 0 || (fmt != 1 && fmt != 3)) { free(b); return -3; }
-    int bps = bits / 8, frames = (int)(dlen / (bps * ch));
+    if (!data || ch <= 0 || (fmt != 1 && fmt != 3)) { free(b); return -3; }
+    /* Only the sample formats the decoder below implements; anything else
+     * (bits 0..7 used to make bps 0 and divide by zero) is refused. */
+    int pcm_ok = fmt == 1 && (bits == 8 || bits == 16 || bits == 24 || bits == 32);
+    int flt_ok = fmt == 3 && (bits == 32 || bits == 64);
+    if (!pcm_ok && !flt_ok) { free(b); return -4; }
+    if (sr < 1000 || sr > 768000) { free(b); return -4; }   /* also keeps the resampled length inside an int */
+    int bps = bits / 8;
+    int64_t frames64 = (int64_t)dlen / ((int64_t)bps * ch);
+    if (frames64 > INT32_MAX / 48) { free(b); return -4; }
+    int frames = (int)frames64;
     float *mono = malloc(sizeof(float) * (frames ? frames : 1));
     for (int i = 0; i < frames; i++) {
         double s = 0;
