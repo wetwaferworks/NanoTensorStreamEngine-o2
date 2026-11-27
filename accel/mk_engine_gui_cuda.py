@@ -9,8 +9,11 @@ Adds to the same protocol:
     --cuda-pack PACK.nq2    the NTSE pack the CUDA lane runs from
   DTC on by default with predicted expansion (accel/nemo_predict)
     --expand auto|never|always
-    --full-path fast|exact  FULL projections: fast (default) or exact order
+    --full-path fast|exact  FULL projections: fast (default) or exact summation order
+    --host-threads N        lanes for per-step host work, 1..8 (default 1)
     --tok-overlap 0|1       tokenize the prompt tail while the GPU prefills (default 1)
+    --lm-head auto|int8|bf16  output layer storage on the GPU (default auto)
+    --prefill-chunk N       tokens per batched prefill pass, 0 or 1 = off (default 64)
     --dtc-margin X --dtc-entropy X --dtc-prompt-tokens N
     --dtc-complexity N --dtc-longform 0|1 --dtc-trace --log FILE
 READY/HW/STATS/STAT say which lane runs and why the others were
@@ -57,6 +60,15 @@ static nemo_pool g_hpool;             /* host lanes for per-step work (zero-mute
 static int g_host_threads = 1, g_hpool_ok = 0;
 static nemo_pool g_tokpool;            /* prep thread: prompt tokenization overlapped with the prefill */
 static int g_tok_overlap = 1, g_tokpool_ok = 0;
+/* Options that the GPU runtime reads from the environment are set here, so a
+ * flag always wins over a variable left in the shell. */
+static void set_env(const char *name, const char *value) {
+#ifdef _WIN32
+    _putenv_s(name, value);
+#else
+    setenv(name, value, 1);
+#endif
+}
 static void pct(const char *in, char *out, size_t ol) {
     static const char hx[] = "0123456789ABCDEF";
     size_t j = 0;
@@ -211,6 +223,12 @@ rep('    int chat = 0, think_default = 0;', r'''    int chat = 0, think_default 
     const char *cuda_pack = NULL, *accel_override = "auto";
     int recal = 0;
     nemo_predict_defaults(&g_pred);''')
+rep(r'''                "[--serve PORT | --serve-stdio]\n");''', r'''                "[--serve PORT | --serve-stdio]\n"
+                "  CUDA lane: [--cuda-pack PACK.nq2] [--accel auto|cuda|cpu] [--recalibrate]\n"
+                "  [--expand auto|never|always] [--full-path fast|exact] [--host-threads 1..8]\n"
+                "  [--tok-overlap 0|1] [--lm-head auto|int8|bf16] [--prefill-chunk N]\n"
+                "  [--dtc-margin X] [--dtc-entropy X] [--dtc-prompt-tokens N] [--dtc-complexity N]\n"
+                "  [--dtc-longform 0|1] [--dtc-trace] [--log FILE]\n");''')
 rep('        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))', r'''        else if (i + 1 < argc && !strcmp(argv[i], "--cuda-pack"))
             cuda_pack = argv[++i];
         else if (i + 1 < argc && !strcmp(argv[i], "--accel")) {
@@ -241,11 +259,21 @@ rep('        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))', r'''     
             /* FULL projections: fast (default) or the exact (reference-order) path */
             const char *fp = argv[++i];
             if (strcmp(fp, "fast") && strcmp(fp, "exact")) { fprintf(stderr, "nemo-engine: --full-path fast|exact\n"); return 2; }
-#ifdef _WIN32
-            _putenv(!strcmp(fp, "exact") ? "NEMO_GPU_GEMV_FULL=exact" : "NEMO_GPU_GEMV_FULL=f");
-#else
-            setenv("NEMO_GPU_GEMV_FULL", !strcmp(fp, "exact") ? "exact" : "f", 1);
-#endif
+            set_env("NEMO_GPU_GEMV_FULL", fp);
+        }
+        else if (i + 1 < argc && !strcmp(argv[i], "--lm-head")) {
+            /* output layer: auto (int8 only when the bf16 copy does not fit), int8, or bf16 */
+            const char *lh = argv[++i];
+            if (strcmp(lh, "auto") && strcmp(lh, "int8") && strcmp(lh, "bf16")) { fprintf(stderr, "nemo-engine: --lm-head auto|int8|bf16\n"); return 2; }
+            set_env("NEMO_GPU_HEAD", lh);
+        }
+        else if (i + 1 < argc && !strcmp(argv[i], "--prefill-chunk")) {
+            /* tokens per batched prefill pass; 0 or 1 = one token at a time */
+            int pc = atoi(argv[++i]);
+            if (pc < 0 || pc > 512) { fprintf(stderr, "nemo-engine: --prefill-chunk 0..512\n"); return 2; }
+            char pcs[16];
+            snprintf(pcs, sizeof pcs, "%d", pc);
+            set_env("NEMO_GPU_PREFILL_CHUNK", pcs);
         }
         else if (i + 1 < argc && !strcmp(argv[i], "--expand")) {
             const char *x = argv[++i];

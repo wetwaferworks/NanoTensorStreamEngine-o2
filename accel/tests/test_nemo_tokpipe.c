@@ -29,7 +29,7 @@ static const char *MIXED =
     "Caf\xc3\xa9 na\xc3\xafve r\xc3\xa9sum\xc3\xa9 \xe2\x80\x94 \xe6\x9d\xb1\xe4\xba\xac and \xd0\x9c\xd0\xbe\xd1\x81\xd0\xba\xd0\xb2\xd0\xb0, "
     "CamelCase HTTPServer iPhone McDonald's  double  spaces\t\ttabs   \n\n\n"
     "code: for (int i = 0; i < n; i++) { x[i] = y[i] * 2.5e-3; } // done\n"
-    "URL https://example.com/a/b?c=d&e=f and path C:\\Users\\jd\\file.txt end\n"
+    "URL https://example.com/a/b?c=d&e=f and path C:\\Users\\name\\file.txt end\n"
     "<think>\nshould stay as one added token</think> Final answer: The capital of Ohio is Columbus.\n";
 
 static int same(const int *a, int na, const int *b, int nb) { return na == nb && !memcmp(a, b, (size_t)na * sizeof(int)); }

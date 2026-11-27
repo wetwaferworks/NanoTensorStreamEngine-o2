@@ -4,12 +4,16 @@
  * per-tensor books) for every 2-D layer projection, resident on the
  * GPU and dequantized on the fly inside the GEMV (no W is ever
  * materialized). Norms, conv, SSM parameters, embeddings and lm_head
- * come from the checkpoint directory (bf16): lm_head stays bf16 on the
- * GPU, the embedding row is read on the host per token.
+ * come from the checkpoint directory (bf16). The lm_head is resident on
+ * the GPU as bf16, or as int8 with one scale per row when the bf16 copy
+ * does not fit in free VRAM (NEMO_GPU_HEAD, engine flag --lm-head). The
+ * embedding row is read on the host per token.
  *
  * The CUDA driver API and NVRTC are loaded at run time (no CUDA SDK at
- * build time). One host thread drives everything: no mutexes, no
- * worker threads. */
+ * build time). One host thread drives the GPU and no call here takes a
+ * lock. The engine may run per-step host work (logit confidence) on
+ * nemo_pool lanes and tokenize on a prep thread, but those never call
+ * into this runtime. */
 #ifndef NEMO_GPU_H
 #define NEMO_GPU_H
 
@@ -73,7 +77,8 @@ void nemo_gpu_set_layer_hook(nemo_gpu *g,
  * dequantized in fp32 registers (dense tensor compute on the pack).
  * FULL (EXPAND): the bf16-faithful kernel, fp32 books, every weight
  * decoded and rounded to bf16 exactly like the unpacked reference
- * checkpoint. Both read the same pack; FULL is about 1.7x slower. */
+ * checkpoint. Both read the same pack. FULL decodes about 1.3x slower than
+ * DTC on its fast path and about 2.6x slower on its exact path. */
 int nemo_gpu_full_available(const nemo_gpu *g, int *per_step, char *why, size_t wl);
 int nemo_gpu_set_full(nemo_gpu *g, int on);   /* -1 when FULL is unavailable */
 int nemo_gpu_get_full(const nemo_gpu *g);

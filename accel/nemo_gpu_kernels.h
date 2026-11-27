@@ -770,7 +770,7 @@ static const char nemo_gpu_cuda_src[] =
 "    float *__restrict__ y, int rows, int cols, int ntok){\n"
 "  pq_gemm_x_body<16>(idx, mc, book, x, y, rows, cols, ntok); }\n"
 "\n"
-"/* ---- FULL fast path (JD go, 2026-11-26) --------------------------------\n"
+"/* ---- FULL fast path -----------------------------------------------------\n"
 " * Same decoded weights as k_pq_gemv (fp32 book, w = bf16(mn + sc*q), every\n"
 " * weight bit-identical), but the fp32 book is staged in shared memory in 4\n"
 " * passes of 16 subvectors (64 KiB each) and a warp owns 4 rows r, r+P,\n"
