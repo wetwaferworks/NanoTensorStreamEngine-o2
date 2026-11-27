@@ -9,6 +9,7 @@ Adds to the same protocol:
     --cuda-pack PACK.nq2    the NTSE pack the CUDA lane runs from
   DTC on by default with predicted expansion (accel/nemo_predict)
     --expand auto|never|always
+    --full-path fast|exact  FULL projections: fast (default) or exact order
     --dtc-margin X --dtc-entropy X --dtc-prompt-tokens N
     --dtc-complexity N --dtc-longform 0|1 --dtc-trace --log FILE
 READY/HW/STATS/STAT say which lane runs and why the others were
@@ -231,6 +232,16 @@ rep('        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))', r'''     
                 return 2;
             }
         }
+        else if (i + 1 < argc && !strcmp(argv[i], "--full-path")) {
+            /* FULL projections: fast (default) or the exact (reference-order) path */
+            const char *fp = argv[++i];
+            if (strcmp(fp, "fast") && strcmp(fp, "exact")) { fprintf(stderr, "nemo-engine: --full-path fast|exact\n"); return 2; }
+#ifdef _WIN32
+            _putenv(!strcmp(fp, "exact") ? "NEMO_GPU_GEMV_FULL=exact" : "NEMO_GPU_GEMV_FULL=f");
+#else
+            setenv("NEMO_GPU_GEMV_FULL", !strcmp(fp, "exact") ? "exact" : "f", 1);
+#endif
+        }
         else if (i + 1 < argc && !strcmp(argv[i], "--expand")) {
             const char *x = argv[++i];
             g_pred.mode = !strcmp(x, "never") ? 1 : !strcmp(x, "always") ? 2 : 0;
@@ -309,11 +320,12 @@ rep(r'''    printf("READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=raw "
         pct(cal.cuda_why, cw, sizeof cw); pct(cal.oclnv_why, ow, sizeof ow);
         pct(cal.igpu_why, iw, sizeof iw); pct(cal.cpu_why, pw, sizeof pw);
         pct(lane_why[0] ? lane_why : "-", lw, sizeof lw);
-        printf("HW cores=%d threads=%d accel=%s gpu=%s calib=%s dtc=%s expand=%s host_threads=%d prefill_chunk=%d\n", cores, model.nthreads, g_lane, gd,
+        printf("HW cores=%d threads=%d accel=%s gpu=%s calib=%s dtc=%s expand=%s host_threads=%d prefill_chunk=%d full_path=%s\n", cores, model.nthreads, g_lane, gd,
                cal.cached ? "cached" : "fresh", g_gpu ? "on" : "off",
                !g_gpu ? "off" : g_pred.mode == 1 ? "never" : g_pred.mode == 2 ? "always"
                : !ginf.full_ok ? "off" : ginf.snap_ok ? "auto" : "turn",
-               g_hpool_ok ? g_host_threads : 1, g_gpu ? nemo_gpu_prefill_chunk(g_gpu) : 0);
+               g_hpool_ok ? g_host_threads : 1, g_gpu ? nemo_gpu_prefill_chunk(g_gpu) : 0,
+               !g_gpu ? "off" : nemo_gpu_full_fast(g_gpu) ? "fast" : "exact");
         printf("STAT calib=%s calib_ms=%.0f lane=%s lane_cuda=%s lane_opencl_nv=%s lane_opencl_igpu=%s lane_cpu=%s "
                "est_cuda_tps=%.2f est_cpu_tps=%.3f open_note=%s\n",
                cal.cached ? "cached" : "fresh", cal.ms, g_lane, cal.cuda_status, cal.oclnv_status, cal.igpu_status,

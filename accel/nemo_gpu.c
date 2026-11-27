@@ -97,11 +97,11 @@ typedef struct {
 
 enum { K_PQ, K_BF16, K_RMS, K_ADD, K_RELU2, K_CONV, K_SSM, K_GNORM, K_KVPUSH,
        K_ASCORE, K_AOUT, K_I8, K_XSUM, K_PQF, K_PQH, K_PQS, K_PQU, K_PQV, K_PQW, K_PQT, K_BW,
-       K_GT8, K_GT16, K_GR8T8, K_GR8T4, K_GR2T32, K_GT8K, K_PQT1K, K_PQX4, K_GX8, K_GX16, K_RMSB, K_CONVB, K_SSMB, K_GNORMB, K_KVPB, K_N };
+       K_GT8, K_GT16, K_GR8T8, K_GR8T4, K_GR2T32, K_GT8K, K_PQT1K, K_PQX4, K_GX8, K_GX16, K_RMSB, K_CONVB, K_SSMB, K_GNORMB, K_KVPB, K_PQFX, K_GF16, K_N };
 static const char *const kname[K_N] = {
     "k_pq_gemv", "k_bf16_gemv", "k_rmsnorm", "k_add", "k_relu2", "k_conv",
     "k_ssm", "k_gated_norm", "k_kv_push", "k_attn_scores", "k_attn_out", "k_i8_gemv", "k_xsum16", "k_pq_gemv_fast", "k_pq_gemv_h", "k_pq_gemv_s", "k_pq_gemv_u", "k_pq_gemv_v", "k_pq_gemv_w", "k_pq_gemv_t", "k_bw",
-    "k_pq_gemm_t8", "k_pq_gemm_t16", "k_pq_gemm_r8t8", "k_pq_gemm_r8t4", "k_pq_gemm_r2t32", "k_pq_gemm_t8k", "k_pq_gemv_t1k", "k_pq_gemv_x4", "k_pq_gemm_x8", "k_pq_gemm_x16", "k_rmsnorm_b", "k_conv_b", "k_ssm_b", "k_gated_norm_b", "k_kv_push_b" };
+    "k_pq_gemm_t8", "k_pq_gemm_t16", "k_pq_gemm_r8t8", "k_pq_gemm_r8t4", "k_pq_gemm_r2t32", "k_pq_gemm_t8k", "k_pq_gemv_t1k", "k_pq_gemv_x4", "k_pq_gemm_x8", "k_pq_gemm_x16", "k_rmsnorm_b", "k_conv_b", "k_ssm_b", "k_gated_norm_b", "k_kv_push_b", "k_pq_gemv_f", "k_pq_gemm_f16" };
 
 #define H 4480
 #define VOCAB 131072
@@ -616,21 +616,40 @@ static int launch_sm(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, 
     if (g_prof) { g->cu.CtxSynchronize(); t0 = now_s(); }
     int rc = ck(g, g->cu.LaunchKernel(g->fn[k], gx, gy, 1, bx, 1, 1, smem, NULL, args, NULL), kname[k]);
     if (g_prof) { g->cu.CtxSynchronize(); double dt = now_s() - t0; g_prof_t[k] += dt; g_prof_n[k]++;
-        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16) || k == K_PQ) { int ai = (k == K_PQ || k == K_PQT || (k >= K_GT8 && k <= K_GX16)) ? 5 : k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
+        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16) || k == K_PQ || k == K_PQFX || k == K_GF16) { int ai = (k == K_PQ || k == K_PQT || (k >= K_GT8 && k <= K_GX16) || k == K_PQFX || k == K_GF16) ? 5 : k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
             for (int q = 0; q < 32; q++) { if (!g_shape[q][0] || (g_shape[q][0] == rr && g_shape[q][1] == cc && g_shape_k[q] == k)) { g_shape[q][0] = rr; g_shape[q][1] = cc; g_shape_k[q] = k; g_shape_t[q] += dt; g_shape_n[q]++; break; } } } }
     return rc;
 }
-/* Decode GEMV choices: DTC t1k (default) or t (NEMO_GPU_GEMV); FULL x4
- * (default) or x1 (NEMO_GPU_GEMV_FULL). Every choice has the same per-row
- * summation order, so results are bit-identical; only the speed differs. */
+/* Decode GEMV choices: DTC t1k (default) or t (NEMO_GPU_GEMV), same
+ * per-row order, bit-identical. FULL (NEMO_GPU_GEMV_FULL): "f" (default,
+ * the fast path: smem-staged fp32 book, row-tiled, its own summation order,
+ * within tolerance of the old FULL) or the old exact path "exact"/"x4"
+ * (same as "x1", bit-identical to the C reference order). Prefill follows
+ * the same choice, so batched == stepped on either path. */
 static void kernel_choice(nemo_gpu *g) {
     const char *v = getenv("NEMO_GPU_GEMV"); g->gemv_k = v && !strcmp(v, "t") ? K_PQT : K_PQT1K;
-    v = getenv("NEMO_GPU_GEMV_FULL"); g->gemv_x = v && !strcmp(v, "x1") ? K_PQ : K_PQX4;
+    v = getenv("NEMO_GPU_GEMV_FULL");
+    g->gemv_x = v && !strcmp(v, "x1") ? K_PQ : v && (!strcmp(v, "x4") || !strcmp(v, "exact")) ? K_PQX4 : K_PQFX;
+}
+/* Row tiling of the FULL fast path (as DTC): P rows apart share a block
+ * offset; 0 when the shape does not tile (then the exact kernels run). */
+static int full_tile(nemo_gpu *g, int rows, int cols) {
+    if (g->gemv_x != K_PQFX) return 0;
+    int P = 1;
+    while (P <= 8 && ((uint64_t)P * (uint64_t)cols) % 256u) P *= 2;
+    return P <= 8 && rows % (4 * P) == 0 ? P : 0;
 }
 static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
     if (g->exact && w->book) {
+        int P = full_tile(g, w->rows, w->cols);
+        if (P) {
+            int nwarps = w->rows / 4;
+            void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &x, &y, (void *)&w->rows, (void *)&w->cols, &P};
+            return launch_sm(g, K_PQFX, (unsigned)((nwarps + 31) / 32), 1, 1024, 65536u, a);
+        }
+        int k = g->gemv_x == K_PQFX ? K_PQX4 : g->gemv_x;
         void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &x, &y, (void *)&w->rows, (void *)&w->cols};
-        return launch(g, g->gemv_x, (unsigned)((w->rows + 7) / 8), 1, 256, a);
+        return launch(g, k, (unsigned)((w->rows + 7) / 8), 1, 256, a);
     }
     if (g->half_book == 6) {
         int P = 1;
@@ -776,6 +795,12 @@ static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int 
     int tb = g->ptb;
     unsigned gy = (unsigned)((n + tb - 1) / tb);
     if (g->exact && w->book) {
+        int P = full_tile(g, w->rows, w->cols);
+        if (P) {
+            int nwarps = w->rows / 4;
+            void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &P, &n};
+            return launch_sm(g, K_GF16, (unsigned)((nwarps + 15) / 16), (unsigned)((n + 15) / 16), 512, 65536u, a);
+        }
         void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &n};
         return launch_sm(g, K_GX16, (unsigned)((w->rows + 7) / 8), (unsigned)((n + 15) / 16), 256, 0, a);
     }
@@ -839,6 +864,7 @@ static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
 }
 
 int nemo_gpu_prefill_chunk(const nemo_gpu *g) { return g->chunk; }
+int nemo_gpu_full_fast(const nemo_gpu *g) { return g->gemv_x == K_PQFX; }
 
 int nemo_gpu_prefill(nemo_gpu *g, const int *ids, int n) {
     if (!g->valid) return -2;
@@ -1062,6 +1088,9 @@ static int open_device(nemo_gpu *g, char *why, size_t wl) {
         if (g->half_book >= 5) { snprintf(why, wl, "cannot enable 64 KiB shared memory for k_pq_gemv_w"); return -1; }
         g->half_book = 1;
     }
+    /* the FULL fast path needs the same 64 KiB; without it FULL runs the exact kernels */
+    if (g->cu.FuncSetAttribute(g->fn[K_PQFX], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GF16], 8, 65536))
+        g->gemv_x = K_PQX4;
     return 0;
 }
 
@@ -1278,6 +1307,27 @@ static float full_ref(const uint8_t *idx, const uint16_t *mn, const uint16_t *sc
     }
     return wsum_ref(v);
 }
+/* C emulation of k_pq_gemv_f (FULL fast path) for row r of a P-tiled shape. */
+static float full_f_ref(const uint8_t *idx, const uint16_t *mn, const uint16_t *sc, const float *book,
+                        const float *x, int r, int cols) {
+    uint64_t base = (uint64_t)r * cols, bf = base >> 8; int off = (int)(base & 255);
+    int nblk = (int)(((base + cols - 1) >> 8) - bf) + 1;
+    float v[32];
+    for (int lane = 0; lane < 32; lane++) {
+        int sl = lane & 15, par = lane >> 4; float a = 0.0f;
+        for (int p = 0; p < 4; p++)
+            for (int blk = par; blk < nblk; blk += 2) {
+                int c = 64 * p + 4 * sl - off + 256 * blk;
+                if (c < 0 || c >= cols) continue;
+                int sub = 16 * p + sl; int ix = idx[(bf + blk) * 64 + sub];
+                const float *q = book + ((size_t)sub * 256 + ix) * 4;
+                float m = f16_to_f32(mn[bf + blk]), cc = f16_to_f32(sc[bf + blk]);
+                for (int i = 0; i < 4; i++) { volatile float pr = cc * q[i]; volatile float s = m + pr; a = fma_ref(bfr_ref(s), x[c + i], a); }
+            }
+        v[lane] = a;
+    }
+    return wsum_ref(v);
+}
 
 static uint64_t lcg_state = 0x2545F4914F6CDD1Dull;
 static uint32_t lcg(void) { lcg_state = lcg_state * 6364136223846793005ull + 1442695040888963407ull; return (uint32_t)(lcg_state >> 33); }
@@ -1357,7 +1407,8 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
                 if (pq_gemv(g, &T->w, dx, dy) || ck(g, g->cu.CtxSynchronize(), "selftest")
                     || ck(g, g->cu.MemcpyDtoH(y, dy, (size_t)T->w.rows * 4), "selftest copy")) { snprintf(why, wl, "%s", g->err); goto out; }
                 for (int row = 0; row < T->w.rows; row++) {
-                    float ref = mode ? full_ref(T->idx, T->mn, T->sc, T->book, x, row, T->w.cols)
+                    float ref = mode ? (full_tile(g, T->w.rows, T->w.cols) ? full_f_ref(T->idx, T->mn, T->sc, T->book, x, row, T->w.cols)
+                                                                            : full_ref(T->idx, T->mn, T->sc, T->book, x, row, T->w.cols))
                                      : dtc_ref(T->idx, T->mn, T->sc, T->bookh, x, row, T->w.cols);
                     uint32_t a, b; memcpy(&a, &ref, 4); memcpy(&b, &y[row], 4);
                     if (a != b) { if (mode) { r->full_exact = 0; r->full_mismatch++; } else { r->dtc_exact = 0; r->dtc_mismatch++; } }

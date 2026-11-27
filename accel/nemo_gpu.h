@@ -55,6 +55,9 @@ int nemo_gpu_logits(nemo_gpu *g, float *logits);
  * error (state invalid until nemo_gpu_reset), -2 if already invalid. */
 int nemo_gpu_prefill(nemo_gpu *g, const int *ids, int n);
 int nemo_gpu_prefill_chunk(const nemo_gpu *g);   /* 0: batched prefill off */
+/* FULL projections: 1 = fast path (default; within tolerance of the exact
+ * path), 0 = the exact path (NEMO_GPU_GEMV_FULL=exact or --full-path exact). */
+int nemo_gpu_full_fast(const nemo_gpu *g);
 void nemo_gpu_reset(nemo_gpu *g);
 int nemo_gpu_pos(const nemo_gpu *g);
 
