@@ -29,7 +29,11 @@ $runs = 'data\fidelity\runs'
 New-Item -ItemType Directory -Force $runs | Out-Null
 $log = "$runs\queue.log"
 $pplog = 'data\postpack\postpack.log'
-function Log($t) { Add-Content $log ("[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $t) }
+function Log($t) {
+  # two runners can share the log; retry if the other one holds the file
+  $m = "[{0:yyyy-MM-dd HH:mm:ss}] {1}" -f (Get-Date), $t
+  for ($i = 0; $i -lt 50; $i++) { try { Add-Content $log $m -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 200 } }
+}
 function Gate {
   if (Get-Process -Id $Quantize -ErrorAction SilentlyContinue) { return 'shared' }
   $pp = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'postpack\.ps1' }
