@@ -271,9 +271,9 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
     }
     split_flush(&sp, 1);
     double total_ms = now_ms() - t0;
-    printf("STATS tokens=%d ms=%.0f tps=%.4f ms_per_tok=%.1f gbs_avg=0 peak_mb=%.1f prompt_tokens=%d prompt_ms=%.0f prompt_tps=%.3f stopped=%d lane=cpu gen_tps=%.4f ttft_ms=%.0f\n",
+    printf("STATS tokens=%d ms=%.0f tps=%.4f ms_per_tok=%.1f gbs_avg=0 peak_mb=%.1f prompt_tokens=%d prompt_ms=%.0f prompt_tps=%.3f stopped=%d lane=%s gen_tps=%.4f ttft_ms=%.0f\n",
            generated, total_ms, gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0, generated ? gen_ms / generated : 0.0,
-           peak_kb() / 1024.0, n, prefill_ms, prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0, stopped,
+           peak_kb() / 1024.0, n, prefill_ms, prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0, stopped, sn_model_accel(e->m),
            gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0, prefill_ms);
     printf("MEM peak_mb=%.1f\n", peak_kb() / 1024.0);
     e->turns++;
@@ -337,7 +337,7 @@ static void run_turn(engine *e, const char *user_text)
 int main(int argc, char **argv)
 {
     const char *pack = NULL, *shapes = NULL, *config = NULL, *tokf = NULL, *ask = NULL;
-    int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0, max_patches = 1024, no_vision = 0;
+    int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0, max_patches = 1024, no_vision = 0, gpu_mb = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pack") && i + 1 < argc) pack = argv[++i];
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) shapes = argv[++i];
@@ -349,6 +349,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--ask") && i + 1 < argc) ask = argv[++i];
         else if (!strcmp(argv[i], "--max-patches") && i + 1 < argc) max_patches = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-vision")) no_vision = 1;
+        else if (!strcmp(argv[i], "--gpu-mb") && i + 1 < argc) gpu_mb = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--think")) think = 1;
         else if (!strcmp(argv[i], "--below-normal")) below = 1;
         else if (!strcmp(argv[i], "--chat") || !strcmp(argv[i], "--serve-stdio")) { /* accepted for GUI parity */ }
@@ -377,6 +378,12 @@ int main(int argc, char **argv)
     const sn_geom *g = sn_model_geom(e.m);
     e.logits = (float *)malloc((size_t)g->vocab * 4);
     if (!e.logits) return 1;
+    if (gpu_mb > 0) {
+        char gwhy[400] = "";
+        int nres = sn_model_cuda(e.m, (long long)gpu_mb << 20, gwhy, sizeof gwhy);
+        if (nres < 0) fprintf(stderr, "sn-engine: CUDA lane off: %s\n", gwhy);
+        else fprintf(stderr, "sn-engine: CUDA lane on %s: %d tensors, %.0f MB resident\n", sn_model_gpu_name(e.m), nres, sn_model_gpu_bytes(e.m) / 1048576.0);
+    }
     e.max_patches = max_patches;
     e.img_id = nemo_tokenizer_special(e.tk, "<image>");
     if (!no_vision && !ask) {
@@ -388,9 +395,9 @@ int main(int argc, char **argv)
     }
     int cores = nemo_cores();
     if (!e.quiet) sn_model_set_hooks(e.m, on_layer_cb, on_moe_cb, NULL);
-    printf("READY nemo-engine 3 model=SuperNemo weights=packed layers=%d cores=%d threads=%d mode=custom simd=0 accel=cpu chat=1 think=%d moe=%d%s\n",
-           g->n_layers, cores, sn_model_threads(e.m), think, g->moe_experts, e.vis ? " media=image" : "");
-    printf("HW cores=%d threads=%d accel=cpu\n", cores, sn_model_threads(e.m));
+    printf("READY nemo-engine 3 model=SuperNemo weights=packed layers=%d cores=%d threads=%d mode=custom simd=0 accel=%s chat=1 think=%d moe=%d%s\n",
+           g->n_layers, cores, sn_model_threads(e.m), sn_model_accel(e.m), think, g->moe_experts, e.vis ? " media=image" : "");
+    printf("HW cores=%d threads=%d accel=%s\n", cores, sn_model_threads(e.m), sn_model_accel(e.m));
     fflush(stdout);
     if (ask) { run_turn(&e, ask); return 0; }
     char *line = NULL; size_t cap = 0;

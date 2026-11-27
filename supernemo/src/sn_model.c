@@ -7,6 +7,7 @@
 
 #include "sn_moe.h"
 #include "sn_pack.h"
+#include "sn_cuda.h"
 #include "../../littlenemo/src/attn.h"
 #include "../../littlenemo/src/mamba.h"
 #include "../../littlenemo/src/pool.h"
@@ -135,6 +136,7 @@ struct sn_model {
     float *book_shared;
     int *top; float *tw;
     sn_layer_cb on_layer; sn_moe_cb on_moe; void *hook_user;
+    sn_cuda *cuda;
 };
 
 static int lane_of(int n_items, int nthreads, int begin)
@@ -166,6 +168,8 @@ static void lin_job(void *vc, int b, int e)
 static int lin_par(sn_model *m, const sn_tensor *t, const float *x, float *y, int rows, int cols)
 {
     if ((uint64_t)rows * (uint64_t)cols != t->count) return -1;
+    /* resident on the GPU: same math from the packed form there; any failure falls through to the CPU lanes */
+    if (m->cuda && sn_cuda_resident(m->cuda, &m->pack, t) && sn_cuda_matvec(m->cuda, &m->pack, t, cols, rows, x, y) == 0) return 0;
     if (!t->raw) {
         if (sn_load_book(&m->pack, &m->main_rd, t, m->book_shared) != 0) return -1;
         m->P[0] = 0.0;
@@ -296,6 +300,7 @@ void sn_model_close(sn_model *m)
     }
     if (m->mam) for (int i = 0; i < m->g.n_layers; i++) if (m->mam[i].ssm_state) nemo_mamba_state_free(&m->mam[i]);
     if (m->att) for (int i = 0; i < m->g.n_layers; i++) if (m->att[i].k) nemo_attn_cache_free(&m->att[i]);
+    sn_cuda_close(m->cuda);
     if (m->lanes) for (int i = 0; i < m->nthreads; i++) { sn_rd_close(&m->lanes[i].rd); free(m->lanes[i].book); free(m->lanes[i].mid); free(m->lanes[i].pmid); }
     sn_rd_close(&m->main_rd);
     free(m->lanes); free(m->L); free(m->mam); free(m->att); free(m->normf_w);
@@ -442,6 +447,30 @@ int sn_model_step_embed(sn_model *m, const float *embed, float *logits)
 }
 
 const sn_pack *sn_model_pack(const sn_model *m) { return &m->pack; }
+
+/* Fill the GPU with the dense tensors (lm_head first, then each layer's mixers and the MoE's latent and shared
+ * projections) until the budget is used. Routed experts stay on the CPU lanes (streamed from the pack). */
+int sn_model_cuda(sn_model *m, long long budget_bytes, char *why, int whylen)
+{
+    if (m->cuda) return m->cuda ? sn_cuda_count(m->cuda) : 0;
+    m->cuda = sn_cuda_open(budget_bytes, m->pack.n, why, whylen);
+    if (!m->cuda) return -1;
+    const sn_tensor *seq[8]; int ns;
+    sn_cuda_load(m->cuda, &m->pack, &m->main_rd, m->head);
+    for (int i = 0; i < m->g.n_layers; i++) {
+        const layer_t *l = &m->L[i];
+        ns = 0;
+        if (m->g.types[i] == 'M') { seq[ns++] = l->in_proj; seq[ns++] = l->out_proj; }
+        else if (m->g.types[i] == 'A') { seq[ns++] = l->q; seq[ns++] = l->k; seq[ns++] = l->v; seq[ns++] = l->o; }
+        else { seq[ns++] = l->fc1; seq[ns++] = l->fc2; seq[ns++] = l->sh_up; seq[ns++] = l->sh_dn; }
+        for (int k = 0; k < ns; k++) sn_cuda_load(m->cuda, &m->pack, &m->main_rd, seq[k]);
+    }
+    return sn_cuda_count(m->cuda);
+}
+const char *sn_model_accel(const sn_model *m) { return m->cuda && sn_cuda_count(m->cuda) > 0 ? "cuda" : "cpu"; }
+long long sn_model_gpu_bytes(const sn_model *m) { return m->cuda ? sn_cuda_used(m->cuda) : 0; }
+int sn_model_gpu_count(const sn_model *m) { return m->cuda ? sn_cuda_count(m->cuda) : 0; }
+const char *sn_model_gpu_name(const sn_model *m) { return m->cuda ? sn_cuda_name(m->cuda) : ""; }
 nemo_pool *sn_model_pool(sn_model *m) { return &m->pool; }
 
 static int step_core(sn_model *m, float *logits)

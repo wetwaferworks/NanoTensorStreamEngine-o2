@@ -57,6 +57,12 @@ int sn_model_pos(const sn_model *m);
 int sn_model_step_embed(sn_model *m, const float *embed, float *logits);
 /* For the vision tower: it reads the same pack and runs on the same zero-mutex pool. */
 const sn_pack *sn_model_pack(const sn_model *m);
+/* Optional CUDA lane: returns the number of tensors made resident (0 is fine), or -1 with a reason in why (CPU only then). */
+int sn_model_cuda(sn_model *m, long long budget_bytes, char *why, int whylen);
+const char *sn_model_accel(const sn_model *m);    /* "cuda" or "cpu" */
+long long sn_model_gpu_bytes(const sn_model *m);
+int sn_model_gpu_count(const sn_model *m);
+const char *sn_model_gpu_name(const sn_model *m);
 nemo_pool *sn_model_pool(sn_model *m);
 
 
