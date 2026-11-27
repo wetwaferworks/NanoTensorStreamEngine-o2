@@ -7,12 +7,14 @@ exception, spent on purpose. The plan, design note, scratch implementation,
 calibration record and test logs are in [`docs/precision-gate/`](precision-gate/);
 this guide is the user-facing summary.
 
-**Status, honestly.** The gate is implemented and tested in a *scratch copy* of the
-Triforce engine at `docs/precision-gate/impl/nq2-infer-triforce.c`. It has **not
-been transplanted into the live `tools/` engine**, the first calibration reads
-hotter than the plan assumed, and the shipped default posture is `evidence`
-(expand always). Nothing in `tools/` accepts `--posture` today; build the scratch
-engine from `docs/precision-gate/impl/` to use the flags below.
+**Status, honestly.** The gate lives in the live Triforce engine,
+`tools/nq2-infer-triforce.c`, transplanted from the scratch-phase copy that
+remains at `docs/precision-gate/impl/nq2-infer-triforce.c` as the record of
+that work. The shipped default posture is `evidence` (expand always), so an
+unflagged run is the historical engine, bit for bit. The first calibration
+reads hotter than the plan assumed, and Auto is not the default until that
+is re-derived against this engine. On the POSIX split pipeline the postures
+take effect; the Windows fused worker always expands and says so at startup.
 
 ## The principle
 
@@ -67,7 +69,7 @@ Escalation is per ordinal, never whole-model by default: head-only (recompute th
 final projection and logits expanded), layer (one layer's projections run
 expanded), or pass (the whole step, the shadow resync).
 
-## Flags and environment (scratch engine)
+## Flags and environment
 
 | Flag | Environment | Default | Meaning |
 |---|---|---|---|
@@ -125,7 +127,9 @@ introduces a race into the arithmetic.
 | Auto | token 122388; "2 evaluations, 1 escalations, 0 resyncs; layer consumptions via DTC 72 of 156"; 12 m 12 s wall: PASS as a run |
 | Auto at `--threads 1` | 2026-11-25 record: first attempt FAULTED at the first pass boundary in 4 s ("the prior pass did not drain"); an identical rerun completed with token 122388. The unmodified base engine at `--threads 1` completed cleanly. **Fixed 2026-11-26:** `pipe_pass_boundary()` was called twice at ordinal 0; the consume-tick count (`pass_consumed == 0`) makes later calls a no-op, in the scratch impl and the tools copy |
 
-The `--threads 1` fault in the table is the 2026-11-25 scratch record. The root cause (a second `pipe_pass_boundary()` call at ordinal 0 while the fresh pass was already in motion) was fixed on 2026-11-26 in the zero-mutex Handshake conversion; it is no longer an open issue.
+The `--threads 1` fault in the table is the 2026-11-25 scratch record, not an undetermined race. Miss Archie's Round 6 note identified the root cause: a second `pipe_pass_boundary()` call at ordinal 0, from both `matmul_pipe` and the consume path, while the fresh pass was already in motion. The 2026-11-26 zero-mutex Handshake conversion counts consume ticks so the boundary runs once per pass (`if (g_pipe.pass_consumed == 0) return;`). That fix is in the live `tools/` engine. The fault existed only on the POSIX split path; the Windows fused worker has no `pipe_pass_boundary()`.
+
+After the transplant into `tools/` (2026-11-27), the live engine was rebuilt and re-run on the POSIX split path (WSL). Packed evidence at the anchor config, `--posture evidence`, produced token 122388 with ticks in agreement (fetch 181, expand 182 of 182 ready, consume 181) at both `--threads 12` and `--threads 1`. The `--threads 1` run crossed every pass boundary without the 2026-11-25 fault and exited 0. `tools/test-precision-gate-flags.sh` covers the named refusals (unknown posture, lookahead, resync, non-positive eps). On Windows the same source compiles (one existing snprintf truncation warning) and accepts the flags; the fused worker always expands and says so at startup.
 
 First calibration (Sigma pack, scratch measuring vehicle): `tie_epsilon` 35.076,
 drift budget 1.277, per-layer divergence from 7.89e-02 at layer 0 to a peak of

@@ -55,6 +55,11 @@
 #define NQ2HS_ENGINE_POOL
 #include "nq2-handshake.h" /* Tensor Handshake: zero mutex */
 
+#ifndef _WIN32
+#include <stdarg.h>
+#include "nq2-dc-kernel.h"   /* the shared DTC kernel (review P1-1) */
+#endif
+
 /* ================= threads ================= */
 
 static int cpu_count(void)
@@ -492,6 +497,7 @@ static int raw_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
 
 static FILE *g_pk_stream = NULL;
 static float *g_pk_book = NULL;         /* all books, fp32 */
+static uint64_t g_pk_book_floats = 0;   /* floats in g_pk_book */
 static uint32_t g_pk_block = 0, g_pk_entries = 0, g_pk_version = 0;
 /* Block-level prefetch distance for the expansion loops
  * below (runtime tunable, default 2; configured with the
@@ -902,6 +908,98 @@ static int g_logits_dumped = 0;
 static int g_logits_dump_all = 0;
 static int g_logits_dump_count = 0;
 
+/* ================= Precision Gate =================
+ *
+ * DTC-PRECISION-GATE-PLAN-2026-11-25: Dense Tensor Compute is
+ * the engine's default compute path (JD's ruling, 2026-11-25);
+ * expansion is the exception, spent where the table path's
+ * float reassociation could change an outcome. Each pipe
+ * ordinal carries a mark on the Tensor Handshake priority
+ * list (MARK_DTC or MARK_EXPAND, decided by the consumer's
+ * scorer ahead of the claim window); the gate arbitrates only
+ * association noise between two computations of the same
+ * quantized model, never the pack's quantization error.
+ *
+ * Postures: evidence (expanded always; the historical engine,
+ * bit for bit), think-harder (expanded always, at the user's
+ * request), fast (DTC wherever eligible), auto (DTC default
+ * with predictive escalation: per-layer noise profile, drift
+ * budget with shadow resync, margin gate at the head on final
+ * steps). The gate machinery is POSIX-only, like the triforce
+ * split it rides on; the Windows fused worker always expands
+ * and says so in its startup note. */
+enum { POSTURE_EVIDENCE = 0, POSTURE_AUTO = 1, POSTURE_FAST = 2,
+       POSTURE_THINK = 3 };
+static int g_posture = POSTURE_EVIDENCE;
+static const char *g_posture_src = "default";
+static int g_gate_lookahead = 2;        /* layers, 1..4 */
+static const char *g_gate_lookahead_src = "default";
+static int g_gate_resync = 32;          /* evaluations; 0 = off */
+static const char *g_gate_resync_src = "default";
+static double g_gate_eps_override = -1.0;    /* < 0: calibrated */
+static double g_gate_budget_override = -1.0; /* < 0: calibrated */
+static const char *g_gate_log_path = NULL;   /* --gate-log PATH */
+
+#ifndef _WIN32
+/* Calibration for the open pack (plan section 5), loaded by
+ * gate_calib_load after packed_open: a per-layer divergence
+ * profile (delta: the layer's own increment; cum: the running
+ * total), the tie epsilon and the drift budget. A pack without
+ * calibration is never gated: Auto falls back to expanded. */
+static int g_gate_calibrated = 0;
+static double *g_gate_delta = NULL;     /* [M_L] */
+static double *g_gate_cum = NULL;       /* [M_L] */
+static double g_gate_delta_median = 0.0;
+static double g_gate_eps = 0.0, g_gate_budget = 0.0;
+
+/* Gate runtime state. Written only by the consumer thread, so
+ * a run's decisions are a pure function of computed values and
+ * the calibrated thresholds (plan section 7). */
+static int g_gate_final_step = 0;   /* main: this denoise commits tokens */
+static int g_gate_force_expand = 0; /* escalation in force, this call */
+static double g_gate_drift2 = 0.0;  /* accumulated squared divergence */
+static double g_gate_scale = 1.0;   /* profile scale, resync-anchored */
+static int g_gate_finalized_upto = -1;  /* per pass, scorer horizon */
+static long g_gate_evals = 0, g_gate_escalations = 0,
+            g_gate_resyncs = 0;
+static long g_gate_layers_dtc = 0, g_gate_layers_total = 0;
+static int g_gate_since_resync = 0;
+
+static double gate_eps_eff(void)
+{
+    return g_gate_eps_override >= 0.0 ? g_gate_eps_override
+                                      : g_gate_eps;
+}
+static double gate_budget_eff(void)
+{
+    return g_gate_budget_override >= 0.0 ? g_gate_budget_override
+                                         : g_gate_budget;
+}
+static const char *posture_name(int p)
+{
+    switch (p) {
+    case POSTURE_AUTO: return "auto";
+    case POSTURE_FAST: return "fast";
+    case POSTURE_THINK: return "think-harder";
+    default: return "evidence";
+    }
+}
+
+/* The gate's debug channel (diagnostic doctrine: decisions are
+ * logged per step in this build; a release build strips it). */
+static void gate_logf(const char *fmt, ...)
+{
+    if (!g_gate_log_path) return;
+    FILE *lf = fopen(g_gate_log_path, "a");
+    if (!lf) return;
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(lf, fmt, ap);
+    va_end(ap);
+    fclose(lf);
+}
+#endif /* !_WIN32 */
+
 static int src_read_range(const TEnt *t, uint64_t elem0, uint64_t nelems,
                           float *out)
 {
@@ -1142,6 +1240,7 @@ static int packed_open(const char *stream_path, const char *book_path)
     if (fread(g_pk_book, sizeof(float), total_book_floats, bf)
             != total_book_floats) return -1;
     fclose(bf);
+    g_pk_book_floats = total_book_floats;
 
     /* Bind segments to directory tensors in directory order
      * (the quantizer's packing order), assign each tensor
@@ -1282,6 +1381,12 @@ static double pipe_now(void)
 enum { ORD_IDLE = 0, ORD_STAGED = 1, ORD_EXPANDING = 2,
        ORD_READY = 3 };
 
+/* Precision Gate marks, carried on the same list: the scorer
+ * finalizes each ordinal DTC or EXPAND ahead of the claim
+ * window; an UNDECIDED ordinal is never claimable by a lane,
+ * and the consumer's demand path resolves it as EXPAND. */
+enum { MARK_UNDECIDED = 0, MARK_EXPAND = 1, MARK_DTC = 2 };
+
 /* Telemetry roles: expansion lanes 0..PIPE_MAX_LANES-1, then the
  * consumer (the core loop), then the fetcher / fused worker. Each
  * role writes only its own accumulators; pipe_report reduces them
@@ -1336,6 +1441,11 @@ typedef struct {
     double stat_stall_s, stat_slack_s, stat_load_ms;
     uint64_t stat_bytes;
     long stat_hits, stat_miss;
+    /* Hits that carry a ready-slack stamp (expanded ordinals):
+     * the slack mean divides by these, not by every hit, since a
+     * DTC consume has no expansion-ready stamp (Archie Round 5
+     * P2-PG2). */
+    long stat_slack_n;
     /* The Tensor Handshake layer counter (JD, 2026-11-25): the
      * consumer's committed position in the ordinal sequence,
      * and the consume tick of the stage-2 protocol (below):
@@ -1420,6 +1530,15 @@ typedef struct {
      * decoupling of fetch depth from expansion width lives
      * here. */
     int req_max;
+    /* Precision Gate: the per-ordinal mark the scorer
+     * finalized for this pass, each ordinal's DTC eligibility
+     * (decided once at pipe_init from the pack, never
+     * mid-pass), and the per-slot float mn/sc arrays the DTC
+     * consume converts the staged halves into (POSIX only,
+     * counted in g_pipe_staging_bytes). */
+    uint8_t *ord_mark;      /* [max_ord+1] MARK_* */
+    uint8_t *ord_dtc_ok;    /* [max_ord+1] (POSIX) */
+    float **dtc_mn, **dtc_sc;   /* [slots][nb_max] (POSIX) */
     FILE *pk_priv;          /* fetch thread's own stream handle */
     /* Fetch thread's own handle per shard, for staging raw
      * tensor bytes at fetch time. pipe_fetch executions are
@@ -1431,6 +1550,19 @@ typedef struct {
 } Pipe;
 
 static Pipe g_pipe;
+#ifndef _WIN32
+/* Precision Gate per-worker DTC tables (POSIX): T holds
+ * nseg * entries floats and A holds nseg floats, one pair per
+ * pool worker, allocated in pipe_init. Partitioning the DTC
+ * consume by position cannot change any output bit: each
+ * output element is produced by exactly one nqdc_apply row
+ * loop against that position's own table. */
+static float **g_dtc_T = NULL, **g_dtc_A = NULL;
+/* Per-layer DTC eligibility: every one of the layer's seven
+ * ordinals eligible (marks are per layer, calibration is per
+ * layer). Filled in pipe_init. */
+static uint8_t *g_gate_layer_ok = NULL;   /* [layers] */
+#endif
 /* Total bytes of per-slot staging buffers pipe_init actually
  * allocated (packed idx + fraction bytes + raw bytes), so the
  * startup budget accounts for them (M-I6). */
@@ -1855,12 +1987,19 @@ static void *unpack_worker(void *arg)
              * not. The demanded ordinal is always inside
              * the window (slots >= 2), so the consumer's
              * own demand can always be claimed. */
+                /* Precision Gate: a lane claims only an
+                 * ordinal the scorer finalized EXPAND. A
+                 * DTC ordinal's sections stay packed for
+                 * the consumer's table path; an UNDECIDED
+                 * one waits for the scorer, which always
+                 * finalizes ahead of this window. */
             int hi = HS_LD(&g_pipe.req_max) + g_pipe.slots - 1;
             if (hi > g_pipe.max_ord) hi = g_pipe.max_ord;
             for (int o = 0; o <= hi; o++) {
                 if (HS_LD(&g_pipe.st_owner[pslot(o)]) == o
                         && HS_LD(&g_pipe.have[pslot(o)]) != o
-                        && HS_LD(&g_pipe.ord_claim[o]) < 0) {
+                        && HS_LD(&g_pipe.ord_claim[o]) < 0
+                    && HS_LD(&g_pipe.ord_mark[o]) == MARK_EXPAND) {
                     ord = o;
                     break;
                 }
@@ -2058,16 +2197,27 @@ static void pipe_init(int layers)
     g_pipe.stat_stall_s = g_pipe.stat_slack_s = g_pipe.stat_load_ms = 0.0;
     g_pipe.stat_bytes = 0;
     g_pipe.stat_hits = g_pipe.stat_miss = 0;
+    g_pipe.stat_slack_n = 0;
     /* Tensor Handshake stage 2: the prefetch priority list
      * starts empty, every worker row idle. */
     g_pipe.ord_state = (uint8_t *)calloc((size_t)max_ord + 1, 1);
     g_pipe.ord_claim = (int *)malloc(sizeof(int) * ((size_t)max_ord + 1));
     g_pipe.ord_expand_counted = (uint8_t *)calloc((size_t)max_ord + 1, 1);
-    if (!g_pipe.ord_state || !g_pipe.ord_claim || !g_pipe.ord_expand_counted) {
+    g_pipe.ord_mark = (uint8_t *)calloc((size_t)max_ord + 1, 1);
+    g_pipe.ord_dtc_ok = (uint8_t *)calloc((size_t)max_ord + 1, 1);
+    if (!g_pipe.ord_state || !g_pipe.ord_claim || !g_pipe.ord_expand_counted
+            || !g_pipe.ord_mark || !g_pipe.ord_dtc_ok) {
         fprintf(stderr, "pipe: out of memory\n");
         exit(1);
     }
-    for (int o = 0; o <= max_ord; o++) g_pipe.ord_claim[o] = -1;
+    for (int o = 0; o <= max_ord; o++) {
+        g_pipe.ord_claim[o] = -1;
+#ifdef _WIN32
+        /* The fused Windows worker always expands; its marks
+         * are set once, here, and never move. */
+        g_pipe.ord_mark[o] = MARK_EXPAND;
+#endif
+    }
     g_pipe.n_ready = 0;
     g_pipe.list_generation = 0;
     g_pipe.expand_busy_n = 0;
@@ -2136,6 +2286,78 @@ static void pipe_init(int layers)
                 setvbuf(g_pipe.shard_priv[i], NULL, _IOFBF, 1 << 18);
         }
     }
+#ifndef _WIN32
+    /* Precision Gate: DTC eligibility is decided once, here,
+     * from the pack, never mid-pass: packed mode in use, the
+     * fetcher's private stream handle open (so fetches stage
+     * sections, mode 1), single-byte indices (the kernel's
+     * idx is one byte per block; PQ packs are refused at open
+     * regardless), the tensor fully packed (no raw tail, not
+     * fp16-raw), and the block dividing the row width.
+     * Ineligible ordinals are permanently MARK_EXPAND. */
+    g_gate_layer_ok = (uint8_t *)malloc((size_t)layers);
+    if (!g_gate_layer_ok) {
+        fprintf(stderr, "pipe: out of memory\n");
+        exit(1);
+    }
+    for (int l = 0; l < layers; l++) g_gate_layer_ok[l] = 1;
+    for (int o = 0; o <= max_ord; o++) {
+        const TEnt *t = ord_ent(o);
+        uint32_t blk = t ? pk_block_of(t) : 0;
+        int ok = g_use_packed && g_pipe.pk_priv != NULL
+            && g_pk_idxw == 1 && t && blk > 0
+            && t->nblocks > 0 && !pk_is_raw(t)
+            && (uint64_t)t->nblocks * blk == t->count
+            && t->cols > 0 && (t->cols % (int)blk) == 0;
+        g_pipe.ord_dtc_ok[o] = ok ? 1 : 0;
+        if (!ok) g_gate_layer_ok[o / SLOTS_PER_LAYER] = 0;
+    }
+    /* DTC consume workspace: per-slot float mn/sc (one float
+     * per block of the largest tensor) and per-worker tables
+     * (nseg * entries floats, bounded by the widest tensor). */
+    {
+        uint64_t nb_max = 1, nseg_max = 1;
+        for (int o = 0; o <= max_ord; o++) {
+            const TEnt *t = ord_ent(o);
+            if (!t) continue;
+            if (t->nblocks > nb_max) nb_max = t->nblocks;
+            uint32_t blk = pk_block_of(t);
+            if (blk && t->cols > 0) {
+                uint64_t ns = (uint64_t)t->cols / blk;
+                if (ns > nseg_max) nseg_max = ns;
+            }
+        }
+        uint32_t entries = g_pk_entries ? g_pk_entries : 1;
+        int nw = g_pool.nworkers > 0 ? g_pool.nworkers : 1;
+        g_pipe.dtc_mn = (float **)malloc(sizeof(float *) * g_pipe.slots);
+        g_pipe.dtc_sc = (float **)malloc(sizeof(float *) * g_pipe.slots);
+        g_dtc_T = (float **)malloc(sizeof(float *) * nw);
+        g_dtc_A = (float **)malloc(sizeof(float *) * nw);
+        if (!g_pipe.dtc_mn || !g_pipe.dtc_sc || !g_dtc_T || !g_dtc_A) {
+            fprintf(stderr, "pipe: out of memory\n");
+            exit(1);
+        }
+        for (int s = 0; s < g_pipe.slots; s++) {
+            g_pipe.dtc_mn[s] = (float *)malloc(nb_max * sizeof(float));
+            g_pipe.dtc_sc[s] = (float *)malloc(nb_max * sizeof(float));
+            if (!g_pipe.dtc_mn[s] || !g_pipe.dtc_sc[s]) {
+                fprintf(stderr, "pipe: out of memory\n");
+                exit(1);
+            }
+            g_pipe_staging_bytes += (size_t)nb_max * 2 * sizeof(float);
+        }
+        for (int wdi = 0; wdi < nw; wdi++) {
+            g_dtc_T[wdi] = (float *)malloc(
+                (size_t)nseg_max * entries * sizeof(float));
+            g_dtc_A[wdi] = (float *)malloc(
+                (size_t)nseg_max * sizeof(float));
+            if (!g_dtc_T[wdi] || !g_dtc_A[wdi]) {
+                fprintf(stderr, "pipe: out of memory\n");
+                exit(1);
+            }
+        }
+    }
+#endif
 #ifdef _WIN32
     g_pipe.thread = CreateThread(NULL, 0, pipe_worker, NULL, 0, NULL);
     if (!g_pipe.thread) {
@@ -2161,8 +2383,222 @@ static void pipe_init(int layers)
 }
 
 #ifndef _WIN32
-/* Tensor Handshake phase boundary, run by the consumer (the
- * core loop) when ordinal 0 is requested. */
+/* Parse the gate block from an open text file positioned at
+ * its first gate line. On success the calibration globals are
+ * committed and 0 returned. want_gen is the identity the
+ * block must name: the pack generation for a v3 manifest, the
+ * computed content key for a legacy sidecar. */
+static int gate_parse_block(FILE *f, uint64_t want_gen)
+{
+    char line[512];
+    unsigned long long gen = 0;
+    double eps = 0.0, budget = 0.0;
+    int ver = 0;
+    if (!fgets(line, sizeof(line), f)
+            || sscanf(line, "gate %d", &ver) != 1 || ver != 1
+            || !fgets(line, sizeof(line), f)
+            || sscanf(line, "gate-gen %llx", &gen) != 1
+            || gen != want_gen
+            || !fgets(line, sizeof(line), f)
+            || sscanf(line, "gate-eps %lf", &eps) != 1
+            || !fgets(line, sizeof(line), f)
+            || sscanf(line, "gate-budget %lf", &budget) != 1
+            || !(eps > 0.0) || !(budget > 0.0))
+        return -1;
+    double *delta = (double *)malloc(sizeof(double) * M_L);
+    double *cum = (double *)malloc(sizeof(double) * M_L);
+    if (!delta || !cum) { free(delta); free(cum); return -1; }
+    for (int l = 0; l < M_L; l++) {
+        int li = -1;
+        if (!fgets(line, sizeof(line), f)
+                || sscanf(line, "gate-layer %d %lf %lf",
+                          &li, &delta[l], &cum[l]) != 3
+                || li != l) {
+            free(delta); free(cum);
+            return -1;
+        }
+    }
+    g_gate_delta = delta;
+    g_gate_cum = cum;
+    g_gate_eps = eps;
+    g_gate_budget = budget;
+    /* Median layer increment: the hot-layer line is drawn at
+     * four times it (plan section 3, static sensitivity map). */
+    {
+        double *srt = (double *)malloc(sizeof(double) * M_L);
+        if (!srt) { free(delta); free(cum); return -1; }
+        memcpy(srt, delta, sizeof(double) * M_L);
+        for (int i = 1; i < M_L; i++) {
+            double v = srt[i];
+            int j = i - 1;
+            while (j >= 0 && srt[j] > v) { srt[j + 1] = srt[j]; j--; }
+            srt[j + 1] = v;
+        }
+        g_gate_delta_median = (M_L % 2)
+            ? srt[M_L / 2]
+            : 0.5 * (srt[M_L / 2 - 1] + srt[M_L / 2]);
+        free(srt);
+    }
+    g_gate_calibrated = 1;
+    return 0;
+}
+
+/* Load the open pack's Precision Gate calibration (plan
+ * section 5). v3 packs carry the gate lines appended to the
+ * digest manifest, after the tensor lines the manifest
+ * verifier already checked; they are read only here, and the
+ * block must name the pack's generation. Legacy packs (no
+ * manifest is ever read) carry the same lines in a sidecar
+ * <stream>.nq2gate, keyed by a content hash over the pack
+ * geometry and the stored book bytes, computed from the
+ * values the engine already holds. A missing or mismatched
+ * block is not an error: the pack simply has no calibration,
+ * and Auto falls back to expanded for it. */
+static void gate_calib_load(const char *stream_path)
+{
+    g_gate_calibrated = 0;
+    if (!g_use_packed || !stream_path) return;
+    if (g_pk_version == 3) {
+        char mpath[1200];
+        snprintf(mpath, sizeof(mpath), "%s", stream_path);
+        size_t L = strlen(mpath);
+        if (L > 4 && strcmp(mpath + L - 4, ".nq2") == 0)
+            strcpy(mpath + L - 4, ".nq2manifest");
+        else
+            strncat(mpath, ".nq2manifest", sizeof(mpath) - L - 1);
+        FILE *mf = fopen(mpath, "r");
+        if (!mf) return;
+        char line[1200];
+        /* Skip the header (3 lines) and the tensor lines, then
+         * the manifest's own "end" terminator: the gate block
+         * is appended after all of them, at the end of the
+         * file. (pk_verify_manifest never reads past the
+         * tensor lines, so the block cannot disturb it.) */
+        int skip = 3 + g_ndir, ok = 1;
+        for (int i = 0; i < skip && ok; i++)
+            if (!fgets(line, sizeof(line), mf)) ok = 0;
+        if (ok && fgets(line, sizeof(line), mf)
+                && (strcmp(line, "end\n") == 0
+                    || strcmp(line, "end") == 0))
+            gate_parse_block(mf, g_pk_gen);
+        fclose(mf);
+        return;
+    }
+    /* Legacy: content key over geometry words and book bytes,
+     * the same derivation the calibration harness records. */
+    uint64_t h = PK_FNV_SEED;
+    {
+        uint8_t w[12], v[16];
+        uint32_t words[3] = { g_pk_version, g_pk_block,
+                              g_pk_entries };
+        uint64_t nums[2] = { g_pk_nblocks, g_pk_book_floats };
+        for (int i = 0; i < 3; i++)
+            for (int b = 0; b < 4; b++)
+                w[i * 4 + b] = (uint8_t)(words[i] >> (8 * b));
+        for (int i = 0; i < 2; i++)
+            for (int b = 0; b < 8; b++)
+                v[i * 8 + b] = (uint8_t)(nums[i] >> (8 * b));
+        h = pk_fnv(w, sizeof(w), h);
+        h = pk_fnv(v, sizeof(v), h);
+    }
+    h = pk_fnv(g_pk_book, (size_t)g_pk_book_floats * sizeof(float),
+               h);
+    char spath[1200];
+    snprintf(spath, sizeof(spath), "%s", stream_path);
+    size_t L = strlen(spath);
+    if (L > 4 && strcmp(spath + L - 4, ".nq2") == 0)
+        strcpy(spath + L - 4, ".nq2gate");
+    else
+        strncat(spath, ".nq2gate", sizeof(spath) - L - 1);
+    FILE *sf = fopen(spath, "r");
+    if (!sf) return;
+    gate_parse_block(sf, h);
+    fclose(sf);
+}
+#endif /* !_WIN32 */
+
+#ifndef _WIN32
+/* The Precision Gate scorer (consumer thread only): decides
+ * one layer's mark from the posture, the calibration and the
+ * running drift estimate, in the plan's order... forced sets
+ * first (posture, an escalation in force, eligibility), then
+ * the static sensitivity map (a layer whose calibrated
+ * increment runs above four times the median goes expanded),
+ * then the drift projection across the lookahead window:
+ * if consuming this window at the table path would carry the
+ * projected final divergence past the calibrated budget, the
+ * crossing layer and the rest of the window go expanded. */
+static int gate_decide_layer(int l)
+{
+    if (g_posture == POSTURE_THINK || g_posture == POSTURE_EVIDENCE)
+        return MARK_EXPAND;
+    if (!g_gate_layer_ok || !g_gate_layer_ok[l])
+        return MARK_EXPAND;
+    if (g_posture == POSTURE_FAST)
+        return MARK_DTC;
+    /* Auto: an unmeasured pack is never gated. */
+    if (!g_gate_calibrated)
+        return MARK_EXPAND;
+    if (g_gate_force_expand)
+        return MARK_EXPAND;
+    if (g_gate_delta[l] > 4.0 * g_gate_delta_median)
+        return MARK_EXPAND;
+    {
+        double proj2 = g_gate_drift2;
+        int hi = l + g_gate_lookahead;
+        if (hi > M_L) hi = M_L;
+        for (int k = l; k < hi; k++) {
+            double d = g_gate_delta[k] * g_gate_scale;
+            proj2 += d * d;
+        }
+        if (sqrt(proj2) > gate_budget_eff())
+            return MARK_EXPAND;
+    }
+    return MARK_DTC;
+}
+
+/* Finalize marks for layers up to `upto` (inclusive) that are
+ * still undecided this pass. Runs on the consumer only (the
+ * scorer's state is the consumer's); each mark is published
+ * with a release store, and the generation bump and door bump
+ * make newly finalized EXPAND ordinals claimable by the lanes.
+ * Marks are immutable once finalized within a pass. */
+static void gate_finalize_consumer(int upto)
+{
+    if (upto > M_L - 1) upto = M_L - 1;
+    int changed = 0;
+    for (int l = g_gate_finalized_upto + 1; l <= upto; l++) {
+        int mark = gate_decide_layer(l);
+        int base = l * SLOTS_PER_LAYER;
+        for (int s = 0; s < SLOTS_PER_LAYER; s++)
+            HS_ST(&g_pipe.ord_mark[base + s], (uint8_t)mark);
+        g_gate_finalized_upto = l;
+        changed = 1;
+    }
+    if (changed) {
+        HS_ADD(&g_pipe.list_generation, 1);
+        pipe_bump();
+    }
+}
+
+/* The consumer's layer-top entry. */
+static void gate_finalize_through(int upto)
+{
+    if (upto <= g_gate_finalized_upto) return;
+    gate_finalize_consumer(upto);
+}
+
+/* Tensor Handshake phase boundary, factored out of pipe_get
+ * for the Precision Gate: the DTC consume entry point needs
+ * the same rollover before it may read ordinal 0's mark, so
+ * matmul_pipe calls this before routing, and pipe_get and
+ * dtc_consume call it again; the consume-tick count makes
+ * every call after the first in a pass a no-op. Runs on the
+ * consumer only. The gate adds its per-pass step at the end,
+ * inside the exclusive phase: marks return to UNDECIDED and
+ * the scorer finalizes the first lookahead window before the
+ * pass opens, so no lane can claim an ordinal on a stale
+ * mark. */
 static void pipe_pass_boundary(void)
 {
     /* Tensor Handshake phase boundary (zero mutex,
@@ -2271,6 +2707,12 @@ static void pipe_pass_boundary(void)
     }
     g_pipe.req_max = -1;    /* the new pass has requested nothing */
     g_pipe.list_generation++;
+    /* Precision Gate: per-pass mark reset, then the first
+     * lookahead window finalized before the pass opens. */
+    for (int o = 0; o <= g_pipe.max_ord; o++)
+        HS_ST(&g_pipe.ord_mark[o], (uint8_t)MARK_UNDECIDED);
+    g_gate_finalized_upto = -1;
+    gate_finalize_consumer(g_gate_lookahead);
     /* The new pass opens: every write above happens before
      * the release of epoch_go, and every parked worker acquires
      * it before it looks at the list again. */
@@ -2278,7 +2720,8 @@ static void pipe_pass_boundary(void)
     HS_ST(&g_pipe.epoch_go, br);
     pipe_bump();
 }
-#endif
+#endif /* !_WIN32 */
+
 
 /* Get the materialized weights for ordinal ord, and set the
  * prefetch of ord+1 in motion. The returned buffer is valid
@@ -2299,6 +2742,7 @@ static const float *pipe_get(int ord)
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
     for (;;) {
         uint32_t d = hs_door_open(&g_pipe.door);
@@ -2334,6 +2778,7 @@ static const float *pipe_get(int ord)
     if (was_ready) {
         g_pipe.stat_hits++;
         g_pipe.stat_slack_s += pipe_now() - g_pipe.ready_at[ord];
+        g_pipe.stat_slack_n++;
     }
     if (!was_ready) {
         /* Demand ord from the triforce: the unpacker takes it,
@@ -2422,6 +2867,228 @@ static const float *pipe_get(int ord)
     return g_pipe.buf[pslot(ord)];
 }
 
+#ifndef _WIN32
+/* DTC consume work: one position's table build and apply.
+ * Positions partition across the pool; no accumulation is
+ * ever split, so the partition cannot change any bit. */
+typedef struct {
+    const float *x;         /* [n][cols] activations */
+    float *y;               /* [n][rows] out */
+    const uint8_t *idx;     /* the stage's index bytes */
+    const float *mn, *sc;   /* per-slot converted halves */
+    const float *book;      /* the tensor's own book */
+    uint32_t entries, block;
+    uint64_t nseg;
+    int n, rows, cols;
+} DtcCtx;
+
+static void dtc_work(void *vctx, int worker, int nw)
+{
+    DtcCtx *c = (DtcCtx *)vctx;
+    int i0 = (int)((int64_t)c->n * worker / nw);
+    int i1 = (int)((int64_t)c->n * (worker + 1) / nw);
+    float *T = g_dtc_T[worker], *A = g_dtc_A[worker];
+    for (int i = i0; i < i1; i++) {
+        nqdc_build(c->book, c->entries, c->block,
+                   c->x + (size_t)i * c->cols, c->nseg, T, A);
+        nqdc_apply(c->idx, c->sc, c->mn, T, A, c->entries,
+                   c->nseg, (uint64_t)c->rows,
+                   c->y + (size_t)i * c->rows);
+    }
+}
+
+/* Consume ordinal ord through the DTC table path: the
+ * fetcher staged its packed sections (mode 1) and no lane
+ * will ever expand it (the claim predicate honours the
+ * mark), so the consumer claims the ordinal itself, computes
+ * from the stage, and counts the preparation through
+ * pipe_mark_ready exactly as an expansion is counted... the
+ * phase-boundary ticks therefore agree whichever path each
+ * ordinal took. A mark decides only which arithmetic runs,
+ * never correctness: if the expanded buffer turns out to be
+ * authoritative after all (restart residency, a lane's claim
+ * placed before the mark finalized, the boundary drain),
+ * this falls back to pipe_get and the dense matmul. */
+static void dtc_consume(int ord, const float *x, float *y,
+                        int n, int rows, int cols)
+{
+    const TEnt *t = ord_ent(ord);
+    int slot = pslot(ord);
+    double t_entry = pipe_now();
+    int self_fetched = 0;
+    int demanded = 0;
+    long my_demand = 0;
+    double wait_s;                  /* the wait for the stage only */
+    if (ord == 0) pipe_pass_boundary();
+    if (ord > HS_LDX(&g_pipe.req_max)) HS_ST(&g_pipe.req_max, ord);
+    /* Zero mutex (2026-11-26): the consumer takes the ordinal's
+     * claim with compare-and-swap before it touches the stage,
+     * exactly as a lane would; a lane that won the claim first,
+     * or a buffer already expanded, sends the ordinal down the
+     * dense route instead. */
+    for (;;) {
+        uint32_t d = hs_door_open(&g_pipe.door);
+        if (HS_LD(&g_pipe.have[slot]) == ord
+                || HS_LD(&g_pipe.ord_claim[ord]) >= 0) {
+            const float *w = pipe_get(ord);
+            matmul(x, w, y, n, rows, cols);
+            return;
+        }
+        if (HS_LD(&g_pipe.st_owner[slot]) == ord) {
+            if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, PIPE_MAX_LANES))
+                continue;
+            if (HS_LD(&g_pipe.have[slot]) == ord
+                    || HS_LD(&g_pipe.st_owner[slot]) != ord) {
+                HS_ST(&g_pipe.ord_claim[ord], -1);
+                pipe_bump();
+                continue;
+            }
+            break;                  /* staged, and the claim is ours */
+        }
+        if (!demanded) {
+            /* Demand the staging with pipe_get's discipline
+             * (Archie P1-1): the consumer may self-serve only
+             * once a worker has had the chance to evaluate this
+             * demand. The lanes never claim a DTC ordinal, so the
+             * expansion count here speaks of other ordinals' work. */
+            HS_ST(&g_pipe.want_unpack, ord);
+            my_demand = HS_ADD(&g_pipe.demand_posted, 1);
+            demanded = 1;
+            pipe_bump();
+            continue;
+        }
+        if (HS_LD(&g_pipe.fetch_busy)
+                || HS_LD(&g_pipe.expand_busy_n) > 0
+                || HS_LD(&g_pipe.demand_seen) < my_demand) {
+            hs_door_wait(&g_pipe.door, d);
+            continue;
+        }
+        /* Both stages idle and the ordinal never staged: the
+         * consumer fetches it itself, holding the ordinal's
+         * claim and the fetch token, then consumes the stage it
+         * filled. */
+        if (!hs_cas_int(&g_pipe.ord_claim[ord], -1, PIPE_MAX_LANES))
+            continue;
+        if (HS_LD(&g_pipe.have[slot]) == ord
+                || HS_LD(&g_pipe.st_owner[slot]) == ord
+                || !hs_cas_int(&g_pipe.fetch_busy, 0, 1)) {
+            HS_ST(&g_pipe.ord_claim[ord], -1);
+            pipe_bump();
+            continue;
+        }
+        self_fetched = 1;
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+        HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
+        HS_ADD(&g_pipe.expand_busy_n, 1);
+        HS_ADD(&g_pipe.list_generation, 1);
+        pipe_fetch(slot, ord);
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_STAGED);
+        HS_ST(&g_pipe.st_owner[slot], ord);
+        if (HS_LD(&g_pipe.fetched_upto) < ord)
+            HS_ST(&g_pipe.fetched_upto, ord);
+        HS_ST(&g_pipe.fetch_busy, 0);
+        pipe_bump();
+        break;
+    }
+    /* The wait for the stage ends here, before the table
+     * compute below (Archie Round 5 P2-PG2): stall telemetry
+     * charges only time spent waiting on the pipeline, never the
+     * consume's own arithmetic. A stage found waiting on the
+     * first look (no demand posted, no self-fetch) is a prefetch
+     * hit, as pipe_get counts a buffer found ready. */
+    wait_s = pipe_now() - t_entry;
+    if (!self_fetched) {
+        HS_ST(&g_pipe.ord_state[ord], (uint8_t)ORD_EXPANDING);
+        HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], ord);
+        HS_ADD(&g_pipe.expand_busy_n, 1);
+        HS_ADD(&g_pipe.list_generation, 1);
+    }
+    Stage *s = &g_pipe.st[slot];
+    double fetch_ms = s->fetch_ms;
+    uint64_t nb = s->nb;
+    /* The stage is stable while st_owner names this ordinal
+     * and its buffer was never expanded (the fetcher's
+     * slot-free predicate), and the consumer holds the
+     * ordinal's claim, so the sections may be consumed in
+     * place. The shape is the eligibility invariant from
+     * pipe_init; anything else is a pipe fault, loudly. */
+    if (s->mode != 1 || nb != t->nblocks || s->b0 != t->block0) {
+        fprintf(stderr, "precision gate: ordinal %d staged in "
+                "an unusable shape (mode %d, %llu of %llu "
+                "blocks); refusing to consume it as DTC\n",
+                ord, s->mode, (unsigned long long)nb,
+                (unsigned long long)t->nblocks);
+        exit(1);
+    }
+    {
+        float *mn = g_pipe.dtc_mn[slot], *sc = g_pipe.dtc_sc[slot];
+        for (uint64_t b = 0; b < nb; b++) {
+            mn[b] = pk_half(s->fr + b * 2);
+            sc[b] = pk_half(s->fr + nb * 2 + b * 2);
+        }
+        DtcCtx dc;
+        dc.x = x; dc.y = y; dc.idx = s->idx; dc.mn = mn; dc.sc = sc;
+        dc.book = pk_book_of(t);
+        dc.entries = g_pk_entries;
+        dc.block = pk_block_of(t);
+        dc.nseg = (uint64_t)(cols / (int)dc.block);
+        dc.n = n; dc.rows = rows; dc.cols = cols;
+        pool_run(dtc_work, &dc);
+    }
+    HS_ST(&g_pipe.st_owner[slot], -1);   /* stage consumed; slot free */
+    g_pipe.load_ms_last[PIPE_ROLE_CONSUMER] = fetch_ms;
+    g_pipe.load_bytes_last[PIPE_ROLE_CONSUMER] =
+        nb * (uint64_t)(g_pk_idxw + 4);
+    pipe_mark_ready(ord, PIPE_ROLE_CONSUMER, 0);
+    HS_SUB(&g_pipe.expand_busy_n, 1);
+    HS_STX(&g_pipe.row_expand[PIPE_MAX_LANES], -1);
+    {
+        /* Hit/miss accounting, mirroring pipe_get: a stage
+         * already waiting when the consumer asked is a hit; one
+         * the consumer had to demand or fetch itself is a miss,
+         * charged the staging wait only. */
+        if (!demanded && !self_fetched) {
+            g_pipe.stat_hits++;
+        } else {
+            g_pipe.stat_miss++;
+            g_pipe.stat_stall_s += wait_s;
+            g_pipe.fx_miss_count[ord]++;
+            g_pipe.fx_miss_wait_s[ord] += wait_s;
+            if (self_fetched) g_pipe.fx_self_count[ord]++;
+        }
+    }
+    if (ord + 1 <= g_pipe.max_ord) HS_ST(&g_pipe.want_unpack, ord + 1);
+    pipe_bump();
+    /* The consume tick, as in pipe_get. */
+    HS_ST(&g_pipe.layer_counter, ord);
+    HS_STX(&g_pipe.row_consume, ord);
+    g_pipe.pass_consumed++;
+}
+#endif /* !_WIN32 */
+
+/* Route one pipe matmul by the ordinal's mark: EXPAND is
+ * today's path, bit for bit (pipe_get, then the dense
+ * matmul); DTC consumes the staged sections through the
+ * kernel. On Windows the marks are all EXPAND, set at
+ * pipe_init, and this is exactly the historical call. */
+static void matmul_pipe(const float *x, int ord, float *y,
+                        int n, int rows, int cols)
+{
+#ifndef _WIN32
+    if (ord == 0) {
+        /* Ordinal 0's mark is decided by the boundary's
+         * finalize, so the rollover runs before the read. The
+         * consume path's own ordinal-0 call is then a no-op. */
+        pipe_pass_boundary();
+    }
+    if (HS_LDX(&g_pipe.ord_mark[ord]) == MARK_DTC) {
+        dtc_consume(ord, x, y, n, rows, cols);
+        return;
+    }
+#endif
+    { const float *w = pipe_get(ord); matmul(x, w, y, n, rows, cols); }
+}
+
 static void pipe_report(void)
 {
     /* Deterministic reduce after the join: per-role load
@@ -2451,8 +3118,9 @@ static void pipe_report(void)
     printf("  consumer stall on misses: %.1f ms total; "
            "mean ready slack on hits: %.1f ms\n",
            g_pipe.stat_stall_s * 1000.0,
-           g_pipe.stat_hits
-               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_hits : 0.0);
+           g_pipe.stat_slack_n
+               ? g_pipe.stat_slack_s * 1000.0 / g_pipe.stat_slack_n
+               : 0.0);
     if (g_pipe.stat_load_ms > 0)
         printf("  load path (disc + reconstruct): %.1f ms for "
                "%.2f GB expanded, %.0f MB/sec\n",
@@ -2759,10 +3427,17 @@ static void encoder_layer(float *hidden, const int *pos, int n, int layer,
 {
     int qdim = M_HEADS * M_HD, kv_dim = M_KVHEADS * M_HD;
     int base = layer * SLOTS_PER_LAYER;
+#ifndef _WIN32
+    /* Precision Gate: the scorer finalizes this layer's mark
+     * and the lookahead window's before any request is made,
+     * so the claim window never reaches an undecided ordinal
+     * the lanes would have to guess at. */
+    gate_finalize_through(layer + g_gate_lookahead);
+#endif
     rmsnorm(w->xn, hidden, g_norm_in + (size_t)layer * M_H, n, M_H, M_EPS);
-    matmul(w->xn, pipe_get(base + SLOT_Q), w->q, n, qdim, M_H);
-    matmul(w->xn, pipe_get(base + SLOT_K), w->kcur, n, kv_dim, M_H);
-    matmul(w->xn, pipe_get(base + SLOT_V), w->vcur, n, kv_dim, M_H);
+    matmul_pipe(w->xn, base + SLOT_Q, w->q, n, qdim, M_H);
+    matmul_pipe(w->xn, base + SLOT_K, w->kcur, n, kv_dim, M_H);
+    matmul_pipe(w->xn, base + SLOT_V, w->vcur, n, kv_dim, M_H);
     /* rotary, in place on q and kcur */
     for (int i = 0; i < n; i++) {
         const float *cs = g_rope_cos + (size_t)pos[i] * M_HD;
@@ -2807,16 +3482,39 @@ static void encoder_layer(float *hidden, const int *pos, int n, int layer,
     ac.att = w->att; ac.n = n; ac.layer = layer; ac.mode = mode;
     ac.clen = g_cache.len;
     pool_run(att_work, &ac);
-    matmul(w->att, pipe_get(base + SLOT_O), w->tmp, n, M_H, qdim);
+    matmul_pipe(w->att, base + SLOT_O, w->tmp, n, M_H, qdim);
     for (int i = 0; i < n * M_H; i++) hidden[i] += w->tmp[i];
 
     rmsnorm(w->xn, hidden, g_norm_post + (size_t)layer * M_H, n, M_H, M_EPS);
-    matmul(w->xn, pipe_get(base + SLOT_GATE), w->gate, n, M_FFN, M_H);
-    matmul(w->xn, pipe_get(base + SLOT_UP), w->up, n, M_FFN, M_H);
+    matmul_pipe(w->xn, base + SLOT_GATE, w->gate, n, M_FFN, M_H);
+    matmul_pipe(w->xn, base + SLOT_UP, w->up, n, M_FFN, M_H);
     for (int i = 0; i < n * M_FFN; i++)
         w->gate[i] = silu_f(w->gate[i]) * w->up[i];
-    matmul(w->gate, pipe_get(base + SLOT_DOWN), w->tmp, n, M_H, M_FFN);
+    matmul_pipe(w->gate, base + SLOT_DOWN, w->tmp, n, M_H, M_FFN);
     for (int i = 0; i < n * M_H; i++) hidden[i] += w->tmp[i];
+#ifndef _WIN32
+    /* Precision Gate drift accounting: the layer's mark is
+     * the path it was scored for. A layer consumed expanded
+     * leaves the state the exact quantized state, so the
+     * estimate restarts from zero there; a layer consumed at
+     * the table adds its calibrated increment, scaled by the
+     * resync-anchored factor. Counting follows the marks,
+     * not the fault fallbacks, so the estimate stays a pure
+     * function of the run's decisions. */
+    if (g_use_packed && (g_posture == POSTURE_AUTO
+                         || g_posture == POSTURE_FAST)) {
+        g_gate_layers_total++;
+        if (g_pipe.ord_mark[base] == MARK_DTC) {
+            g_gate_layers_dtc++;
+            if (g_posture == POSTURE_AUTO && g_gate_calibrated) {
+                double d = g_gate_delta[layer] * g_gate_scale;
+                g_gate_drift2 += d * d;
+            }
+        } else if (g_posture == POSTURE_AUTO) {
+            g_gate_drift2 = 0.0;
+        }
+    }
+#endif
 }
 
 /* Full backbone pass. ATT_WRITE commits KV and advances the
@@ -2895,6 +3593,32 @@ static void denoise(const double *z, double gamma, const float *selfcond,
                     float *logits, float *x_guided, float *cond_mean,
                     WS *w)
 {
+#ifndef _WIN32
+    /* Precision Gate, per-evaluation state: Auto on a
+     * calibrated pack counts the evaluation, decides whether
+     * this one is a shadow-resync evaluation, and arms the
+     * input save the resync and the margin gate both need.
+     * The force flag starts down for every evaluation. */
+    int gate_auto = (g_posture == POSTURE_AUTO && g_gate_calibrated);
+    int gate_final = g_gate_final_step;
+    int gate_resync_now = 0;
+    g_gate_force_expand = 0;
+    if (gate_auto) {
+        g_gate_evals++;
+        if (g_gate_resync > 0
+                && ++g_gate_since_resync >= g_gate_resync)
+            gate_resync_now = 1;
+    }
+    float *h_saved = NULL, *h_fast = NULL;
+    if (gate_auto && (gate_final || gate_resync_now)) {
+        h_saved = (float *)malloc((size_t)B * M_H * sizeof(float));
+        h_fast = (float *)malloc((size_t)B * M_H * sizeof(float));
+        if (!h_saved || !h_fast) {
+            fprintf(stderr, "oom denoise\n");
+            exit(1);
+        }
+    }
+#endif
     double alpha_sq = 1.0 / (1.0 + exp(gamma));
     double sigma_sq = 1.0 / (1.0 + exp(-gamma));
     double alpha = sqrt(alpha_sq);
@@ -2950,7 +3674,47 @@ static void denoise(const double *z, double gamma, const float *selfcond,
     free(zf);
 
     /* conditional pass: block attends the clean prefix cache */
+#ifndef _WIN32
+    if (h_saved) memcpy(h_saved, h, (size_t)B * M_H * sizeof(float));
+#endif
     encoder_forward(h, bpos, B, ATT_READ, w);
+#ifndef _WIN32
+    if (gate_resync_now) {
+        /* Shadow resync (plan 2.2): the same input run again
+         * expanded. The measured divergence between the two
+         * outputs re-anchors the drift scale (clamped, so one
+         * odd evaluation cannot whip the gate), the run
+         * proceeds on the expanded output, and the drift
+         * estimate restarts from that known state. */
+        memcpy(h_fast, h, (size_t)B * M_H * sizeof(float));
+        memcpy(h, h_saved, (size_t)B * M_H * sizeof(float));
+        g_gate_force_expand = 1;
+        encoder_forward(h, bpos, B, ATT_READ, w);
+        {
+            double num = 0.0, den = 0.0;
+            for (int i = 0; i < B * M_H; i++) {
+                double d = (double)h_fast[i] - h[i];
+                num += d * d;
+                den += (double)h[i] * h[i];
+            }
+            double measured = den > 0.0 ? sqrt(num / den) : 0.0;
+            double predicted = sqrt(g_gate_drift2);
+            if (predicted > 0.0) {
+                double ns = measured / predicted;
+                if (ns < 0.25) ns = 0.25;
+                if (ns > 4.0) ns = 4.0;
+                g_gate_scale = ns;
+            }
+            g_gate_drift2 = 0.0;
+            g_gate_since_resync = 0;
+            g_gate_resyncs++;
+            gate_logf("resync eval %ld: measured %.6e "
+                      "predicted %.6e scale %.4f\n",
+                      g_gate_evals, measured, predicted,
+                      g_gate_scale);
+        }
+    }
+#endif
     head_all(h, B, logits);
     for (int i = 0; i < B; i++) {
         float *lg = logits + (size_t)i * M_VOCAB;
@@ -2958,6 +3722,47 @@ static void denoise(const double *z, double gamma, const float *selfcond,
         for (int v = 0; v < M_VOCAB; v++) lg[v] += pd[v];
         mean_from_logits(lg, cond_mean + (size_t)i * M_ED);
     }
+#ifndef _WIN32
+    if (gate_final && gate_auto && !g_gate_force_expand) {
+        /* Margin gate (plan 2.1): on the step that commits
+         * tokens, a position whose top two logits sit inside
+         * the calibrated tie epsilon can flip under the table
+         * path's reassociation. Escalate the evaluation to
+         * expanded and recompute before anything consumes
+         * these logits; the dump below then records the
+         * escalated logits, which is what the sampler eats.
+         * (When a resync already forced this evaluation, the
+         * logits are the exact ones and there is nothing
+         * further to escalate to.) */
+        double min_margin = 1e30;
+        for (int i = 0; i < B; i++) {
+            const float *lg = logits + (size_t)i * M_VOCAB;
+            float t1 = -1e30f, t2 = -1e30f;
+            for (int v = 0; v < M_VOCAB; v++) {
+                if (lg[v] > t1) { t2 = t1; t1 = lg[v]; }
+                else if (lg[v] > t2) { t2 = lg[v]; }
+            }
+            if ((double)t1 - (double)t2 < min_margin)
+                min_margin = (double)t1 - (double)t2;
+        }
+        if (min_margin < gate_eps_eff()) {
+            g_gate_force_expand = 1;
+            g_gate_escalations++;
+            gate_logf("escalate eval %ld: min margin %.6e "
+                      "< eps %.6e\n",
+                      g_gate_evals, min_margin, gate_eps_eff());
+            memcpy(h, h_saved, (size_t)B * M_H * sizeof(float));
+            encoder_forward(h, bpos, B, ATT_READ, w);
+            head_all(h, B, logits);
+            for (int i = 0; i < B; i++) {
+                float *lg = logits + (size_t)i * M_VOCAB;
+                const float *pd = prior_dot + (size_t)i * M_VOCAB;
+                for (int v = 0; v < M_VOCAB; v++) lg[v] += pd[v];
+                mean_from_logits(lg, cond_mean + (size_t)i * M_ED);
+            }
+        }
+    }
+#endif
     /* Lab build, behavioral gate (Neon, 2026-11-24): dump the
      * first evaluation's conditional logits, so a raw run and a
      * packed run over the same fixed token IDs can be compared
@@ -2998,6 +3803,12 @@ static void denoise(const double *z, double gamma, const float *selfcond,
     }
     free(prior_dot);
     free(xin); free(h); free(hu); free(tmp);
+#ifndef _WIN32
+    /* The force flag's scope is this call: the unconditional
+     * pass above ran under it; nothing after this call may. */
+    g_gate_force_expand = 0;
+    free(h_saved); free(h_fast);
+#endif
 }
 
 static void encode_clean(const int *ids, int n, const int *pos, WS *w)
@@ -3078,6 +3889,26 @@ int main(int argc, char **argv)
         g_lanes_src = "env";
         g_lanes_explicit = 1;
     }
+    {
+        const char *pv = getenv("NQ2_POSTURE");
+        if (pv && *pv) {
+            if (strcmp(pv, "evidence") == 0) g_posture = POSTURE_EVIDENCE;
+            else if (strcmp(pv, "auto") == 0) g_posture = POSTURE_AUTO;
+            else if (strcmp(pv, "fast") == 0) g_posture = POSTURE_FAST;
+            else if (strcmp(pv, "think-harder") == 0) g_posture = POSTURE_THINK;
+            else {
+                fprintf(stderr, "precision gate: NQ2_POSTURE "
+                        "'%s' is not a posture (evidence, auto, "
+                        "fast, think-harder)\n", pv);
+                exit(1);
+            }
+            g_posture_src = "env";
+        }
+    }
+    if (pipe_env_int("NQ2_GATE_LOOKAHEAD", &g_gate_lookahead))
+        g_gate_lookahead_src = "env";
+    if (pipe_env_int("NQ2_GATE_RESYNC", &g_gate_resync))
+        g_gate_resync_src = "env";
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--dir") == 0 && i + 1 < argc) dir = argv[++i];
@@ -3101,6 +3932,45 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--fetch-ahead") == 0 && i + 1 < argc) { pipe_cli_int("--fetch-ahead", argv[++i], &g_fetch_ahead); g_fetch_src = "cli"; }
         else if (strcmp(argv[i], "--prefetch-dist") == 0 && i + 1 < argc) { pipe_cli_int("--prefetch-dist", argv[++i], &g_prefetch_dist); g_dist_src = "cli"; }
         else if (strcmp(argv[i], "--expand-lanes") == 0 && i + 1 < argc) { pipe_cli_int("--expand-lanes", argv[++i], &g_expand_lanes); g_lanes_src = "cli"; g_lanes_explicit = 1; }
+        else if (strcmp(argv[i], "--posture") == 0 && i + 1 < argc) {
+            const char *pv = argv[++i];
+            if (strcmp(pv, "evidence") == 0) g_posture = POSTURE_EVIDENCE;
+            else if (strcmp(pv, "auto") == 0) g_posture = POSTURE_AUTO;
+            else if (strcmp(pv, "fast") == 0) g_posture = POSTURE_FAST;
+            else if (strcmp(pv, "think-harder") == 0) g_posture = POSTURE_THINK;
+            else {
+                fprintf(stderr, "precision gate: --posture "
+                        "'%s' is not a posture (evidence, auto, "
+                        "fast, think-harder)\n", pv);
+                return 1;
+            }
+            g_posture_src = "cli";
+        }
+        else if (strcmp(argv[i], "--gate-lookahead") == 0 && i + 1 < argc) { pipe_cli_int("--gate-lookahead", argv[++i], &g_gate_lookahead); g_gate_lookahead_src = "cli"; }
+        else if (strcmp(argv[i], "--gate-resync") == 0 && i + 1 < argc) { pipe_cli_int("--gate-resync", argv[++i], &g_gate_resync); g_gate_resync_src = "cli"; }
+        else if (strcmp(argv[i], "--gate-eps") == 0 && i + 1 < argc) {
+            const char *sv = argv[++i];
+            char *end = NULL;
+            double v = strtod(sv, &end);
+            if (end == sv || *end != '\0' || !(v > 0.0)) {
+                fprintf(stderr, "precision gate: --gate-eps "
+                        "'%s' is not a positive number\n", sv);
+                return 1;
+            }
+            g_gate_eps_override = v;
+        }
+        else if (strcmp(argv[i], "--gate-budget") == 0 && i + 1 < argc) {
+            const char *sv = argv[++i];
+            char *end = NULL;
+            double v = strtod(sv, &end);
+            if (end == sv || *end != '\0' || !(v > 0.0)) {
+                fprintf(stderr, "precision gate: --gate-budget "
+                        "'%s' is not a positive number\n", sv);
+                return 1;
+            }
+            g_gate_budget_override = v;
+        }
+        else if (strcmp(argv[i], "--gate-log") == 0 && i + 1 < argc) g_gate_log_path = argv[++i];
         else if (strcmp(argv[i], "--logits-dump") == 0 && i + 1 < argc) g_logits_dump = argv[++i];
         else if (strcmp(argv[i], "--logits-dump-all") == 0 && i + 1 < argc) { g_logits_dump = argv[++i]; g_logits_dump_all = 1; }
         else {
@@ -3109,6 +3979,16 @@ int main(int argc, char **argv)
         }
     }
     if (steps < 1) steps = 1;
+    if (g_gate_lookahead < 1 || g_gate_lookahead > 4) {
+        fprintf(stderr, "precision gate: --gate-lookahead must "
+                "be in [1, 4]\n");
+        return 1;
+    }
+    if (g_gate_resync < 0) {
+        fprintf(stderr, "precision gate: --gate-resync must "
+                "be >= 0\n");
+        return 1;
+    }
     if (block < 1) block = 1;
     if (block > 4096) {
         fprintf(stderr, "warning: block clamped to 4096\n");
@@ -3120,7 +4000,10 @@ int main(int argc, char **argv)
             "       --ids 1,25,882 [--tokens 64] [--steps 32]\n"
             "       [--block 32] [--sampler ddim|ddpm]\n"
             "       [--schedule log_snr|edm_sigma] [--guidance 3.0]\n"
-            "       [--score-temp 0.3] [--seed 1234] [--threads N]\n");
+            "       [--score-temp 0.3] [--seed 1234] [--threads N]\n"
+            "       [--posture evidence|auto|fast|think-harder]\n"
+            "       [--gate-lookahead 1..4] [--gate-resync N]\n"
+            "       [--gate-eps X] [--gate-budget X] [--gate-log FILE]\n");
         return 1;
     }
 
@@ -3215,6 +4098,9 @@ int main(int argc, char **argv)
             fprintf(stderr, "cannot open packed model\n");
             return 1;
         }
+#ifndef _WIN32
+        gate_calib_load(pk_stream);
+#endif
     }
 
     /* resident small tensors */
@@ -3305,6 +4191,34 @@ int main(int argc, char **argv)
            threads, pipe_bytes / 1048576.0,
            g_pipe_staging_bytes / 1048576.0, cache_bytes / 1048576.0,
            (size_t)M_VOCAB * M_ED * 4 / 1048576.0);
+#ifndef _WIN32
+    if (g_use_packed) {
+        printf("precision gate: posture %s (%s), lookahead %d "
+               "(%s), resync %d (%s)",
+               posture_name(g_posture), g_posture_src,
+               g_gate_lookahead, g_gate_lookahead_src,
+               g_gate_resync, g_gate_resync_src);
+        if (g_gate_calibrated)
+            printf(", calibration: eps %.4e%s, budget %.4e%s",
+                   gate_eps_eff(),
+                   g_gate_eps_override >= 0.0 ? " OVERRIDE" : "",
+                   gate_budget_eff(),
+                   g_gate_budget_override >= 0.0 ? " OVERRIDE" : "");
+        else
+            printf(", calibration: none");
+        printf("\n");
+        if (g_posture == POSTURE_AUTO && !g_gate_calibrated)
+            printf("precision gate: Auto without calibration "
+                   "falls back to expanded for this pack\n");
+    } else {
+        printf("precision gate: inert (raw run: every ordinal "
+               "expands)\n");
+    }
+#else
+    printf("precision gate: note: the Windows fused worker "
+           "always expands; postures do not take effect on "
+           "this path\n");
+#endif
 
     /* gamma grid, fp64 */
     double *grid = (double *)malloc(sizeof(double) * (steps + 1));
@@ -3350,8 +4264,14 @@ int main(int argc, char **argv)
                 pos[i] = plen + generated + i;
             for (int s = 0; s <= steps; s++) {
                 double gt = grid[s];
+#ifndef _WIN32
+                g_gate_final_step = (s == steps);
+#endif
                 denoise(z, gt, have_sc ? selfcond : NULL, guidance,
                         pos, block, logits, x_guided, cond_mean, &w);
+#ifndef _WIN32
+                g_gate_final_step = 0;
+#endif
                 nfe += guidance != 1.0 ? 2 : 1;
                 if (s == steps) {
                     for (int i = 0; i < block; i++) {
@@ -3408,6 +4328,18 @@ int main(int argc, char **argv)
                nfe, (unsigned long long)seed);
     }
 
+#ifndef _WIN32
+    if (g_use_packed && g_posture == POSTURE_AUTO)
+        printf("precision gate: %ld evaluations, %ld "
+               "escalations, %ld resyncs; layer consumptions "
+               "via DTC %ld of %ld\n",
+               g_gate_evals, g_gate_escalations, g_gate_resyncs,
+               g_gate_layers_dtc, g_gate_layers_total);
+    else if (g_use_packed && g_posture == POSTURE_FAST)
+        printf("precision gate: layer consumptions via DTC "
+               "%ld of %ld (fast posture)\n",
+               g_gate_layers_dtc, g_gate_layers_total);
+#endif
     pipe_shutdown();     /* join first, then reduce and report */
     pool_shutdown();
     pipe_report();

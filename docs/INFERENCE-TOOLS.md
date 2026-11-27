@@ -72,6 +72,13 @@ loudly with the reason printed; the startup line prints every effective value
 with its source (`cli`, `env` or `device`). The Triforce refuses PQ packs at
 open, in plain words. See [TENSOR-HANDSHAKE.md](TENSOR-HANDSHAKE.md).
 
+The Precision Gate lives in this engine ([PRECISION-GATE.md](PRECISION-GATE.md)).
+Default posture is `evidence` (expanded always, the historical path). Select a
+posture with `--posture NAME` or `NQ2_POSTURE`, plus `--gate-lookahead`,
+`--gate-resync`, `--gate-eps`, `--gate-budget` and `--gate-log`. On the POSIX
+split pipeline the marks choose Dense Tensor Compute or expansion per ordinal.
+The Windows fused worker always expands and prints a startup note saying so.
+
 `nq2-infer-triforce-dbg` is the serial debug build (workers bypassed; the
 consumer loads everything itself), kept for bisecting delivery faults: it is how
 the 2026-11-24 race was convicted ([PIPELINE](../PIPELINE-2026-11-24.md)).

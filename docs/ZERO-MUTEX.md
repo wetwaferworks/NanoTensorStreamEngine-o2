@@ -76,12 +76,15 @@ started workers is served serially on the caller.
   blocking primitive after that.
 - **Sanitizer records.** This repository carries no ThreadSanitizer run record.
   The Precision Gate `--threads 1` phase-boundary fault recorded on 2026-11-25
-  ("the prior pass did not drain"; ordinal 0's slot still claimed) had a
-  determined cause: `pipe_pass_boundary()` ran twice at ordinal 0 in one pass,
-  because both `matmul_pipe` and the consume path asked for it. The 2026-11-26
-  zero-mutex Handshake conversion counts consume ticks (`if (g_pipe.pass_consumed
-  == 0) return;`) so the boundary runs once per pass, in the scratch gate engine
-  and in the tools copy. The DTC hostile-geometry fuzz
+  ("the prior pass did not drain"; ordinal 0's slot still claimed) is not an
+  undetermined race. Miss Archie's Round 6 note identified the root cause:
+  `pipe_pass_boundary()` ran twice at ordinal 0 in one pass, because both
+  `matmul_pipe` and the consume path asked for it, and the second call found the
+  fresh pass already in motion. The 2026-11-26 zero-mutex Handshake conversion
+  counts consume ticks (`if (g_pipe.pass_consumed == 0) return;`) so the
+  boundary runs once per pass. That fix is in the live `tools/` engine
+  (`nq2-infer-triforce.c`), which now also carries the rest of the Precision
+  Gate. The DTC hostile-geometry fuzz
   pass ran under ASan and UBSan with zero reports, and the Little Nemo suite is
   silent under both. Running the engines under ThreadSanitizer is on the
   [roadmap](ROADMAP.md).

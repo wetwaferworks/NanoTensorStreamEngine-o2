@@ -1,5 +1,6 @@
 # Build products
 bin/
+build/
 obj/
 *.exe
 *.dll

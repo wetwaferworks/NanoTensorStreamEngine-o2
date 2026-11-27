@@ -30,7 +30,7 @@ Every result will be published with its negatives, as Lane 4 was.
 - **CUDA runtime for Sigma:** the lanes are verified, but there is no end-to-end GPU decode for the Sigma model yet ([ACCEL.md](ACCEL.md)).
 - **SuperNemo engine:** Nemotron 3.5 Super VL 120B-A12B (512-expert MoE and a vision tower). The engine and its tests are in `supernemo/`; real-pack speed and quality are not measured yet ([supernemo/PLAN.md](../supernemo/PLAN.md)).
 - **GPU-accelerated quantizer:** a CUDA path for `nq2-quantize` covering codebook fitting and nearest-code assignment. The output must stay hash-identical to the CPU path, which means a fixed reduction order. First step: measure how a current run splits its time between reading from disk and computing, so we know whether the GPU would help at all.
-- **Precision Gate:** move the scratch implementation into `tools/` and chase the open intermittent `--threads 1` boundary fault ([PRECISION-GATE.md](PRECISION-GATE.md)).
+- **Precision Gate:** the scratch implementation now lives in `tools/nq2-infer-triforce.c`. The `--threads 1` boundary fault was a double `pipe_pass_boundary()` call at ordinal 0 (Miss Archie's Round 6 note), fixed by counting consume ticks so the boundary runs once per pass; verified after the transplant on the POSIX path at `--threads 12` and `--threads 1`, both producing the packed Sigma anchor token 122388 ([PRECISION-GATE.md](PRECISION-GATE.md)). The Windows fused worker still always expands.
 - **OpenCL Nemotron forward:** the OpenCL lanes have no Nemotron forward in the Little Nemo build; calibration rejects them.
 
 ## Verification
