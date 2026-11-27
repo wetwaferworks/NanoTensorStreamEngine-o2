@@ -29,6 +29,15 @@
  *       [--iters 8]
  *
  * Plain hosted C99. No dependencies beyond the standard library.
+ *
+ * GPU lane (2026-11-27, co-implemented by Cortana at JD's
+ * direction): built with -DNQ2_GPU by accel\build-gpuquant.bat,
+ * `--gpu` moves the nearest-code search of codebook fitting and
+ * packing onto CUDA (accel/src/gq_cuda.c). The output is
+ * byte-identical to the CPU path: the GPU returns the same index
+ * the CPU search would, and everything else (sampling, the
+ * centroid sums, frames, fidelity sums) stays on the CPU in its
+ * original order. The plain build has no GPU code at all.
  */
 
 #define _POSIX_C_SOURCE 200809L   /* fseeko/ftello declarations */
@@ -38,6 +47,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <time.h>
+#ifdef NQ2_GPU
+#include "gq_cuda.h"
+#endif
 #ifdef _WIN32
 #include <process.h>    /* _getpid */
 #include <windows.h>    /* threads (2026-11-26) */
@@ -596,6 +608,133 @@ static void assign_worker(int tid, void *vj)
     }
 }
 
+/* ---------------- GPU lane (--gpu) ----------------
+ * Added 2026-11-27 (co-implemented by Cortana at JD's direction).
+ * Only the nearest-code search moves to the GPU; gq_cuda.c returns
+ * exactly the index nearest_centroid() returns. If a GPU call
+ * fails, that call is recomputed here on the CPU (the same answer),
+ * with one note on stderr. --gpu-verify recomputes every GPU call
+ * on the CPU as well and stops at the first difference. */
+static int g_gpu = 0;
+static int g_gpu_verify = 0;
+static int g_gpu_device = 0;
+
+#ifdef NQ2_GPU
+static int g_gpu_fallback_noted = 0;   /* written with an atomic exchange */
+static uint64_t g_gpu_fallbacks = 0;   /* atomic counter */
+static uint64_t g_gpu_stats[257][3];   /* per worker: rows, multi, full */
+
+static void cpu_assign(const float *x, uint64_t n, uint32_t stride,
+                       uint32_t nsub, uint32_t d, const float *books,
+                       uint32_t entries, uint8_t *out)
+{
+    for (uint64_t b = 0; b < n; b++)
+        for (uint32_t s = 0; s < nsub; s++)
+            out[b * nsub + s] = (uint8_t)nearest_centroid(
+                books + (size_t)s * entries * d, entries, d,
+                x + b * stride + (size_t)s * d);
+}
+
+static void gpu_fallback_note(void)
+{
+    atomic_next(&g_gpu_fallbacks);
+    if (__atomic_exchange_n(&g_gpu_fallback_noted, 1, __ATOMIC_RELAXED) == 0)
+        fprintf(stderr, "gpu: a GPU call failed; that work ran on the CPU "
+                "instead (same output)\n");
+}
+
+/* rows_ok: gq_set_rows() succeeded for x (resident on this
+ * thread's device buffer). */
+static void gpu_assign(int rows_ok, const float *x, uint64_t n,
+                       uint32_t stride, uint32_t nsub, uint32_t d,
+                       const float *books, uint32_t entries, uint8_t *out)
+{
+    if (!rows_ok || gq_assign_rows(nsub, d, books, entries, out) != 0) {
+        gpu_fallback_note();
+        cpu_assign(x, n, stride, nsub, d, books, entries, out);
+        return;
+    }
+    if (g_gpu_verify) {
+        size_t m = (size_t)n * nsub;
+        uint8_t *ref = (uint8_t *)malloc(m ? m : 1);
+        if (!ref) { fprintf(stderr, "out of memory\n"); exit(1); }
+        cpu_assign(x, n, stride, nsub, d, books, entries, ref);
+        for (size_t i = 0; i < m; i++)
+            if (ref[i] != out[i]) {
+                fprintf(stderr, "gpu-verify: GPU and CPU differ at row %llu "
+                        "subvector %u: gpu %u, cpu %u (d %u, entries %u)\n",
+                        (unsigned long long)(i / nsub), (unsigned)(i % nsub),
+                        out[i], ref[i], d, entries);
+                exit(3);
+            }
+        free(ref);
+    }
+}
+
+/* k-means for nsub books at once on the GPU's search. Each book s
+ * trains on subvector s (floats s*d .. s*d+d-1) of the n rows of
+ * `stride` floats. Byte-identical to calling learn_book() once per
+ * book on a packed copy of that subvector, in book order: the
+ * initial draws happen in the same order (book 0 first), the books
+ * never interact, and the sums are accumulated serially in sample
+ * order exactly as learn_book() does. */
+static void gpu_learn_books(const float *sample, uint64_t sample_n,
+                            uint32_t stride, uint32_t nsub, uint32_t d,
+                            uint32_t entries, int iters, float *books)
+{
+    if (sample_n == 0) {
+        fprintf(stderr, "learn_book: empty training sample\n");
+        exit(1);
+    }
+    for (uint32_t s = 0; s < nsub; s++) {
+        float *cent = books + (size_t)s * entries * d;
+        for (uint32_t k = 0; k < entries; k++) {
+            uint64_t src = rng_next() % sample_n;
+            memcpy(cent + (size_t)k * d, sample + src * stride + (size_t)s * d,
+                   d * sizeof(float));
+        }
+    }
+    double *sums = (double *)calloc((size_t)entries * d, sizeof(double));
+    uint64_t *counts = (uint64_t *)calloc(entries, sizeof(uint64_t));
+    uint8_t *assign = (uint8_t *)malloc((size_t)sample_n * nsub);
+    if (!sums || !counts || !assign) { fprintf(stderr, "out of memory\n"); exit(1); }
+    int rows_ok = iters > 0 && gq_set_rows(sample, sample_n, stride) == 0;
+    for (int it = 0; it < iters; it++) {
+        gpu_assign(rows_ok, sample, sample_n, stride, nsub, d, books,
+                   entries, assign);
+        for (uint32_t s = 0; s < nsub; s++) {
+            float *cent = books + (size_t)s * entries * d;
+            memset(sums, 0, (size_t)entries * d * sizeof(double));
+            memset(counts, 0, entries * sizeof(uint64_t));
+            for (uint64_t b = 0; b < sample_n; b++) {
+                const float *x = sample + b * stride + (size_t)s * d;
+                int k = assign[b * nsub + s];
+                counts[k]++;
+                double *sum = sums + (size_t)k * d;
+                for (uint32_t i = 0; i < d; i++) sum[i] += x[i];
+            }
+            double shift = 0.0;
+            for (uint32_t k = 0; k < entries; k++) {
+                if (!counts[k]) continue;
+                float *c = cent + (size_t)k * d;
+                for (uint32_t i = 0; i < d; i++) {
+                    double nv = sums[(size_t)k * d + i] / (double)counts[k];
+                    double dd = nv - c[i];
+                    if (dd < 0) dd = -dd;
+                    if (dd > shift) shift = dd;
+                    c[i] = (float)nv;
+                }
+            }
+            if (g_kmeans_verbose && nsub == 1)
+                printf("  kmeans iter %d: max centroid shift %.5f\n", it, shift);
+        }
+    }
+    free(sums);
+    free(counts);
+    free(assign);
+}
+#endif
+
 /* Walk the blocks of a single scope tensor (used by the
  * per-tensor books path, which samples, learns, and packs one
  * tensor at a time). */
@@ -634,6 +773,12 @@ static void learn_book(const float *sample, uint64_t sample_n,
         fprintf(stderr, "learn_book: empty training sample\n");
         exit(1);
     }
+#ifdef NQ2_GPU
+    if (g_gpu) {
+        gpu_learn_books(sample, sample_n, block, 1, block, entries, iters, cent);
+        return;
+    }
+#endif
     for (uint32_t k = 0; k < entries; k++) {
         uint64_t src = rng_next() % sample_n;
         memcpy(cent + (size_t)k * block, sample + src * block,
@@ -738,12 +883,13 @@ typedef struct {
     uint64_t bad_block;
 } PackCtx;
 
-static void pack_fn(const float *raw, void *vctx)
+/* One block of the flat pack, already normalized into norm with
+ * frame (mn, sc). k is the block's code, or -1 to search for it
+ * here (the GPU lane passes the code it found). */
+static void pack_block(PackCtx *ctx, const float *raw, const float *norm,
+                       float mn, float sc, int k)
 {
-    PackCtx *ctx = (PackCtx *)vctx;
-    float mn, sc;
-    normalize_block(raw, ctx->block, ctx->tmp, &mn, &sc);
-    int k = nearest_centroid(ctx->cent, ctx->entries, ctx->block, ctx->tmp);
+    if (k < 0) k = nearest_centroid(ctx->cent, ctx->entries, ctx->block, norm);
     uint64_t at = ctx->cursor++;
     ctx->idx[at] = (uint8_t)k;
     ctx->mn_h[at] = float_to_half(mn);
@@ -774,6 +920,14 @@ static void pack_fn(const float *raw, void *vctx)
         ctx->err2 += d * d;
         ctx->ref2 += (double)raw[i] * raw[i];
     }
+}
+
+static void pack_fn(const float *raw, void *vctx)
+{
+    PackCtx *ctx = (PackCtx *)vctx;
+    float mn, sc;
+    normalize_block(raw, ctx->block, ctx->tmp, &mn, &sc);
+    pack_block(ctx, raw, ctx->tmp, mn, sc, -1);
 }
 
 /* ---------------- threaded global-book passes ----------------
@@ -1216,11 +1370,12 @@ typedef struct {
     uint64_t bad_block;
 } PqPackCtx;
 
-static void pq_pack_fn(const float *raw, void *vctx)
+/* One block of the PQ pack, already normalized into norm with
+ * frame (mn, sc). ks holds the block's nsub codes, or is NULL to
+ * search for them here (the GPU lane passes the codes it found). */
+static void pq_pack_block(PqPackCtx *ctx, const float *raw, const float *norm,
+                          float mn, float sc, const uint8_t *ks)
 {
-    PqPackCtx *ctx = (PqPackCtx *)vctx;
-    float mn, sc;
-    normalize_block(raw, ctx->block, ctx->tmp, &mn, &sc);
     uint64_t at = ctx->cursor++;
     ctx->mn_h[at] = float_to_half(mn);
     ctx->sc_h[at] = float_to_half(sc);
@@ -1237,8 +1392,9 @@ static void pq_pack_fn(const float *raw, void *vctx)
     for (uint32_t sub = 0; sub < ctx->nsub; sub++) {
         const float *bk = ctx->books
             + (size_t)sub * ctx->entries * ctx->d;
-        int k = nearest_centroid(bk, ctx->entries, ctx->d,
-                                 ctx->tmp + sub * ctx->d);
+        int k = ks ? (int)ks[sub]
+                   : nearest_centroid(bk, ctx->entries, ctx->d,
+                                      norm + sub * ctx->d);
         ctx->idx[at * ctx->nsub + sub] = (uint8_t)k;
         const float *c = bk + (size_t)k * ctx->d;
         for (uint32_t i = 0; i < ctx->d; i++) {
@@ -1250,6 +1406,80 @@ static void pq_pack_fn(const float *raw, void *vctx)
         }
     }
 }
+
+static void pq_pack_fn(const float *raw, void *vctx)
+{
+    PqPackCtx *ctx = (PqPackCtx *)vctx;
+    float mn, sc;
+    normalize_block(raw, ctx->block, ctx->tmp, &mn, &sc);
+    pq_pack_block(ctx, raw, ctx->tmp, mn, sc, NULL);
+}
+
+#ifdef NQ2_GPU
+/* GPU packing of one tensor: blocks are gathered in chunks (raw
+ * copy, normalized copy, frame), the chunk's codes come from the
+ * GPU in one call, and then each block is finished in block order
+ * by the same pack_block / pq_pack_block the CPU path uses. So the
+ * frames, the first-bad-frame record and the fidelity sums see
+ * exactly the CPU sequence. */
+#define GPU_PACK_CHUNK 8192u
+typedef struct {
+    uint32_t block, d, nsub, entries;
+    const float *books;
+    PqPackCtx *pq;        /* PQ pack, or */
+    PackCtx *flat;        /* flat pack */
+    float *raw, *norm, *mn, *sc;
+    uint8_t *ks;
+    uint64_t n;
+} GpuPackCtx;
+
+static void gpu_pack_flush(GpuPackCtx *g)
+{
+    if (!g->n) return;
+    int rows_ok = gq_set_rows(g->norm, g->n, g->block) == 0;
+    gpu_assign(rows_ok, g->norm, g->n, g->block, g->nsub, g->d, g->books,
+               g->entries, g->ks);
+    for (uint64_t b = 0; b < g->n; b++) {
+        const float *raw = g->raw + b * g->block;
+        const float *norm = g->norm + b * g->block;
+        if (g->pq) pq_pack_block(g->pq, raw, norm, g->mn[b], g->sc[b],
+                                 g->ks + b * g->nsub);
+        else pack_block(g->flat, raw, norm, g->mn[b], g->sc[b], (int)g->ks[b]);
+    }
+    g->n = 0;
+}
+
+static void gpu_pack_collect(const float *raw, void *vctx)
+{
+    GpuPackCtx *g = (GpuPackCtx *)vctx;
+    uint64_t b = g->n++;
+    memcpy(g->raw + b * g->block, raw, g->block * sizeof(float));
+    normalize_block(raw, g->block, g->norm + b * g->block, &g->mn[b], &g->sc[b]);
+    if (g->n == GPU_PACK_CHUNK) gpu_pack_flush(g);
+}
+
+static void gpu_walk_pack(int s, uint32_t block, uint32_t entries,
+                          uint32_t d, uint32_t nsub, const float *books,
+                          PqPackCtx *pq, PackCtx *flat)
+{
+    GpuPackCtx g;
+    memset(&g, 0, sizeof(g));
+    g.block = block; g.d = d; g.nsub = nsub; g.entries = entries;
+    g.books = books; g.pq = pq; g.flat = flat;
+    g.raw = (float *)malloc((size_t)GPU_PACK_CHUNK * block * sizeof(float));
+    g.norm = (float *)malloc((size_t)GPU_PACK_CHUNK * block * sizeof(float));
+    g.mn = (float *)malloc(GPU_PACK_CHUNK * sizeof(float));
+    g.sc = (float *)malloc(GPU_PACK_CHUNK * sizeof(float));
+    g.ks = (uint8_t *)malloc((size_t)GPU_PACK_CHUNK * nsub);
+    if (!g.raw || !g.norm || !g.mn || !g.sc || !g.ks) {
+        fprintf(stderr, "out of memory packing\n");
+        exit(1);
+    }
+    walk_one_tensor(s, block, gpu_pack_collect, &g);
+    gpu_pack_flush(&g);
+    free(g.raw); free(g.norm); free(g.mn); free(g.sc); free(g.ks);
+}
+#endif
 
 /* Sample, learn, and pack one scope tensor at the given
  * block size into o (flat or PQ according to g_pq_d).
@@ -1288,6 +1518,12 @@ static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
         if (!sub_sample) { fprintf(stderr, "out of memory\n"); return 1; }
         int verbose_save = g_kmeans_verbose;   /* parallel workers all save 0 */
         g_kmeans_verbose = 0;
+#ifdef NQ2_GPU
+        if (g_gpu)
+            gpu_learn_books(sctx.sample, sctx.sample_n, block, nsub, d,
+                            entries, iters, o->book);
+        else
+#endif
         for (uint32_t sub = 0; sub < nsub; sub++) {
             for (uint64_t b = 0; b < sctx.sample_n; b++)
                 memcpy(sub_sample + b * d,
@@ -1311,6 +1547,10 @@ static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
             fprintf(stderr, "out of memory packing\n");
             return 1;
         }
+#ifdef NQ2_GPU
+        if (g_gpu) gpu_walk_pack(s, block, entries, d, nsub, o->book, &pctx, NULL);
+        else
+#endif
         walk_one_tensor(s, block, pq_pack_fn, &pctx);
         o->idx = pctx.idx; o->mn_h = pctx.mn_h; o->sc_h = pctx.sc_h;
         o->err2 = pctx.err2; o->ref2 = pctx.ref2;
@@ -1334,6 +1574,10 @@ static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
             fprintf(stderr, "out of memory packing\n");
             return 1;
         }
+#ifdef NQ2_GPU
+        if (g_gpu) gpu_walk_pack(s, block, entries, block, 1, o->book, NULL, &pctx);
+        else
+#endif
         walk_one_tensor(s, block, pack_fn, &pctx);
         o->idx = pctx.idx; o->mn_h = pctx.mn_h; o->sc_h = pctx.sc_h;
         o->err2 = pctx.err2; o->ref2 = pctx.ref2;
@@ -1705,6 +1949,14 @@ static void pt_worker(int tid, void *vj)
         }
     }
 out:
+#ifdef NQ2_GPU
+    if (g_gpu) {
+        if (tid >= 0 && tid < 257)
+            gq_thread_stats(&g_gpu_stats[tid][0], &g_gpu_stats[tid][1],
+                            &g_gpu_stats[tid][2]);
+        gq_thread_release();
+    }
+#endif
     if (bf && fflush(bf) != 0) j->tbad[tid] = 1;
     if (sf && fflush(sf) != 0) j->tbad[tid] = 1;
     if (bf && fclose(bf) != 0) j->tbad[tid] = 1;
@@ -1988,6 +2240,27 @@ static int per_tensor_parallel(const char *out_prefix, uint32_t block,
     printf("rate: %.4f bits per weight (stream only); complete %.4f (stream + book)\n", rate, crate);
     return 0;
 }
+#ifdef NQ2_GPU
+/* Totals of the GPU lane, printed once at exit. Workers have all
+ * joined by then; the main thread's own calls are counted too. */
+static void gpu_at_exit(void)
+{
+    uint64_t rows = 0, multi = 0, full = 0;
+    gq_thread_stats(&rows, &multi, &full);
+    for (int t = 0; t < 257; t++) {
+        rows += g_gpu_stats[t][0];
+        multi += g_gpu_stats[t][1];
+        full += g_gpu_stats[t][2];
+    }
+    printf("gpu: %llu nearest-code searches, %llu rescored in double "
+           "(near ties), %llu full double searches, %llu CPU fallbacks\n",
+           (unsigned long long)rows, (unsigned long long)multi,
+           (unsigned long long)full, (unsigned long long)g_gpu_fallbacks);
+    fflush(stdout);
+    gq_shutdown();
+}
+#endif
+
 int main(int argc, char **argv)
 {
     const char *out_prefix = NULL;
@@ -2025,6 +2298,9 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--raw-small") == 0 && i + 1 < argc) { g_raw_small = strtoull(argv[++i], NULL, 10); g_raw_any = 1; }
         else if (strcmp(argv[i], "--skip-unsupported") == 0) g_skip_unsupported = 1;
         else if (strcmp(argv[i], "--threads") == 0 && i + 1 < argc) g_threads = (int)strtol(argv[++i], NULL, 10);
+        else if (strcmp(argv[i], "--gpu") == 0) g_gpu = 1;
+        else if (strcmp(argv[i], "--gpu-verify") == 0) { g_gpu = 1; g_gpu_verify = 1; }
+        else if (strcmp(argv[i], "--gpu-device") == 0 && i + 1 < argc) g_gpu_device = (int)strtol(argv[++i], NULL, 10);
         else if (argv[i][0] != '-') shard_paths[n_shard_paths++] = argv[i];   /* no fixed cap: sized from argc */
         else { fprintf(stderr, "bad argument: %s\n", argv[i]); return 1; }
     }
@@ -2036,8 +2312,27 @@ int main(int argc, char **argv)
             "         [--block 256] [--entries 256] [--budget N]\n"
             "         [--filter a,b] [--sample-blocks N] [--iters N]\n"
             "         [--threads N]   (default: logical CPUs; output identical for any N)\n"
-            "         [--raw-names a,b] [--raw-small N] [--skip-unsupported]\n");
+            "         [--raw-names a,b] [--raw-small N] [--skip-unsupported]\n"
+            "         [--gpu] [--gpu-verify] [--gpu-device N]\n"
+            "                         (GPU build only; output identical to the CPU path)\n");
         return 1;
+    }
+    if (g_gpu) {
+#ifdef NQ2_GPU
+        char why[512] = "";
+        if (gq_init(g_gpu_device, why, sizeof why) != 0) {
+            fprintf(stderr, "--gpu: CUDA is not available: %s\n", why);
+            return 1;
+        }
+        atexit(gpu_at_exit);
+        printf("gpu: %s, nearest-code search on CUDA%s (output identical to the CPU path)\n",
+               gq_device_name(), g_gpu_verify ? ", every call re-checked on the CPU" : "");
+        fflush(stdout);
+#else
+        fprintf(stderr, "--gpu needs the GPU build of nq2-quantize "
+                "(accel\\build-gpuquant.bat)\n");
+        return 1;
+#endif
     }
     if (entries > 256) {
         fprintf(stderr, "entries above 256 do not fit an 8-bit index\n");
