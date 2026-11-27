@@ -17,6 +17,7 @@
 
 #include <stdint.h>
 #include "sn_pack.h"
+#include "sn_pqk.h"
 #include "../../littlenemo/src/pool.h"
 
 #define SN_MAX_LAYERS 256
@@ -29,6 +30,7 @@ typedef struct {
     int moe_experts, moe_topk, moe_latent, moe_inter, moe_shared;
     float moe_scale; int moe_norm_topk;
     float eps;
+    int mtp;                         /* the checkpoint carries one MTP module: an attention block then a MoE block */
 } sn_geom;
 
 /* Fill g from config.json (llm_config). Returns 0, or -1 with a reason on stderr. */
@@ -71,9 +73,32 @@ const char *sn_model_gpu_name(const sn_model *m);
 nemo_pool *sn_model_pool(sn_model *m);
 
 
+/* Dense Tensor Compute: 0 = off (direct fused kernels), 1 = auto (default: DTC where it pays), 2 = force where the
+ * geometry allows. DTC equals direct to float noise (~1e-6 relative), not bit for bit. */
+void sn_model_set_dtc(sn_model *m, int mode);
+int sn_model_dtc(const sn_model *m);
+
+/* n (<= SN_NV) tokens in one fused pass over the packed data: every token's logits (n * vocab floats) are bit-identical to
+ * n separate sn_model_step calls. snap = keep Mamba snapshots so the tail can be dropped with sn_model_rollback
+ * (base = the position before the call, keep = how many of the n tokens stay). */
+int sn_model_step_n(sn_model *m, const int *tokens, int n, float *logits_all, int snap);
+int sn_model_rollback(sn_model *m, int base, int keep, int n);
+
+/* Speculative decoding with the checkpoint's MTP head (greedy only). sn_model_mtp_enable(m, 1) fails (-1) when the pack has
+ * no complete head. One cycle consumes cur (the token already chosen from the last logits) plus the accepted drafts,
+ * returns how many drafts were accepted (they are in acc[]), and leaves logits_out exactly as plain stepping would. The
+ * output is token-identical to plain greedy stepping; only the speed changes. */
+int sn_model_has_mtp(const sn_model *m);
+int sn_model_mtp_on(const sn_model *m);
+int sn_model_mtp_enable(sn_model *m, int on);
+int sn_model_spec_cycle(sn_model *m, int cur, int kmax, int stop_a, int stop_b, int *acc, float *logits_out);
+int sn_model_spec_verify(sn_model *m, int cur, const int *d, int kmax, int stop_a, int stop_b, int *acc, float *logits_out);
+void sn_model_set_probe(sn_model *m, float *buf);   /* tests: the last token's hidden after each layer lands in buf[layer * hidden] */
+void sn_model_spec_stats(const sn_model *m, long *cycles, long *drafted, long *accepted);
 /* Optional telemetry: called per layer entered and per MoE routing. */
 typedef void (*sn_layer_cb)(void *user, int layer, char type);
 typedef void (*sn_moe_cb)(void *user, int layer, const int *experts, int k);
 void sn_model_set_hooks(sn_model *m, sn_layer_cb on_layer, sn_moe_cb on_moe, void *user);
 
 #endif
+

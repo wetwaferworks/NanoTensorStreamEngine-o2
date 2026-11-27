@@ -49,7 +49,8 @@ static void add(const char *fmt, int a, int b, int f32, int nd, uint64_t s0, uin
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) { fprintf(stderr, "usage: sn_mktiny OUT_DIR\n"); return 2; }
+    int with_mtp = argc == 3 && !strcmp(argv[2], "--mtp");
+    if (argc != 2 && !with_mtp) { fprintf(stderr, "usage: sn_mktiny OUT_DIR [--mtp]\n"); return 2; }
     add("language_model.backbone.embeddings.weight%.0d%.0d", 0, 0, 0, 2, VOCAB, HID, 0, 0.5f, 0);
     add("language_model.lm_head.weight%.0d%.0d", 0, 0, 0, 2, VOCAB, HID, 0, 0.3f, 0);
     add("language_model.backbone.norm_f.weight%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
@@ -82,8 +83,29 @@ int main(int argc, char **argv)
             }
         }
     }
-    /* header */
-    char path[1024]; snprintf(path, sizeof(path), "%s/model-00001-of-00001.safetensors", argv[1]);
+    if (with_mtp) {   /* the MTP module: layer 0 attention with the fusion, layer 1 MoE with the closing norm */
+        add("language_model.mtp.layers.0.eh_proj.weight%.0d%.0d", 0, 0, 0, 2, HID, 2 * HID, 0, 0.1f, 0);
+        add("language_model.mtp.layers.0.enorm.weight%.0d%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
+        add("language_model.mtp.layers.0.hnorm.weight%.0d%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
+        add("language_model.mtp.layers.0.norm.weight%.0d%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
+        add("language_model.mtp.layers.0.mixer.q_proj.weight%.0d%.0d", 0, 0, 0, 2, NH * AHD, HID, 0, 0.12f, 0);
+        add("language_model.mtp.layers.0.mixer.k_proj.weight%.0d%.0d", 0, 0, 0, 2, NKV * AHD, HID, 0, 0.12f, 0);
+        add("language_model.mtp.layers.0.mixer.v_proj.weight%.0d%.0d", 0, 0, 0, 2, NKV * AHD, HID, 0, 0.12f, 0);
+        add("language_model.mtp.layers.0.mixer.o_proj.weight%.0d%.0d", 0, 0, 0, 2, HID, NH * AHD, 0, 0.12f, 0);
+        add("language_model.mtp.layers.1.norm.weight%.0d%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
+        add("language_model.mtp.layers.1.final_layernorm.weight%.0d%.0d", 0, 0, 0, 1, HID, 0, 0, 0.1f, 1.0f);
+        add("language_model.mtp.layers.1.mixer.gate.weight%.0d%.0d", 0, 0, 0, 2, NE, HID, 0, 0.3f, 0);
+        add("language_model.mtp.layers.1.mixer.gate.e_score_correction_bias%.0d%.0d", 0, 0, 1, 1, NE, 0, 0, 0.05f, 0);
+        add("language_model.mtp.layers.1.mixer.fc1_latent_proj.weight%.0d%.0d", 0, 0, 0, 2, LAT, HID, 0, 0.12f, 0);
+        add("language_model.mtp.layers.1.mixer.fc2_latent_proj.weight%.0d%.0d", 0, 0, 0, 2, HID, LAT, 0, 0.12f, 0);
+        add("language_model.mtp.layers.1.mixer.shared_experts.up_proj.weight%.0d%.0d", 0, 0, 0, 2, SHARED, HID, 0, 0.12f, 0);
+        add("language_model.mtp.layers.1.mixer.shared_experts.down_proj.weight%.0d%.0d", 0, 0, 0, 2, HID, SHARED, 0, 0.12f, 0);
+        for (int e = 0; e < NE; e++) {
+            add("language_model.mtp.layers.1.mixer.experts.%d.up_proj.weight%.0d", e, 0, 0, 2, INTER, LAT, 0, 0.12f, 0);
+            add("language_model.mtp.layers.1.mixer.experts.%d.down_proj.weight%.0d", e, 0, 0, 2, LAT, INTER, 0, 0.12f, 0);
+        }
+    }
+    /* header */    char path[1024]; snprintf(path, sizeof(path), "%s/model-00001-of-00001.safetensors", argv[1]);
     FILE *f = fopen(path, "wb"); if (!f) { fprintf(stderr, "cannot write %s\n", path); return 1; }
     size_t hc = 1 << 20; char *h = (char *)malloc(hc); size_t hl = 0; uint64_t off = 0;
     hl += (size_t)snprintf(h + hl, hc - hl, "{");
@@ -122,7 +144,8 @@ int main(int argc, char **argv)
                "\"moe_intermediate_size\":%d,\"moe_latent_size\":%d,\"moe_shared_expert_intermediate_size\":%d,\"routed_scaling_factor\":2.5,"
                "\"norm_topk_prob\":true,\"layer_norm_epsilon\":1e-05,\"layers_block_type\":[", HID, VOCAB, HEADS, HDIM, STATE, GROUPS, NH, NKV, AHD, NE, TOPK, INTER, LAT, SHARED);
     for (int i = 0; i < NL; i++) fprintf(f, "%s\"%s\"", i ? "," : "", TYPES[i]);
-    fprintf(f, "]}}\n"); fclose(f);
+    fprintf(f, "]%s}}\n", with_mtp ? ",\"num_nextn_predict_layers\":1,\"mtp_layers_block_type\":[\"attention\",\"moe\"]" : ""); fclose(f);
     printf("tiny checkpoint: %d tensors\n", nt);
     return 0;
 }
+
