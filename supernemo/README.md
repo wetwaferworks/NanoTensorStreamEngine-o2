@@ -21,9 +21,9 @@ The tiny packs come from `sn_mktiny.exe DIR` (language) and `sn_mkvis.exe DIR` (
 
 ## Run
 
-    sn-engine.exe --pack D:\models\nemotron-3.5-super-vl-nanotensor\nemotron-3.5-super-vl ^
-        --config D:\models\nemotron-3.5-super-vl-120b-a12b-bf16\original\config.json ^
-        --tokenizer D:\models\nemotron-3.5-super-vl-120b-a12b-bf16\original\tokenizer.json ^
+    sn-engine.exe --pack <pack-dir>\nemotron-3.5-super-vl ^
+        --config <checkpoint-dir>\config.json ^
+        --tokenizer <checkpoint-dir>\tokenizer.json ^
         [--shapes TSV] [--threads N] [--max-pos 4096] [--max-new 256] [--think] [--below-normal]
         [--gpu-mb 3000] [--max-patches 1024] [--no-vision] [--ask "one-shot question"]
 

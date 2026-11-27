@@ -121,6 +121,22 @@ python test_gui_icons.py
 | `parakeet/tests/stdio_smoke.py` | `python parakeet\tests\stdio_smoke.py` | READY, PING, FILE, START and STOP, QUIT over `--stdio` (needs the model and its `samples\`) |
 | `parakeet/tests/gui_dictation_test.py [wav] [ref.txt]` | `python parakeet\tests\gui_dictation_test.py <wav> <ref.txt>` | the mic button end to end, with a reference WAV replayed as the microphone (needs a display, the model, and a UTF-8 reference text without a byte-order mark) |
 
+## SuperNemo suites (`supernemo/`, built by `supernemo\build.bat`)
+
+The suites run on tiny random-weight packs written by `sn_mktiny` and `nq2-quantize` (no checkpoint is needed or shipped);
+`test_sn_pqk` and `test_sn_cuda` also take a few real-shaped tensors written by `nq2-quantize` from any checkpoint.
+
+| Suite | Checks |
+|---|---|
+| `test_sn_moe`, `test_sn_image` | the MoE block math and the image preprocessing |
+| `test_sn_pqk PREFIX SHAPES` | the packed matrix kernels: multi-vector direct equals single-vector bit for bit, DTC independent of vector count, row split and file or RAM source, DTC within float noise of direct |
+| `test_sn_cuda PREFIX SHAPES` | the GPU DTC kernels are bit-identical to the CPU DTC; the VRAM cache tier uploads and drops cleanly |
+| `test_sn_model PREFIX SHAPES CONFIG` | the forward pass: deterministic, reset-reproducible, identical at 1 to 12 lanes |
+| `test_sn_spec PREFIX SHAPES CONFIG` | DTC bounds (3e-2 per layer, 5e-2 on logits, argmax equal), fused steps equal single steps, rollback, speculative output token-identical to greedy |
+| `test_sn_cache PREFIX SHAPES CONFIG` | the logits hash is identical with the expert cache off, roomy, evicting, single-lane and with the VRAM tier |
+| `test_sn_vision PREFIX SHAPES CONFIG` | the RADIO tower against a double-precision reference |
+| `sn_packcheck`, `sn_preflight` | a finished pack: every block readable and in range; geometry and tensor coverage against the checkpoint |
+
 ## Sanitizers and thread checking
 
 The C suites run silent under ASan and UBSan (a review pass in 2026-11-24). **There are no ThreadSanitizer receipts in this repository**; see [ZERO-MUTEX.md](ZERO-MUTEX.md) for what is and is not established about the zero-mutex design. Running them is on the [roadmap](ROADMAP.md).

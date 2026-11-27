@@ -42,6 +42,7 @@ tools need a POSIX-thread MinGW):
 ```
 build.bat                      :: 23 nq2 tools + the Little Nemo engine and its tests
 accel\build-accel.bat          :: GPU lanes, builds only under accel\
+supernemo\build.bat            :: SuperNemo engine (Nemotron 3.5 Super VL on a packed pack) and its tests
 parakeet\build.bat             :: parakeet-c.exe and its tests
 ```
 
@@ -131,6 +132,17 @@ Every suite, what it needs and how to run it is in
 suites; `littlenemo/tests/test_gui_*.py` run headless; `accel\build-accel.bat`
 builds the GPU suites; the pinned anchors above must reproduce exactly.
 
+## SuperNemo (Nemotron 3.5 Super VL, 120B-A12B)
+
+`supernemo/` holds a pure C, lock-free engine for the packed Super VL checkpoint: pack reader, geometry-driven forward pass
+(Mamba-2, attention and 512-expert MoE layers), the RADIO vision tower for images, an optional CUDA lane, and the same
+protocol v3 as Little Nemo so the chat window can drive it. `nq2-quantize` gained the options that pack needs
+(`--pq 4`, `--raw-names`, `--raw-small`, `--skip-unsupported`). Three speed features, each with an off switch and each
+tested for exactness on tiny random-weight models: Dense Tensor Compute straight on the packed blocks, a hot-expert cache
+(RAM and VRAM tiers) and speculative decoding with the checkpoint's MTP head. See
+[supernemo/README.md](supernemo/README.md) and [supernemo/PLAN.md](supernemo/PLAN.md). Real-pack speed is not measured
+yet, and the Super VL pack's quality is about 0.30 relative error at the recipe used.
+
 ## Roadmap
 
 The fidelity roadmap (fit the codebooks to outputs, keep critical tensors raw,
@@ -205,6 +217,8 @@ co-implementers, and Miss Archie's reviews are why it can be trusted.
   - The NEMO Chat window and the native pure-C Parakeet dictation runtime,
     both co-implemented with the other assistants.
   - The README rewrite and the guide per feature.
+  - The SuperNemo engine for Nemotron 3.5 Super VL (pack reader, forward pass, vision tower, CUDA lane,
+    DTC on packed blocks, hot-expert cache, MTP speculative decoding) and the PQ options of `nq2-quantize` it needs.
   - The polish pass that followed: the fixture-driven Little Nemo suites, the
     DTC tolerance in the per-layer test, the CUDA options in the chat
     window's settings, hidden console windows, the quantize dialog, the

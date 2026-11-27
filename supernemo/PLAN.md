@@ -2,7 +2,7 @@
 
 Goal (JD, 6:46 AM ET Nov 27): get Nemotron 3.5 Super VL 120B-A12B running in NTSE, talk to it
 for real from the NTSE chat window. Pure C, zero mutexes, no downloads, local commits only.
-Work lives in D:\scratch\ntse-o2-supervl-quant-2026-11-27 (branch scratch/supervl-quant-2026-11-27).
+Work lives in the NTSE repository under supernemo/.
 
 ## The model, as the checkpoint says it is
 

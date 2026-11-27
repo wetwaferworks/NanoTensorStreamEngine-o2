@@ -19,3 +19,11 @@ parakeet/shots/
 *.nq2book
 *.nq2manifest
 *.safetensors
+*.nq2.tmp
+/*.report.txt
+/RECIPE.txt
+*.local.ini
+testdata/
+build-*.log
+scan-*.tmp
+scan-*.txt
