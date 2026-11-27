@@ -97,11 +97,11 @@ typedef struct {
 
 enum { K_PQ, K_BF16, K_RMS, K_ADD, K_RELU2, K_CONV, K_SSM, K_GNORM, K_KVPUSH,
        K_ASCORE, K_AOUT, K_I8, K_XSUM, K_PQF, K_PQH, K_PQS, K_PQU, K_PQV, K_PQW, K_PQT, K_BW,
-       K_GT8, K_GT16, K_GX8, K_GX16, K_RMSB, K_CONVB, K_SSMB, K_GNORMB, K_KVPB, K_N };
+       K_GT8, K_GT16, K_GR8T8, K_GR8T4, K_GR2T32, K_GT8K, K_PQT1K, K_PQX4, K_GX8, K_GX16, K_RMSB, K_CONVB, K_SSMB, K_GNORMB, K_KVPB, K_N };
 static const char *const kname[K_N] = {
     "k_pq_gemv", "k_bf16_gemv", "k_rmsnorm", "k_add", "k_relu2", "k_conv",
     "k_ssm", "k_gated_norm", "k_kv_push", "k_attn_scores", "k_attn_out", "k_i8_gemv", "k_xsum16", "k_pq_gemv_fast", "k_pq_gemv_h", "k_pq_gemv_s", "k_pq_gemv_u", "k_pq_gemv_v", "k_pq_gemv_w", "k_pq_gemv_t", "k_bw",
-    "k_pq_gemm_t8", "k_pq_gemm_t16", "k_pq_gemm_x8", "k_pq_gemm_x16", "k_rmsnorm_b", "k_conv_b", "k_ssm_b", "k_gated_norm_b", "k_kv_push_b" };
+    "k_pq_gemm_t8", "k_pq_gemm_t16", "k_pq_gemm_r8t8", "k_pq_gemm_r8t4", "k_pq_gemm_r2t32", "k_pq_gemm_t8k", "k_pq_gemv_t1k", "k_pq_gemv_x4", "k_pq_gemm_x8", "k_pq_gemm_x16", "k_rmsnorm_b", "k_conv_b", "k_ssm_b", "k_gated_norm_b", "k_kv_push_b" };
 
 #define H 4480
 #define VOCAB 131072
@@ -151,7 +151,7 @@ struct nemo_gpu {
     CUdeviceptr x, h, proj, v, y, inner, mid, q, k, vv, logits;
     CUdeviceptr scores, xs;
     /* batched prefill workspace: [chunk][width] per buffer (0 = per-token prefill) */
-    int chunk, ptb;
+    int chunk, ptb, gemm_k, gemm_r, gemv_k, gemv_x;  /* tuned kernel choices (NEMO_GPU_GEMM / NEMO_GPU_GEMV) */
     CUdeviceptr bx, bh, bproj, bv, by, binner, bmid, bq, bk, bvv;
     float *emb_host;
     int exact, half_book;
@@ -592,14 +592,21 @@ static int launch_sm(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, 
     if (g_prof) { g->cu.CtxSynchronize(); t0 = now_s(); }
     int rc = ck(g, g->cu.LaunchKernel(g->fn[k], gx, gy, 1, bx, 1, 1, smem, NULL, args, NULL), kname[k]);
     if (g_prof) { g->cu.CtxSynchronize(); double dt = now_s() - t0; g_prof_t[k] += dt; g_prof_n[k]++;
-        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16)) { int ai = k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
+        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16) || k == K_PQ) { int ai = (k >= K_PQV || k == K_PQ) ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
             for (int q = 0; q < 32; q++) { if (!g_shape[q][0] || (g_shape[q][0] == rr && g_shape[q][1] == cc && g_shape_k[q] == k)) { g_shape[q][0] = rr; g_shape[q][1] = cc; g_shape_k[q] = k; g_shape_t[q] += dt; g_shape_n[q]++; break; } } } }
     return rc;
+}
+/* Decode GEMV choices: DTC t1k (default) or t (NEMO_GPU_GEMV); FULL x4
+ * (default) or x1 (NEMO_GPU_GEMV_FULL). Every choice has the same per-row
+ * summation order, so results are bit-identical; only the speed differs. */
+static void kernel_choice(nemo_gpu *g) {
+    const char *v = getenv("NEMO_GPU_GEMV"); g->gemv_k = v && !strcmp(v, "t") ? K_PQT : K_PQT1K;
+    v = getenv("NEMO_GPU_GEMV_FULL"); g->gemv_x = v && !strcmp(v, "x1") ? K_PQ : K_PQX4;
 }
 static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
     if (g->exact && w->book) {
         void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->book, &x, &y, (void *)&w->rows, (void *)&w->cols};
-        return launch(g, K_PQ, (unsigned)((w->rows + 7) / 8), 1, 256, a);
+        return launch(g, g->gemv_x, (unsigned)((w->rows + 7) / 8), 1, 256, a);
     }
     if (g->half_book == 6) {
         int P = 1;
@@ -607,6 +614,7 @@ static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
         if (P <= 8 && w->rows % (4 * P) == 0) {
             int nwarps = w->rows / 4;
             void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->bookh, &x, &y, (void *)&w->rows, (void *)&w->cols, &P};
+            if (g->gemv_k == K_PQT1K) return launch_sm(g, K_PQT1K, (unsigned)((nwarps + 31) / 32), 1, 1024, 65536u, a);
             return launch_sm(g, K_PQT, (unsigned)((nwarps + 15) / 16), 1, 512, 65536u, a);
         }
     }
@@ -745,15 +753,17 @@ static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int 
     unsigned gy = (unsigned)((n + tb - 1) / tb);
     if (g->exact && w->book) {
         void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &n};
-        return launch_sm(g, tb == 16 ? K_GX16 : K_GX8, (unsigned)((w->rows + 7) / 8), gy, 256, 0, a);
+        return launch_sm(g, K_GX16, (unsigned)((w->rows + 7) / 8), (unsigned)((n + 15) / 16), 256, 0, a);
     }
     if (g->half_book == 6) {
         int P = 1;
         while (P <= 8 && ((uint64_t)P * (uint64_t)w->cols) % 256u) P *= 2;
-        if (P <= 8 && w->rows % (4 * P) == 0) {
-            int nwarps = w->rows / 4;
+        int R = g->gemm_r;
+        if (P <= 8 && w->rows % (R * P) == 0) {
+            int nwarps = w->rows / R;
             void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->bookh, &X, &Y, (void *)&w->rows, (void *)&w->cols, &P, &n};
-            return launch_sm(g, tb == 16 ? K_GT16 : K_GT8, (unsigned)((nwarps + 15) / 16), gy, 512, 65536u, a);
+            if (g->gemm_k == K_GT8K) return launch_sm(g, K_GT8K, (unsigned)((nwarps + 31) / 32), gy, 1024, 65536u, a);
+            return launch_sm(g, g->gemm_k, (unsigned)((nwarps + 15) / 16), gy, 512, 65536u, a);
         }
     }
     /* any other kernel choice: the single-token GEMV per token (same result by construction) */
@@ -841,11 +851,17 @@ int nemo_gpu_prefill(nemo_gpu *g, const int *ids, int n) {
 static void prefill_resources(nemo_gpu *g) {
     const char *e = getenv("NEMO_GPU_PREFILL_CHUNK");
     int ch = e && *e ? atoi(e) : 64;
-    const char *t = getenv("NEMO_GPU_PREFILL_TB");
-    g->ptb = t && atoi(t) == 8 ? 8 : 16;
+    /* tile choice for the DTC GEMM: t16 (4 rows x 16 tokens, default), t8, r8t8, r8t4 */
+    const char *t = getenv("NEMO_GPU_GEMM");
+    g->gemm_k = K_GT16; g->gemm_r = 4; g->ptb = 16;
+    if (t && !strcmp(t, "t8")) { g->gemm_k = K_GT8; g->ptb = 8; }
+    else if (t && !strcmp(t, "r8t8")) { g->gemm_k = K_GR8T8; g->gemm_r = 8; g->ptb = 8; }
+    else if (t && !strcmp(t, "r8t4")) { g->gemm_k = K_GR8T4; g->gemm_r = 8; g->ptb = 4; }
+    else if (t && !strcmp(t, "r2t32")) { g->gemm_k = K_GR2T32; g->gemm_r = 2; g->ptb = 32; }
+    else if (t && !strcmp(t, "t8k")) { g->gemm_k = K_GT8K; g->ptb = 8; }
     if (ch <= 1) { g->chunk = 0; return; }
     if (ch > 512) ch = 512;
-    ch = (ch + g->ptb - 1) / g->ptb * g->ptb;   /* GEMM tiles read whole token groups */
+    ch = (ch + 31) / 32 * 32;   /* GEMM tiles read whole token groups (32 covers every tile) */
     size_t c = (size_t)ch;
     size_t need = c * 4 * ((size_t)H * 2 + PROJ + CONV + INNER * 2 + MLP + NQ * AD + NKV * AD * 2);
     size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
@@ -1015,7 +1031,10 @@ static int open_device(nemo_gpu *g, char *why, size_t wl) {
         if (g->cu.ModuleGetFunction(&g->fn[k], g->mod, kname[k])) { snprintf(why, wl, "kernel %s missing", kname[k]); return -1; }
     /* 8 = CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES; 64 KiB for the staged book. */
     if (g->half_book >= 2 && (g->cu.FuncSetAttribute(g->fn[K_PQS], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQU], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQV], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQW], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQT], 8, 65536)
-        || g->cu.FuncSetAttribute(g->fn[K_GT8], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GT16], 8, 65536))) {
+        || g->cu.FuncSetAttribute(g->fn[K_GT8], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GT16], 8, 65536)
+        || g->cu.FuncSetAttribute(g->fn[K_GR8T8], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GR8T4], 8, 65536)
+        || g->cu.FuncSetAttribute(g->fn[K_GR2T32], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GT8K], 8, 65536)
+        || g->cu.FuncSetAttribute(g->fn[K_PQT1K], 8, 65536))) {
         if (g->half_book >= 5) { snprintf(why, wl, "cannot enable 64 KiB shared memory for k_pq_gemv_w"); return -1; }
         g->half_book = 1;
     }
@@ -1029,6 +1048,7 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
     if (!g) { snprintf(why, wl, "out of memory"); return -1; }
     { const char *ex = getenv("NEMO_GPU_EXACT"); g->exact = ex && *ex == '1'; }
     { const char *hb = getenv("NEMO_GPU_BOOK"); g->half_book = g->exact ? 0 : (hb && !strcmp(hb, "fp32")) ? 0 : (hb && !strcmp(hb, "l1")) ? 1 : (hb && !strcmp(hb, "smem")) ? 2 : (hb && !strcmp(hb, "u")) ? 3 : (hb && !strcmp(hb, "v")) ? 4 : (hb && !strcmp(hb, "w")) ? 5 : 6; }
+    kernel_choice(g);
     g->layer_limit = layer_limit > 0 && layer_limit <= NLAYERS ? layer_limit : NLAYERS;
     g->max_pos = max_pos > 0 ? max_pos : 4096;
     g->info.layers = g->layer_limit; g->info.max_pos = g->max_pos;
@@ -1283,6 +1303,7 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
     nemo_gpu *g = (nemo_gpu *)calloc(1, sizeof *g);
     if (!g) { snprintf(why, wl, "out of memory"); return -1; }
     g->half_book = 6;
+    kernel_choice(g);   /* the self-test checks the kernels the engine will run */
     int rc = -1;
     synth t[2]; int nt = 0;
     float *x = NULL, *y = NULL;
