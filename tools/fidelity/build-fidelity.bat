@@ -13,6 +13,8 @@ gcc %FAST% -o build\fidelity\fid-quant.exe tools\fidelity\fid-quant.c -lm
 if errorlevel 1 goto fail
 gcc %FAST% -o build\fidelity\fid-sigma.exe tools\fidelity\fid-sigma.c -lm
 if errorlevel 1 goto fail
+gcc %FAST% -o build\fidelity\fid-distill.exe tools\fidelity\fid-distill.c -lm
+if errorlevel 1 goto fail
 gcc %FAST% -o build\fidelity\fid-hess.exe tools\fidelity\fid-hess.c -lm
 if errorlevel 1 goto fail
 gcc -O2 -std=c99 -Wall -Wextra -static -D_POSIX_C_SOURCE=200809L -o build\fidelity\fid-tok.exe tools\fidelity\fid-tok.c littlenemo\src\tokenizer.c littlenemo\src\json.c

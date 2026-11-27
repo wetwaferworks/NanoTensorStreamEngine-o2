@@ -34,11 +34,14 @@
  *   quantizes against it; with --refit each layer refits a private
  *   copy (the per-layer delta), charged as a delta only for entries
  *   that changed in float16.
+ * --delta-max T (with --share-books and --refit): the per-layer delta
+ *   keeps only the T book entries whose change matters most and is
+ *   charged per kept entry (address plus d float16 values).
  * --state DIR: also write each quantized tensor's decoder state
  *   (books, scales, codes) as DIR/<tensor>.fidq.
  * --from-state DIR (method 5's output): no quantization; every scope
  *   tensor with a DIR/<tensor>.fidq is rebuilt from it, every other
- *   one stays raw. With --hess the report still gives the errors.
+ *   one stays raw, as does any outside --only. With --hess the report still gives the errors.
  */
 #include "fid-pq.h"
 
@@ -203,6 +206,7 @@ int main(int argc, char **argv)
     cfg.damp = 0.01; cfg.rounds = 1; cfg.seed = 20261127;
     int threads = 0, no_write = 0, share = 0;
     const char *state_out = NULL, *state_in = NULL;
+    int64_t delta_max = -1;
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -228,6 +232,7 @@ int main(int argc, char **argv)
         else if (!strcmp(a, "--no-write")) no_write = 1;
         else if (!strcmp(a, "--state") && more) state_out = argv[++i];
         else if (!strcmp(a, "--from-state") && more) state_in = argv[++i];
+        else if (!strcmp(a, "--delta-max") && more) delta_max = atoll(argv[++i]);
         else if (!strcmp(a, "--threads") && more) threads = atoi(argv[++i]);
         else { fprintf(stderr, "unknown or incomplete option %s\n", a); return 1; }
     }
@@ -312,10 +317,10 @@ int main(int argc, char **argv)
     }
     FILE *rf = fopen(report, "w");
     if (!rf) { fprintf(stderr, "cannot open %s\n", report); return 1; }
-    fprintf(rf, "# fid-quant d=%d K=%d K2=%d fit=%s gptq=%d refit=%d scale_refit=%d rounds=%d damp=%g km_iters=%d sample=%lld share=%d plan=%s only=%s from_state=%s seed=%llu threads=%d\n",
+    fprintf(rf, "# fid-quant d=%d K=%d K2=%d fit=%s gptq=%d refit=%d scale_refit=%d rounds=%d damp=%g km_iters=%d sample=%lld share=%d delta_max=%lld plan=%s only=%s from_state=%s seed=%llu threads=%d\n",
             cfg.d, cfg.K, cfg.K2, cfg.fit_act ? "act" : "weight", cfg.gptq, cfg.refit,
             cfg.scale_refit, cfg.rounds, cfg.damp, cfg.km_iters, (long long)cfg.sample,
-            share, plan ? plan : "-", only ? only : "-", state_in ? state_in : "-", (unsigned long long)cfg.seed, g_fid_threads);
+            share, (long long)delta_max, plan ? plan : "-", only ? only : "-", state_in ? state_in : "-", (unsigned long long)cfg.seed, g_fid_threads);
     fprintf(rf, "tensor\trows\tcols\tmode\td\tK\tK2\tbits\tbpw\twrel\torel\tstages\tsecs\tdigest\n");
     /* method 4: shared books per projection type */
     typedef struct { char type[32]; float *b1, *b2; int d, K, K2; int64_t c; } Shared;
@@ -401,7 +406,7 @@ int main(int argc, char **argv)
                 if (rc < 0) { fprintf(stderr, "bad state file %s\n", sp); return 1; }
                 if (rc == 0 && (fst.r != r || fst.c != c)) { fprintf(stderr, "state %s has the wrong shape\n", sp); return 1; }
                 have_fst = rc == 0;
-                raw = !have_fst;
+                raw = !have_fst || !list_match(t->name, only);
                 if (have_fst) { tc.d = fst.d; tc.K = fst.K; tc.K2 = fst.K2; }
             }
             if (raw) {
@@ -451,12 +456,54 @@ int main(int argc, char **argv)
             }
             double bits = ps.bits;
             if (S && tc.ext_b1 && tc.refit > 0) {
-                /* per-layer delta: entries whose float16 value moved */
-                int64_t n1 = st.nsub * (int64_t)st.K * st.d, n2 = st.nsub * (int64_t)st.K2 * st.d, ch = 0;
-                for (int64_t k = 0; k < n1; k++) ch += st.b1[k] != S->b1[k];
-                for (int64_t k = 0; k < n2; k++) ch += st.b2[k] != S->b2[k];
-                /* changed entries: a 1-bit presence map over entries plus 16 bits per changed value */
-                bits += (double)(st.nsub * (int64_t)(st.K + st.K2)) + 16.0 * ch;
+                int64_t ne1 = st.nsub * (int64_t)st.K, ne2 = st.nsub * (int64_t)st.K2, ne = ne1 + ne2;
+                if (delta_max >= 0) {
+                    /* a small delta: keep only the delta_max entries whose change
+                     * matters most (squared change times how many subvectors
+                     * use the entry), revert the rest to the shared book, and
+                     * charge each kept entry its address plus d float16 values */
+                    double *score = (double *)fid_calloc(ne, sizeof(double));
+                    int64_t *use = (int64_t *)fid_calloc(ne, sizeof(int64_t));
+                    for (int64_t row = 0; row < r; row++)
+                        for (int64_t g = 0; g < st.ng; g++) {
+                            int64_t sub = (g * st.d % FID_BLOCK) / st.d;
+                            use[sub * st.K + st.k1[row * st.ng + g]]++;
+                            if (st.K2) use[ne1 + sub * st.K2 + st.k2[row * st.ng + g]]++;
+                        }
+                    for (int64_t e = 0; e < ne; e++) {
+                        const float *a = e < ne1 ? st.b1 + e * st.d : st.b2 + (e - ne1) * st.d;
+                        const float *b = e < ne1 ? S->b1 + e * st.d : S->b2 + (e - ne1) * st.d;
+                        double dd = 0;
+                        for (int j = 0; j < st.d; j++) dd += ((double)a[j] - b[j]) * ((double)a[j] - b[j]);
+                        score[e] = dd * (double)use[e];
+                    }
+                    /* threshold: the delta_max-th largest score (ties: lower index wins) */
+                    int64_t kept = 0;
+                    char *keep = (char *)fid_calloc(ne, 1);
+                    for (int64_t it = 0; it < delta_max && it < ne; it++) {
+                        int64_t best = -1;
+                        for (int64_t e = 0; e < ne; e++)
+                            if (!keep[e] && score[e] > 0 && (best < 0 || score[e] > score[best])) best = e;
+                        if (best < 0) break;
+                        keep[best] = 1; kept++;
+                    }
+                    for (int64_t e = 0; e < ne; e++) {
+                        if (keep[e]) continue;
+                        float *a = e < ne1 ? st.b1 + e * st.d : st.b2 + (e - ne1) * st.d;
+                        const float *b = e < ne1 ? S->b1 + e * st.d : S->b2 + (e - ne1) * st.d;
+                        memcpy(a, b, sizeof(float) * st.d);
+                    }
+                    pq_finish(W, use_h ? H : NULL, &st, Q, &ps);
+                    bits += (double)kept * (pq_ilog2((int)ne) + 16.0 * st.d);
+                    free(score); free(use); free(keep);
+                } else {
+                    /* per-layer delta: entries whose float16 value moved */
+                    int64_t n1 = ne1 * st.d, n2 = ne2 * st.d, ch = 0;
+                    for (int64_t k = 0; k < n1; k++) ch += st.b1[k] != S->b1[k];
+                    for (int64_t k = 0; k < n2; k++) ch += st.b2[k] != S->b2[k];
+                    /* changed entries: a 1-bit presence map over entries plus 16 bits per changed value */
+                    bits += (double)ne + 16.0 * ch;
+                }
             }
             tot_bits += bits;
             for (int64_t k = 0; k < r * c; k++) {

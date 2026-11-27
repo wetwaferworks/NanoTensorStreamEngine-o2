@@ -1,0 +1,122 @@
+# fidelity queue 1: calibration, method 1 and baselines, sensitivity sweep
+calib	build\fidelity\fid-sigma.exe --dir sigma-3b --teacher data\fidelity\text\calib-all.ids --gammas 6,3,0,-3 --threads {T} --hess-out data\fidelity\hess --write-ref data\fidelity\ref\calib-raw.f32
+w4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\w4 --report data\fidelity\runs\w4.quant.tsv --hess data\fidelity\hess --fit weight --d 4 --K 256 --threads {T}
+w4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\w4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\w4.tsv
+w4.rm	remove-dir data\fidelity\variants\w4
+m1-4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m1-4 --report data\fidelity\runs\m1-4.quant.tsv --hess data\fidelity\hess --fit act --gptq --refit 20 --scale-refit --d 4 --K 256 --state data\fidelity\states\m1-4 --threads {T}
+m1-4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m1-4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m1-4.tsv
+m1-4.rm	remove-dir data\fidelity\variants\m1-4
+a4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\a4 --report data\fidelity\runs\a4.quant.tsv --hess data\fidelity\hess --fit act --d 4 --K 256 --threads {T}
+a4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\a4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\a4.tsv
+a4.rm	remove-dir data\fidelity\variants\a4
+g4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\g4 --report data\fidelity\runs\g4.quant.tsv --hess data\fidelity\hess --fit act --gptq --d 4 --K 256 --threads {T}
+g4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\g4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\g4.tsv
+g4.rm	remove-dir data\fidelity\variants\g4
+w8.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\w8 --report data\fidelity\runs\w8.quant.tsv --hess data\fidelity\hess --fit weight --d 8 --K 256 --threads {T}
+w8.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\w8 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\w8.tsv
+w8.rm	remove-dir data\fidelity\variants\w8
+m1-8.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m1-8 --report data\fidelity\runs\m1-8.quant.tsv --hess data\fidelity\hess --fit act --gptq --refit 20 --scale-refit --d 8 --K 256 --state data\fidelity\states\m1-8 --threads {T}
+m1-8.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m1-8 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m1-8.tsv
+m1-8.rm	remove-dir data\fidelity\variants\m1-8
+sw-L00.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L00 --report data\fidelity\runs\sw-L00.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.0. --threads {T}
+sw-L00.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L00 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L00.tsv
+sw-L00.rm	remove-dir data\fidelity\variants\sw-L00
+sw-L01.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L01 --report data\fidelity\runs\sw-L01.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.1. --threads {T}
+sw-L01.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L01 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L01.tsv
+sw-L01.rm	remove-dir data\fidelity\variants\sw-L01
+sw-L02.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L02 --report data\fidelity\runs\sw-L02.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.2. --threads {T}
+sw-L02.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L02 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L02.tsv
+sw-L02.rm	remove-dir data\fidelity\variants\sw-L02
+sw-L03.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L03 --report data\fidelity\runs\sw-L03.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.3. --threads {T}
+sw-L03.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L03 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L03.tsv
+sw-L03.rm	remove-dir data\fidelity\variants\sw-L03
+sw-L04.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L04 --report data\fidelity\runs\sw-L04.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.4. --threads {T}
+sw-L04.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L04 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L04.tsv
+sw-L04.rm	remove-dir data\fidelity\variants\sw-L04
+sw-L05.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L05 --report data\fidelity\runs\sw-L05.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.5. --threads {T}
+sw-L05.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L05 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L05.tsv
+sw-L05.rm	remove-dir data\fidelity\variants\sw-L05
+sw-L06.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L06 --report data\fidelity\runs\sw-L06.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.6. --threads {T}
+sw-L06.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L06 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L06.tsv
+sw-L06.rm	remove-dir data\fidelity\variants\sw-L06
+sw-L07.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L07 --report data\fidelity\runs\sw-L07.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.7. --threads {T}
+sw-L07.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L07 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L07.tsv
+sw-L07.rm	remove-dir data\fidelity\variants\sw-L07
+sw-L08.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L08 --report data\fidelity\runs\sw-L08.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.8. --threads {T}
+sw-L08.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L08 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L08.tsv
+sw-L08.rm	remove-dir data\fidelity\variants\sw-L08
+sw-L09.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L09 --report data\fidelity\runs\sw-L09.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.9. --threads {T}
+sw-L09.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L09 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L09.tsv
+sw-L09.rm	remove-dir data\fidelity\variants\sw-L09
+sw-L10.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L10 --report data\fidelity\runs\sw-L10.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.10. --threads {T}
+sw-L10.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L10 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L10.tsv
+sw-L10.rm	remove-dir data\fidelity\variants\sw-L10
+sw-L11.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L11 --report data\fidelity\runs\sw-L11.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.11. --threads {T}
+sw-L11.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L11 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L11.tsv
+sw-L11.rm	remove-dir data\fidelity\variants\sw-L11
+sw-L12.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L12 --report data\fidelity\runs\sw-L12.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.12. --threads {T}
+sw-L12.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L12 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L12.tsv
+sw-L12.rm	remove-dir data\fidelity\variants\sw-L12
+sw-L13.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L13 --report data\fidelity\runs\sw-L13.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.13. --threads {T}
+sw-L13.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L13 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L13.tsv
+sw-L13.rm	remove-dir data\fidelity\variants\sw-L13
+sw-L14.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L14 --report data\fidelity\runs\sw-L14.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.14. --threads {T}
+sw-L14.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L14 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L14.tsv
+sw-L14.rm	remove-dir data\fidelity\variants\sw-L14
+sw-L15.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L15 --report data\fidelity\runs\sw-L15.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.15. --threads {T}
+sw-L15.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L15 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L15.tsv
+sw-L15.rm	remove-dir data\fidelity\variants\sw-L15
+sw-L16.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L16 --report data\fidelity\runs\sw-L16.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.16. --threads {T}
+sw-L16.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L16 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L16.tsv
+sw-L16.rm	remove-dir data\fidelity\variants\sw-L16
+sw-L17.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L17 --report data\fidelity\runs\sw-L17.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.17. --threads {T}
+sw-L17.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L17 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L17.tsv
+sw-L17.rm	remove-dir data\fidelity\variants\sw-L17
+sw-L18.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L18 --report data\fidelity\runs\sw-L18.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.18. --threads {T}
+sw-L18.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L18 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L18.tsv
+sw-L18.rm	remove-dir data\fidelity\variants\sw-L18
+sw-L19.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L19 --report data\fidelity\runs\sw-L19.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.19. --threads {T}
+sw-L19.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L19 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L19.tsv
+sw-L19.rm	remove-dir data\fidelity\variants\sw-L19
+sw-L20.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L20 --report data\fidelity\runs\sw-L20.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.20. --threads {T}
+sw-L20.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L20 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L20.tsv
+sw-L20.rm	remove-dir data\fidelity\variants\sw-L20
+sw-L21.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L21 --report data\fidelity\runs\sw-L21.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.21. --threads {T}
+sw-L21.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L21 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L21.tsv
+sw-L21.rm	remove-dir data\fidelity\variants\sw-L21
+sw-L22.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L22 --report data\fidelity\runs\sw-L22.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.22. --threads {T}
+sw-L22.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L22 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L22.tsv
+sw-L22.rm	remove-dir data\fidelity\variants\sw-L22
+sw-L23.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L23 --report data\fidelity\runs\sw-L23.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.23. --threads {T}
+sw-L23.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L23 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L23.tsv
+sw-L23.rm	remove-dir data\fidelity\variants\sw-L23
+sw-L24.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L24 --report data\fidelity\runs\sw-L24.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.24. --threads {T}
+sw-L24.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L24 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L24.tsv
+sw-L24.rm	remove-dir data\fidelity\variants\sw-L24
+sw-L25.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-L25 --report data\fidelity\runs\sw-L25.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only encoder.layers.25. --threads {T}
+sw-L25.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-L25 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-L25.tsv
+sw-L25.rm	remove-dir data\fidelity\variants\sw-L25
+sw-head.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-head --report data\fidelity\runs\sw-head.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only diffusion_head --threads {T}
+sw-head.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-head --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-head.tsv
+sw-head.rm	remove-dir data\fidelity\variants\sw-head
+sw-q_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-q_proj --report data\fidelity\runs\sw-q_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only q_proj --threads {T}
+sw-q_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-q_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-q_proj.tsv
+sw-q_proj.rm	remove-dir data\fidelity\variants\sw-q_proj
+sw-k_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-k_proj --report data\fidelity\runs\sw-k_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only k_proj --threads {T}
+sw-k_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-k_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-k_proj.tsv
+sw-k_proj.rm	remove-dir data\fidelity\variants\sw-k_proj
+sw-v_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-v_proj --report data\fidelity\runs\sw-v_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only v_proj --threads {T}
+sw-v_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-v_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-v_proj.tsv
+sw-v_proj.rm	remove-dir data\fidelity\variants\sw-v_proj
+sw-o_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-o_proj --report data\fidelity\runs\sw-o_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only o_proj --threads {T}
+sw-o_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-o_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-o_proj.tsv
+sw-o_proj.rm	remove-dir data\fidelity\variants\sw-o_proj
+sw-gate_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-gate_proj --report data\fidelity\runs\sw-gate_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only gate_proj --threads {T}
+sw-gate_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-gate_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-gate_proj.tsv
+sw-gate_proj.rm	remove-dir data\fidelity\variants\sw-gate_proj
+sw-up_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-up_proj --report data\fidelity\runs\sw-up_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only up_proj --threads {T}
+sw-up_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-up_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-up_proj.tsv
+sw-up_proj.rm	remove-dir data\fidelity\variants\sw-up_proj
+sw-down_proj.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\sw-down_proj --report data\fidelity\runs\sw-down_proj.quant.tsv --hess data\fidelity\hess --from-state data\fidelity\states\m1-8 --only down_proj --threads {T}
+sw-down_proj.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\sw-down_proj --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --max-seqs 4 --threads {T} --out data\fidelity\runs\sw-down_proj.tsv
+sw-down_proj.rm	remove-dir data\fidelity\variants\sw-down_proj
