@@ -99,9 +99,9 @@ int main(void)
         else if (!strncmp(line, "RESET", 5)) n_reset++;
         else if (!strncmp(line, "PROMPT ", 7)) {
             n_prompt++;
-            /* A short command arrives on stdin while generation is running.
-             * poll_command() allocates a fresh buffer with cap = 0. */
-            if (!pending_cmd) {
+            /* Queue one short command during the first generation, matching
+             * poll_command() in sn_engine.c (fresh buffer, cap = 0). */
+            if (!pending_cmd && n_prompt == 1) {
                 char *pl = NULL; size_t pc = 0;
                 if (checked_getline(&pl, &pc, in) >= 0)
                     pending_cmd = pl;
