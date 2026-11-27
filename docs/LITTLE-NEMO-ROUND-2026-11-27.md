@@ -1,6 +1,6 @@
-# Little Nemo verifiable round, 2026-11-27
+# Little Nemo and SuperNemo verifiable round, 2026-11-27
 
-JD asked for a profiling and testing round with answers that can be checked. This is the Little Nemo half: 50 short questions with one gold answer each and 10 short essays graded against a fixed list of facts. The question set, rubric, graders and runner are in `littlenemo/tests/quiz/` (`questions50.json`, `essays.json`, `grade.py`, `grade_essay.py`, `run_round.py`). No model, pack or machine path is stored in the tree.
+JD asked for a profiling and testing round with answers that can be checked. This is the Little Nemo half: 50 short questions with one gold answer each and 10 short essays graded against a fixed list of facts. The question set, rubric, graders and runner are in `littlenemo/tests/quiz/` (`questions50.json`, `essays.json`, `grade.py`, `grade_essay.py`, `run_round.py`). No model, pack or machine path is stored in the tree. The SuperNemo half (5 questions and 2 essays from the same files) is [further down](#supernemo-the-same-graders-on-a-smaller-set).
 
 ## Headline
 
@@ -124,4 +124,64 @@ The first question's prefill (about 44 tokens/s) and the first essay's (about 35
 
 `python littlenemo/tests/quiz/test_round_grade.py` checks the question set and rubric without a model: every gold answer and alias passes, every listed wrong answer fails, no gold answer appears in its own prompt (so an echo cannot pass), element symbols are matched case-sensitively, and a sample essay with a forbidden claim fails. The full essay texts and per-item numbers from this run stay in the private run folder with the other run data.
 
+## SuperNemo, the same graders on a smaller set
+
+JD asked for 5 questions and 2 essays on SuperNemo, since it runs at well under one token per second. The items come from the same files and are graded the same way: questions 5, 15, 28, 31 and 44 (one each from math, capitals, element symbols, dates and science, four of them ones the Little Nemo pack got wrong or that are easy to confuse), and essays 3 (seasons) and 7 (DNA).
+
+| Part | Score | Notes |
+|---|---|---|
+| 5 short questions | **5/5** | every answer was the bare gold answer and the turn ended on its own |
+| 2 essays | **2/2 pass**, 11 of 13 required facts | no forbidden claim; both essays ended on their own (119 and 154 tokens) |
+
+| # | Gold | SuperNemo said | Little Nemo pack said |
+|---|---|---|---|
+| 5 | 12 | 12 | 42 |
+| 15 | Canberra | Canberra | Canberra (in a sentence) |
+| 28 | He | He | He (in a sentence) |
+| 31 | 1776 | 1776 | 1789 |
+| 44 | Jupiter | Jupiter | Earth |
+
+| # | Topic | Facts | Missing | Read by hand |
+|---|---|---|---|---|
+| 3 | seasons | 4/5 | hemispheres | correct and on point (tilt of about 23.5 degrees, not distance, orbit, sunlight); the word "hemisphere" came out misspelled as "Hemisium" twice, so the hemisphere fact did not match; "the tilt changes" is loose wording for the tilt's direction relative to the Sun |
+| 7 | DNA | 7/8 | nucleotides | double helix, sugar-phosphate backbone, all four bases, A with T and C with G, Watson and Crick 1953; "deoxyribonucleic" came out as "deoxyriucleic" |
+
+The two misspellings are the only visible damage; they look like single dropped or swapped tokens, which fits the 2.2-bit pack noise rather than a knowledge gap.
+
+### Conditions
+
+- Engine: `sn-engine` built from the scratch branch with the loader fix (`supernemo: accept raw k and v projections`), into a private build folder; the binaries the post-pack script uses were not touched.
+- Pack: the new SuperVL pack (124.45B weights, per-tensor books, RMS frame, PQ d4; tensors of 1,048,576 weights or fewer kept raw).
+- CUDA lane, `--gpu-mb 3000` (273 tensors, 2830 MB resident: lm_head and the dense mixer, latent and shared projections), routed experts on the CPU, `--threads 12`, `--below-normal`, DTC on auto, RAM expert cache 4096 MB, no VRAM expert cache, speculative decoding off. Greedy, chat on, thinking off, `RESET` between items.
+- One long-lived engine per part (questions at `--max-new 16`, essays at `--max-new 320`), so the expert cache stayed warm across the items in each part.
+- Started 1:21 PM ET. A LithoKraft window was open for most of the run (it closed around 1:26 PM and a new one was open again by 1:35 PM). The GPU-quantizer runner stayed gated on the game the whole time; a gate check before and after every item found no GPU or heavy step running, so there were no pauses and no overlap.
+- `sn-engine` answers `RESET` with `DONE` and `nemo-engine` does not; the runner's `--style supernemo` reads that acknowledgement. A first attempt without it read each acknowledgement as the next answer and was discarded.
+
+### Profile
+
+| | Questions | Essays |
+|---|---|---|
+| Prefill tokens/s, per item | 0.88 to 0.96 (about 35 s for 29 to 34 tokens) | 0.97 to 0.99 (about 37 s for 35 to 37 tokens) |
+| Decode tokens/s, engine `gen_tps` per item | 0.26 to 0.33 | 0.354 and 0.355 |
+| Decode tokens/s, pooled | 0.21 (only 11 tokens in all, so the first decode step dominates) | **0.351** over 273 tokens |
+| Wall time (engine load) | 244 s (5 s) | 861 s (5 s) |
+| Engine RAM peak | 708 MB | 710 MB |
+| Whole-card VRAM peak, mean GPU load | 3685 MiB, 9% | 3822 MiB, 24% |
+
+The whole set took 1106 s (about 18.5 minutes), well under the 45-minute estimate, because the answers stopped on their own instead of running to the token caps. The essays' 0.35 tokens/s is the steady decode rate to plan with; a 320-token answer would take about 15 minutes. The GPU is mostly idle: the routed experts run on the CPU and dominate the time.
+
+### Speed probe before the run
+
+One-shot runs on a 35-token prompt (list the eight planets), 17 tokens out, each a fresh process. All four answered correctly.
+
+| Lane | Prefill tok/s | Decode tok/s | Notes |
+|---|---|---|---|
+| CUDA, `--gpu-mb 3000` | 0.78 | 0.335 | card peak 3677 MiB |
+| CUDA, speculative, draft 1 | 0.83 | 0.31 | MTP acceptance 89 percent |
+| CUDA, speculative, draft 3 | 0.82 | 0.28 | MTP acceptance 80 percent |
+| CPU only | 0.83 | 0.14 | |
+
+Speculative decoding is token-identical but slower here: verifying several tokens reads the union of their experts, and on this machine expert reads are the cost.
+
 Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.
+

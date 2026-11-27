@@ -87,10 +87,15 @@ class GpuSampler:
 
 
 def launch(args, max_new: int):
-    cmd = [args.engine, args.checkpoint, args.tokenizer, "--chat", "--max-new", str(max_new)]
-    if args.cuda_pack:
-        cmd += ["--cuda-pack", args.cuda_pack]
-    cmd += args.engine_args
+    if args.style == "supernemo":
+        # sn-engine takes named flags (--pack, --config, ...) in --engine-args;
+        # chat is on and thinking off unless --think is passed.
+        cmd = [args.engine, "--max-new", str(max_new)] + args.engine_args
+    else:
+        cmd = [args.engine, args.checkpoint, args.tokenizer, "--chat", "--max-new", str(max_new)]
+        if args.cuda_pack:
+            cmd += ["--cuda-pack", args.cuda_pack]
+        cmd += args.engine_args
     flags = 0
     if os.name == "nt" and args.priority == "belownormal":
         flags = 0x00004000  # BELOW_NORMAL_PRIORITY_CLASS
@@ -109,7 +114,7 @@ def launch(args, max_new: int):
         elif line.startswith("ERROR"):
             raise RuntimeError(line)
     hw = ""
-    if args.cuda_pack:
+    if args.cuda_pack and args.style == "nemo":
         # The CUDA engine prints its HW lane line right after READY.
         line = proc.stdout.readline().rstrip("\r\n")
         if line.startswith("HW "):
@@ -159,41 +164,95 @@ def profile(t: dict, wall: float) -> dict:
     }
 
 
+def gate(args) -> tuple[int, str]:
+    """Run the optional --gate-cmd. Exit 0 means go; any other code means
+    another job holds the machine, so the engine is closed and we wait."""
+    if not args.gate_cmd:
+        return 0, ""
+    r = subprocess.run(args.gate_cmd, shell=True, capture_output=True, text=True)
+    lines = (r.stdout or "").strip().splitlines()
+    return r.returncode, (lines[-1] if lines else "")
+
+
 def run_phase(args, items, max_new, sampler, grade_fn, label):
     t_start = time.perf_counter()
-    proc, cmd, ready, hw = launch(args, max_new)
-    t_ready = time.perf_counter()
-    print(ready, flush=True)
+    proc, cmd, ready, hw = None, None, "", ""
+    load_s = 0.0
+    launches = 0
+    pauses = []
     rows = []
+
+    def close(p):
+        if p is None:
+            return
+        try:
+            p.stdin.write("QUIT\n")
+            p.stdin.flush()
+            p.wait(timeout=60)
+        except Exception:
+            pass
+        if p.poll() is None:
+            p.kill()
+
     try:
-        for i, it in enumerate(items):
-            if i:
+        for it in items:
+            rc, why = gate(args)
+            if rc != 0:
+                # Free the GPU and cores for the other job, then wait it out.
+                close(proc)
+                proc = None
+                p0 = time.time()
+                print("%s%-2d paused: %s" % (label, it["id"], why), flush=True)
+                while rc != 0:
+                    time.sleep(args.gate_poll)
+                    rc, why2 = gate(args)
+                pauses.append({"before_item": it["id"], "reason": why,
+                               "from": time.strftime("%H:%M:%S", time.localtime(p0)),
+                               "to": time.strftime("%H:%M:%S"), "s": round(time.time() - p0, 1)})
+            if proc is None:
+                t0 = time.perf_counter()
+                proc, cmd, ready, hw = launch(args, max_new)
+                load_s += time.perf_counter() - t0
+                launches += 1
+                print(ready, flush=True)
+            elif rows:
                 proc.stdin.write("RESET\n")
                 proc.stdin.flush()
+                if args.style == "supernemo":
+                    # sn-engine answers RESET with DONE; nemo-engine sends nothing.
+                    while True:
+                        ack = proc.stdout.readline()
+                        if ack == "":
+                            raise RuntimeError("engine exited after RESET")
+                        if ack.rstrip("\r\n") == "DONE":
+                            break
+            g_before = why
             t0 = time.perf_counter()
             t = turn(proc, it["prompt"])
             t1 = time.perf_counter()
+            g_after = gate(args) if args.gate_cmd else (0, "")
             row = {"id": it["id"], "prompt": it["prompt"], "text": t["text"], "error": t["error"]}
             row.update(grade_fn(it, t["text"]))
             row["profile"] = profile(t, t1 - t0)
             row["profile"].update(sampler.window(t0, t1))
+            if args.gate_cmd:
+                row["gate_before"] = g_before
+                row["gate_after"] = g_after[1]
+                row["overlap"] = g_after[0] != 0
             rows.append(row)
             pr = row["profile"]
             print("%s%-2d %-5s prefill=%s tps  decode=%s tps  %s" % (
                 label, it["id"], row["grade"], pr["prefill_tps"], pr["decode_tps"],
                 (row.get("first_line") or row.get("topic") or "")[:60]), flush=True)
-        proc.stdin.write("QUIT\n")
-        proc.stdin.flush()
-        try:
-            proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        close(proc)
+        proc = None
     finally:
-        if proc.poll() is None:
+        if proc is not None and proc.poll() is None:
             proc.kill()
     t_end = time.perf_counter()
     return {"command": cmd, "ready": ready, "hw": hw, "max_new": max_new,
-            "load_s": round(t_ready - t_start, 3), "wall_s": round(t_end - t_start, 3),
+            "load_s": round(load_s, 3), "launches": launches, "pauses": pauses,
+            "wall_s": round(t_end - t_start, 3),
             "gpu": sampler.window(t_start, t_end), "items": rows}
 
 
@@ -236,11 +295,17 @@ def main(argv=None) -> int:
     ap.add_argument("--priority", choices=["normal", "belownormal"], default="belownormal")
     ap.add_argument("--stderr-log", default=None)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--style", choices=["nemo", "supernemo"], default="nemo",
+                    help="nemo: engine CKPT TOKENIZER --chat; supernemo: sn-engine with named flags in --engine-args")
+    ap.add_argument("--ids", default="", help="comma list of question ids to run (default all)")
+    ap.add_argument("--essay-ids", default="", help="comma list of essay ids to run (default all)")
+    ap.add_argument("--gate-cmd", default="", help="command run before and after each item; nonzero means another job holds the machine")
+    ap.add_argument("--gate-poll", type=float, default=60.0)
     ap.add_argument("--engine-args", nargs=argparse.REMAINDER, default=[])
     args = ap.parse_args(argv)
-    if not args.checkpoint:
+    if args.style == "nemo" and not args.checkpoint:
         ap.error("need --checkpoint or NEMO_CKPT")
-    if not args.tokenizer:
+    if args.checkpoint and not args.tokenizer:
         args.tokenizer = str(Path(args.checkpoint) / "tokenizer.json")
     if args.engine_args and args.engine_args[0] == "--":
         args.engine_args = args.engine_args[1:]
@@ -251,7 +316,11 @@ def main(argv=None) -> int:
     try:
         if not args.skip_questions:
             qz = json.loads(args.questions.read_text(encoding="utf-8"))
-            ph = run_phase(args, qz["questions"], args.q_max_new, sampler,
+            qsel = qz["questions"]
+            if args.ids:
+                want = {int(x) for x in args.ids.split(",")}
+                qsel = [q for q in qsel if q["id"] in want]
+            ph = run_phase(args, qsel, args.q_max_new, sampler,
                            lambda q, txt: grade_question(q, txt), "Q")
             ph["score"] = score_grades(ph["items"])
             ph["summary"] = summarize(ph["items"])
@@ -260,7 +329,11 @@ def main(argv=None) -> int:
         if not args.skip_essays:
             ez = json.loads(args.essays.read_text(encoding="utf-8"))
             pf = ez.get("pass_fraction", 0.7)
-            ph = run_phase(args, ez["essays"], args.essay_max_new, sampler,
+            esel = ez["essays"]
+            if args.essay_ids:
+                want = {int(x) for x in args.essay_ids.split(",")}
+                esel = [e for e in esel if e["id"] in want]
+            ph = run_phase(args, esel, args.essay_max_new, sampler,
                            lambda e, txt: grade_essay(e, txt, pf), "E")
             ph["score"] = score_essays(ph["items"])
             ph["summary"] = summarize(ph["items"])
