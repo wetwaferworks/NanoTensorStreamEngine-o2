@@ -27,4 +27,6 @@ for %%T in (test_mamba test_attn test_loader test_forward test_tokenizer test_to
     gcc %FLAGS% -o bin\%%T.exe tests\%%T.c %LIB% -lm
     if errorlevel 1 (echo build failed: %%T & exit /b 1)
 )
-echo built bin\nemo-engine.exe bin\nemo-inspect.exe and 12 test suites plus the fixture builder mk_fixtures in bin\
+gcc %FLAGS% -o bin\test_tokeneval.exe tests\test_tokeneval.c tests\tokeneval\score.c %LIB% -lm
+if errorlevel 1 (echo build failed: test_tokeneval & exit /b 1)
+echo built bin\nemo-engine.exe bin\nemo-inspect.exe and 13 test suites plus the fixture builder mk_fixtures in bin\

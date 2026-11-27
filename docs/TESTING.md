@@ -9,7 +9,7 @@ Every suite in the tree, what it needs, and how to run it. Suites exit nonzero o
 | `build.bat` / `build.sh` (repo root) | all 23 tools in `tools/` and Little Nemo with its suites; the threaded tools need a POSIX-thread MinGW on Windows |
 | `build-all.bat` / `build-all.sh` | the one-click name for the same build |
 | `build-experiments.bat` / `build-experiments.sh` | the research-tool subset |
-| `littlenemo/build.bat` / `build.sh` | `nemo-engine`, `nemo-inspect`, 12 suites and the fixture builder `mk_fixtures` into `littlenemo/bin/` |
+| `littlenemo/build.bat` / `build.sh` | `nemo-engine`, `nemo-inspect`, 13 suites and the fixture builder `mk_fixtures` into `littlenemo/bin/` |
 | `accel/build-accel.bat` / `build-accel.sh` | the accel suites, `ntse-accel-bench` and the Little Nemo accel smoke into `accel/bin/` (no GPU SDK needed; vendor runtimes load at run time, and with no GPU the suites run on the CPU reference) |
 | `littlenemo/gui/native/build.bat` / `build.sh` | the C scaler library and `test_nemo_scale` |
 | `parakeet/build.bat` | `parakeet-c.exe` and `parakeet-tests.exe` |
@@ -30,6 +30,7 @@ Every suite in the tree, what it needs, and how to run it. Suites exit nonzero o
 | `test_par <checkpoint_dir> [lanes] [layers]` | a checkpoint dir | multi-lane forward is memcmp-identical to the single-lane reference |
 | `test_simd <checkpoint_dir> [layers]` | a checkpoint dir | the opt-in AVX2 path: deterministic, faithful to scalar, dispatch proven by entry counters |
 | `test_prefill <checkpoint_dir> [layers]` | a checkpoint dir | layer-major prefill is bit-identical to token-by-token stepping, across a chunk boundary |
+| `test_tokeneval <fixture.json>` | `tests/fixture_tokenizer.json` | tokenizer-based eval scorer (top-1, top-5, first divergence, perplexity) and fixture encode/decode; no checkpoint |
 
 ```
 cd littlenemo
@@ -136,6 +137,14 @@ The suites run on tiny random-weight packs written by `sn_mktiny` and `nq2-quant
 | `test_sn_cache PREFIX SHAPES CONFIG` | the logits hash is identical with the expert cache off, roomy, evicting, single-lane and with the VRAM tier |
 | `test_sn_vision PREFIX SHAPES CONFIG` | the RADIO tower against a double-precision reference |
 | `sn_packcheck`, `sn_preflight` | a finished pack: every block readable and in range; geometry and tensor coverage against the checkpoint |
+
+## Little Nemo tokenizer-based eval
+
+Quality on a fixed passage of text, not the top-1 of one diffusion denoiser step: [LITTLE-NEMO-TOKENEVAL.md](LITTLE-NEMO-TOKENEVAL.md). The unit suite needs no checkpoint:
+
+    bin\test_tokeneval.exe tests\fixture_tokenizer.json
+
+A tokenizer-only gold-id check and a teacher-forced live run need a local official tokenizer.json (and, for the live path only, a checkpoint). No model path is stored in the tree. Live runs default to one thread.
 
 ## Little Nemo quiz
 

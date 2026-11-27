@@ -16,6 +16,7 @@ Start with the [project README](../README.md): the credits, an honest status tab
 | [ACCEL-CUDA.md](ACCEL-CUDA.md) | Little Nemo on CUDA: startup calibration, DTC by default, predict and expand, flags, the windowless engine, speed and quiz results |
 | [ZERO-MUTEX.md](ZERO-MUTEX.md) | the zero-mutex design, what is established and what is not |
 | [LITTLE-NEMO-ENGINE.md](LITTLE-NEMO-ENGINE.md) | the pure C Nemotron-Nano-9B-v2 engine: block math, layer-major prefill, `engine_gui`, flags |
+| [LITTLE-NEMO-TOKENEVAL.md](LITTLE-NEMO-TOKENEVAL.md) | tokenizer-based Little Nemo eval: a fixed passage, teacher-forced top-1/top-5, first divergence, perplexity, and decoded-text agreement |
 | [GUI.md](GUI.md) | the NTSE Chat GUI: models, attachments, thinking line, stats panel, themes, mascots, shape customizer, scaler, settings, shortcuts, and every protocol v3 message |
 | [DICTATION.md](DICTATION.md) | `parakeet-c` speech to text: flags, stdio protocol, microphone selection, `PARAKEET_MODEL`, streaming partials |
 | [TESTING.md](TESTING.md) | every suite and how to run it |

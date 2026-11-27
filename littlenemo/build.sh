@@ -26,4 +26,5 @@ for t in test_mamba test_attn test_loader test_forward test_tokenizer \
          test_par test_simd test_prefill mk_fixtures; do
     $CC $FLAGS -o bin/$t tests/$t.c $LIB -lm -pthread
 done
-echo "built bin/nemo-engine bin/nemo-inspect and 12 test suites plus the fixture builder mk_fixtures in bin/"
+$CC $FLAGS -o bin/test_tokeneval tests/test_tokeneval.c tests/tokeneval/score.c $LIB -lm -pthread
+echo "built bin/nemo-engine bin/nemo-inspect and 13 test suites plus the fixture builder mk_fixtures in bin/"

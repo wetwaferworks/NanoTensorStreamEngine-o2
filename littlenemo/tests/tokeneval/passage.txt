@@ -1,0 +1,3 @@
+The stream is a sequence of tokens, not a single guess at one noise level. Quality is whether the decoded text stays faithful after many next-token steps: the same sentence, the same names, the same numbers.
+
+This passage is the fixed text for Little Nemo's tokenizer-based evaluation. It is original to this repository. A model that only matches the top-1 of one step has not yet shown that it can hold a paragraph together. The score here is read from the text the tokenizer decodes, and from every next-token decision along this passage: top-1 and top-5 agreement, the first divergence, and the perplexity of the true tokens under the model's logits.

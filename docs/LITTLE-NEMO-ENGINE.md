@@ -128,7 +128,7 @@ bit-identical to the single-lane path ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
 
 - The full checkpoint is downloaded, validated, and the engine prints READY on it.
   In the 2026-11-26 bench session the real engine held a chat and a 10-question quiz
-  scored 10 of 10 (the exact prompts, grading rules and runner are in [LITTLE-NEMO-QUIZ.md](LITTLE-NEMO-QUIZ.md)). The earlier
+  scored 10 of 10 (the exact prompts, grading rules and runner are in [LITTLE-NEMO-QUIZ.md](LITTLE-NEMO-QUIZ.md)). A tokenizer-based evaluation over a fixed passage (teacher-forced top-1/top-5, first divergence, perplexity, and decoded-text agreement) is in [LITTLE-NEMO-TOKENEVAL.md](LITTLE-NEMO-TOKENEVAL.md). The earlier
   raw-scaffold battery in [LITTLE-NEMO.md](../LITTLE-NEMO.md) recorded France and
   Japan passed.
 - It runs the raw bf16 weights on the CPU at about **0.07 tokens/s**: each token
