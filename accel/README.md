@@ -1,4 +1,4 @@
-# accel/ — NTSE-o2 GPU acceleration lanes (research, scratch)
+# accel/: NTSE-o2 GPU acceleration lanes (research, scratch)
 
 Direction and idea: **JD**. Lane proposals and measurement list: **Gizmo**.
 NTSE / nq2 / the converter and Little Nemo: **Elfie**. Co-implemented by
@@ -236,7 +236,7 @@ yet.
 
 | lane | mode | ms/pass | linear tok/s ceiling | H2D bytes/token | divergence vs CPU |
 |---|---|---|---|---|---|
-| CPU reference (1 thread) | dtc-eager | 105.335 | 9.49 | — | reference |
+| CPU reference (1 thread) | dtc-eager | 105.335 | 9.49 | n/a | reference |
 | cuda | resident dtc-eager | 12.167 | **82.19** | 2,994,176 (x only) | 0 values differ, relL2 0 |
 | cuda | resident dtc-active | 12.560 | 79.62 | 2,994,176 | 0 |
 | cuda | resident dtc-direct | 114.033 | 8.77 | 2,994,176 | 0 |
@@ -329,7 +329,7 @@ pack:
 | lane | eager | active | lazy | direct | lazy vs best |
 |---|---|---|---|---|---|
 | cuda resident (warm run) | 12.635 ms / 79.14 tok/s | 12.842 / 77.87 | 13.620 / 73.42 | 112.982 / 8.85 | −7 % |
-| cuda plan, pinned, 2 slots (two runs) | 12.818–13.027 / 76.8–78.0 | 12.712–14.516 / 68.9–78.7 | 15.116–15.244 / 65.6–66.2 | — | −15 % |
+| cuda plan, pinned, 2 slots (two runs) | 12.818–13.027 / 76.8–78.0 | 12.712–14.516 / 68.9–78.7 | 15.116–15.244 / 65.6–66.2 | n/a | −15 % |
 | opencl-gpu resident | 14.786 / 67.63 | 14.930 / 66.98 | 17.938 / 55.75 | 95.368 / 10.49 | −18 % |
 | opencl-igpu resident | 54.493 / 18.35 | 54.275 / 18.42 | 68.563 / 14.59 | 927.129 / 1.08 | −21 % |
 
@@ -384,15 +384,15 @@ hardware and driver as above; GPU 48.9–53.8 °C, max 27.8 W CUDA /
 
 | lane | path | slots | ms/pass | linear tok/s ceiling | H2D bytes/token |
 |---|---|---|---|---|---|
-| cuda | resident (reference) | — | 12.396 | 80.67 | 2,994,176 |
+| cuda | resident (reference) | n/a | 12.396 | 80.67 | 2,994,176 |
 | cuda | old stream | 2 | 125.547 | 7.97 | 168,949,504 |
 | cuda | **plan, pinned image, eager** | 1 / **2** / 3 | 18.239 / **13.090** / 12.982 | 54.83 / **76.40** / 77.03 | 71,026,688 |
 | cuda | plan, pinned image, active | 1 / 2 / 3 | 17.669 / 12.712 / 13.110 | 56.60 / 78.66 / 76.28 | 71,026,688 |
 | cuda | plan, pageable image, eager | 1 / 2 / 3 | 23.864 / 17.359 / 16.979 | 41.90 / 57.61 / 58.90 | 71,026,688 |
-| opencl-gpu | resident | — | 14.485 | 69.04 | 2,994,176 |
+| opencl-gpu | resident | n/a | 14.485 | 69.04 | 2,994,176 |
 | opencl-gpu | old stream | 2 | 132.101 | 7.57 | 168,949,504 |
 | opencl-gpu | plan, pinned, eager | 1 / 2 / 3 | 31.700 / 24.627 / 24.690 | 31.55 / 40.61 / 40.50 | 71,026,688 |
-| opencl-igpu | resident | — | 58.593 | 17.07 | 2,994,176 |
+| opencl-igpu | resident | n/a | 58.593 | 17.07 | 2,994,176 |
 | opencl-igpu | plan, pinned / pageable, eager, 2 slots | 2 | 67.433 / 69.190 | 14.83 / 14.45 | 71,026,688 |
 
 All 36 plan rows: on device, `differ_vs_cpu = 0` (bit-identical to the

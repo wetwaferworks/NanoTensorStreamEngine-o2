@@ -23,8 +23,8 @@ them. See THEMES.md.
    `gui/icons/`. `builtin:<key>` and `theme-strip:<theme-id>` are also
    accepted.
 2. Any pack folder (or `.png` strip) inside `gui/icons/` or a `icons/`
-   folder beside the settings file — these appear in the icon picker,
-   along with each official theme's thinking strip.
+   folder beside the settings file (these appear in the icon picker,
+   along with each official theme's thinking strip).
 3. Built-in ids: `builtin:supernemo`, `builtin:littlenemo`, `builtin:default`.
 
 An empty `icon=` means "use the procedural thinking shape" (see the
