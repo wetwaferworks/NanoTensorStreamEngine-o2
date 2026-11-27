@@ -75,12 +75,13 @@ started workers is served serially on the caller.
 - Thread creation itself uses `CreateThread` / `pthread_create`; there is no
   blocking primitive after that.
 - **Sanitizer records.** This repository carries no ThreadSanitizer run record.
-  The Precision Gate status notes record one intermittent failure that is still
-  open: under the gate engine at `--threads 1`, one of two attempts faulted at the
-  first pass boundary ("the prior pass did not drain"); an identical rerun
-  completed with the anchor token, and the unmodified base engine at `--threads 1`
-  completed cleanly. Root cause undetermined; the transplant crew is told to
-  instrument the boundary before the live-tree gate. The DTC hostile-geometry fuzz
+  The Precision Gate `--threads 1` phase-boundary fault recorded on 2026-11-25
+  ("the prior pass did not drain"; ordinal 0's slot still claimed) had a
+  determined cause: `pipe_pass_boundary()` ran twice at ordinal 0 in one pass,
+  because both `matmul_pipe` and the consume path asked for it. The 2026-11-26
+  zero-mutex Handshake conversion counts consume ticks (`if (g_pipe.pass_consumed
+  == 0) return;`) so the boundary runs once per pass, in the scratch gate engine
+  and in the tools copy. The DTC hostile-geometry fuzz
   pass ran under ASan and UBSan with zero reports, and the Little Nemo suite is
   silent under both. Running the engines under ThreadSanitizer is on the
   [roadmap](ROADMAP.md).
@@ -94,4 +95,4 @@ started workers is served serially on the caller.
 The Tensor Handshake: idea and shape, JD. The engines that use it: Elfie. The
 zero-mutex conversion (2026-11-26): co-implemented by the assistants. Reviews that
 shaped the pool and the door: Codex (Astra 6.2) M-I5, ChatGPT 6.2 Sol H1 and H5,
-Miss Archie's Round 5.
+Miss Archie's Rounds 5 and 6.

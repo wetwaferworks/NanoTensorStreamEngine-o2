@@ -212,7 +212,7 @@ int pk_st_open(pk_st *st, const char *path) {
 #endif
     st->base = base;
     uint64_t hl; memcpy(&hl, base, 8);
-    if (hl + 8 > st->size) return -2;
+    if (st->size < 8 || hl > st->size - 8) return -2;
     const char *p = (const char *)base + 8, *e = p + hl;
     const uint8_t *data0 = base + 8 + hl;
     int cap = 1024; st->t = calloc(cap, sizeof(pk_tensor));
@@ -254,6 +254,7 @@ int pk_st_open(pk_st *st, const char *path) {
                 if (isshape) t->ndim = k;
             } else p = skip_value(p, e);
         }
+        if (off0 > off1 || off1 > (uint64_t)st->size - 8 - hl) return -7;
         t->data = data0 + off0; t->nbytes = (size_t)(off1 - off0);
         st->n++;
     }

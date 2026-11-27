@@ -1,5 +1,6 @@
 /* parakeet-c unit tests (no weights needed; extra checks run if a model dir is given) */
 #include "../src/pk.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -80,6 +81,54 @@ static void test_spm_synth(void) {
     CHECK(!strcmp(s, "Hello, JD."), "spm detok synthetic -> '%s'", s); free(s);
 }
 
+
+static int write_st(const char *path, const char *json, const void *data, size_t dn) {
+    uint64_t hl = (uint64_t)strlen(json);
+    FILE *f = fopen(path, "wb"); if (!f) return -1;
+    uint8_t b[8]; for (int i = 0; i < 8; i++) b[i] = (uint8_t)(hl >> (8 * i));
+    int bad = fwrite(b, 1, 8, f) != 8 || fwrite(json, 1, (size_t)hl, f) != (size_t)hl
+        || (dn && fwrite(data, 1, dn, f) != dn);
+    if (fclose(f)) bad = 1;
+    return bad ? -1 : 0;
+}
+static void test_st_bounds(void) {
+    const char *okj = "{\"w\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,4]}}";
+    float one = 1.0f;
+    pk_st st;
+    if (write_st("pk_st_ok.st", okj, &one, 4)) { CHECK(0, "write valid safetensors"); return; }
+    int rc = pk_st_open(&st, "pk_st_ok.st");
+    CHECK(rc == 0 && st.n == 1 && st.t[0].nbytes == 4, "pk_st_open accepts a valid one-tensor file (rc=%d n=%d nbytes=%zu)", rc, rc ? -1 : st.n, rc ? 0 : st.t[0].nbytes);
+    pk_st_close(&st);
+    remove("pk_st_ok.st");
+
+    const char *rev = "{\"w\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[4,0]}}";
+    if (write_st("pk_st_rev.st", rev, &one, 4) == 0) {
+        rc = pk_st_open(&st, "pk_st_rev.st");
+        CHECK(rc == -7, "pk_st_open refuses off0 > off1 (rc=%d)", rc);
+        pk_st_close(&st);
+        remove("pk_st_rev.st");
+    }
+    const char *past = "{\"w\":{\"dtype\":\"F32\",\"shape\":[1],\"data_offsets\":[0,64]}}";
+    if (write_st("pk_st_past.st", past, &one, 4) == 0) {
+        rc = pk_st_open(&st, "pk_st_past.st");
+        CHECK(rc == -7, "pk_st_open refuses off1 past the file (rc=%d)", rc);
+        pk_st_close(&st);
+        remove("pk_st_past.st");
+    }
+    {
+        FILE *f = fopen("pk_st_wrap.st", "wb");
+        uint64_t hl = ~(uint64_t)0; uint8_t b[8];
+        for (int i = 0; i < 8; i++) b[i] = (uint8_t)(hl >> (8 * i));
+        /* 8-byte header plus 8 dummy bytes: the old hl+8 check wraps and would accept this. */
+        if (f && fwrite(b, 1, 8, f) == 8 && fwrite("xxxxxxxx", 1, 8, f) == 8 && fclose(f) == 0) {
+            rc = pk_st_open(&st, "pk_st_wrap.st");
+            CHECK(rc == -2, "pk_st_open refuses a wrapping header length (rc=%d)", rc);
+            pk_st_close(&st);
+        } else CHECK(0, "write wrapping-header file");
+        remove("pk_st_wrap.st");
+    }
+}
+
 static void test_with_model(const char *dir) {
     pk_model m; if (pk_model_load(&m, dir)) { CHECK(0, "model load %s", dir); return; }
     CHECK(m.n_layers == 24 && m.d_model == 1024 && m.n_heads == 8 && m.vocab == 1024 && m.is_tdt == 1 && m.n_dur == 5,
@@ -95,7 +144,7 @@ static void test_with_model(const char *dir) {
 }
 
 int main(int argc, char **argv) {
-    test_fft(); test_gemm(1); test_gemm(8); test_pool(); test_resample(); test_wav(); test_mel_synthetic(); test_spm_synth();
+    test_fft(); test_gemm(1); test_gemm(8); test_pool(); test_resample(); test_wav(); test_mel_synthetic(); test_spm_synth(); test_st_bounds();
     if (argc > 1) test_with_model(argv[1]);
     printf("%d PASS / %d FAIL\n", passes, fails);
     return fails ? 1 : 0;

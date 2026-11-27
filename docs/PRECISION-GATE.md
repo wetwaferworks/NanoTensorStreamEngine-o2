@@ -123,7 +123,9 @@ introduces a race into the arithmetic.
 | Evidence, raw | token 75768, ticks in agreement, gate inert: PASS |
 | Fast with the calibration sidecar | token 122388, 130 of 130 layer consumptions via DTC, 1 m 53 s wall: PASS |
 | Auto | token 122388; "2 evaluations, 1 escalations, 0 resyncs; layer consumptions via DTC 72 of 156"; 12 m 12 s wall: PASS as a run |
-| Auto at `--threads 1` | first attempt FAULTED at the first pass boundary in 4 s ("the prior pass did not drain"); an identical rerun completed with token 122388. **Intermittent, open.** The unmodified base engine at `--threads 1` completed cleanly |
+| Auto at `--threads 1` | 2026-11-25 record: first attempt FAULTED at the first pass boundary in 4 s ("the prior pass did not drain"); an identical rerun completed with token 122388. The unmodified base engine at `--threads 1` completed cleanly. **Fixed 2026-11-26:** `pipe_pass_boundary()` was called twice at ordinal 0; the consume-tick count (`pass_consumed == 0`) makes later calls a no-op, in the scratch impl and the tools copy |
+
+The `--threads 1` fault in the table is the 2026-11-25 scratch record. The root cause (a second `pipe_pass_boundary()` call at ordinal 0 while the fresh pass was already in motion) was fixed on 2026-11-26 in the zero-mutex Handshake conversion; it is no longer an open issue.
 
 First calibration (Sigma pack, scratch measuring vehicle): `tie_epsilon` 35.076,
 drift budget 1.277, per-layer divergence from 7.89e-02 at layer 0 to a peak of
