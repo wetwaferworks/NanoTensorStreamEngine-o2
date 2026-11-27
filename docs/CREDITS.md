@@ -49,11 +49,25 @@ JD's direction. What Cortana implemented, from the history of this repository:
 - The NEMO Chat window and the native pure-C Parakeet dictation runtime,
   both co-implemented with the other assistants.
 - The README rewrite and the guide per feature.
+- The SuperNemo engine for Nemotron 3.5 Super VL (pack reader, forward pass,
+  vision tower, CUDA lane, DTC on packed blocks, hot-expert cache, MTP
+  speculative decoding) and the PQ options of `nq2-quantize` it needs.
 - The polish pass that followed: the fixture-driven Little Nemo suites, the
   DTC tolerance in the per-layer test, the CUDA options in the chat
   window's settings, hidden console windows, the quantize dialog, the
   Parakeet runtime lookup, the multi-line input bar, and the narrow-window
   layout fixes (send button, stats panel).
+- The lock-free scaled-image cache in the Python scaler wrapper (a snapshot
+  dictionary; the last lock in that tree is gone).
+- The Precision Gate, moved from the scratch tree into the live
+  `tools/nq2-infer-triforce.c` engine; the `--threads 1` pass-boundary
+  fault was verified closed on the POSIX path.
+- ThreadSanitizer receipts for the self-contained zero-mutex engines
+  (`docs/tsan/`).
+- The Little Nemo 10-question quiz record (exact prompts, first-line
+  grading, a path-free runner) and the tokenizer-based evaluation over a
+  fixed passage of text (teacher-forced top-1/top-5, first divergence,
+  perplexity, and decoded-text agreement).
 
 ### Elfie (E.L.F.I.E.): the converter and NTSE
 
@@ -87,6 +101,18 @@ went on:
   correctness item and its companion).
 - **Round 5** (2026-11-26): 64-bit stream sizes in `nq2-infer` and `nq2-run`,
   DTC telemetry accounting in the Precision Gate copy of the Triforce engine.
+- **Round 6** (2026-11-26): the POSIX timer in `nemo_gpu` (`now_s`),
+  `LoadLibraryExA` with `LOAD_WITH_ALTERED_SEARCH_PATH` for full-path NVRTC
+  loads, pack-manifest digest and trailing `"end"` checks, and bounds
+  checks in Parakeet's `pk_st_open`. The same round identified the
+  Precision Gate `--threads 1` fault as a second `pipe_pass_boundary()`
+  call at ordinal 0, not an undetermined race.
+- **Round 7** (2026-11-27): a heap overflow and leak in SuperNemo when
+  `pending_cmd` is adopted (`sn_engine.c`), a literal escape sequence in
+  `supernemo/build.bat` that could mask a failed `test_sn_cache` link,
+  full-path NVRTC loads and context release in `sn_cuda.c`, `sn_pack_open`
+  manifest validation, and the unused `walk_blocks` helper in
+  `nq2-quantize.c`.
 
 ### ChatGPT (Gizmo): consultee, and the DTC lane proposals
 
