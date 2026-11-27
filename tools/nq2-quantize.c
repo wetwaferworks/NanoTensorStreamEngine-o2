@@ -469,33 +469,6 @@ static int name_in_filter(const char *name, const char *filter)
 
 typedef void (*BlockFn)(const float *raw_block, void *ctx);
 
-/* Walk every block of every in-scope tensor, slab by slab, and
- * hand each raw block to fn. Tail weights that do not fill a
- * block are not packed (counted and reported by main). */
-static void walk_blocks(uint32_t block, BlockFn fn, void *ctx)
-{
-    const uint64_t SLAB = 4096;   /* blocks per read slab */
-    float *buf = (float *)malloc(SLAB * block * sizeof(float));
-    if (!buf) { fprintf(stderr, "out of memory\n"); exit(1); }
-    for (int s = 0; s < g_n_scope; s++) {
-        Shard *sh = g_scope[s].shard;
-        TensorInfo *t = g_scope[s].tensor;
-        uint64_t tb = t->count / block;
-        for (uint64_t base = 0; base < tb; base += SLAB) {
-            uint64_t want = tb - base;
-            if (want > SLAB) want = SLAB;
-            if (tensor_read(sh, t, base * block, want * block, buf) != 0) {
-                fprintf(stderr, "read failed on %s\n", t->name);
-                free(buf);
-                exit(1);
-            }
-            for (uint64_t b = 0; b < want; b++)
-                fn(buf + b * block, ctx);
-        }
-    }
-    free(buf);
-}
-
 /* Normalization mode: 0 = min-max (default; normalized values in
  * [0,1], frame = min + range), 1 = RMS (no offset; normalized =
  * raw / block RMS, frame stored as min 0 + scale RMS, so the stream
