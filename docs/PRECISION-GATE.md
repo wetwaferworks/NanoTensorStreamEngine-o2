@@ -143,6 +143,19 @@ vehicle audited, before the default posture flips to Auto** (plan section 8: an
 agreement battery, speed retention, a long-chain test, tie injection and anchor
 discipline).
 
+## Record notes (2026-11-27)
+
+**Frozen forensic engine.** `tools/nq2-infer-triforce-dbg.c` was frozen at
+commit `04a4640` as evidence of the bisected Triforce failure (SHA-256
+`f09b813d32c201f609391f65de33e0547ef6a419357c6f73c0c6ef5d39f7c700`, the hash in
+`MANIFEST-SHA256.txt`). Commit `ef39281` (2026-11-26, the zero-mutex Handshake
+conversion) rewrote that file in place, so the record pointed at evidence that
+no longer matched it. The frozen bytes are restored unchanged at
+`tools/frozen/nq2-infer-triforce-dbg.04a4640.c.txt` (not compiled; see
+[tools/frozen/README.md](../tools/frozen/README.md)). The zero-mutex rewrite
+stays at `tools/nq2-infer-triforce-dbg.c` and is the buildable debug tool; it
+supersedes the frozen copy as something to run, never as evidence.
+
 ## Credits
 
 Directed by JD (2026-11-25). Plan and design: Elfie. Scratch-phase implementation

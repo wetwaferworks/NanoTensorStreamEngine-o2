@@ -97,6 +97,11 @@ started workers is served serially on the caller.
   `CRITICAL_SECTION`, `SRWLOCK`, `CONDITION_VARIABLE`, `CreateMutex`,
   `CreateEvent`) across the C sources finds none, and the Python scaler cache
   no longer takes a lock either.
+- One file in the tree does hold locks, on purpose:
+  `tools/frozen/nq2-infer-triforce-dbg.04a4640.c.txt`, the 2026-11-24 Triforce
+  debug engine kept byte for byte as forensic evidence. It is not C source by
+  name and is never compiled. The `nq2-infer-triforce-dbg` the builds produce
+  comes from the zero-mutex `tools/nq2-infer-triforce-dbg.c` (`ef39281`).
 
 ## Credits
 
