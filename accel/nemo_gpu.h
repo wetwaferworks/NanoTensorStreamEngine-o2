@@ -3,7 +3,9 @@
  * Weights: the NTSE .nq2 format-v3 PQ pack (d=4, K=256, block 256,
  * per-tensor books) for every 2-D layer projection, resident on the
  * GPU and dequantized on the fly inside the GEMV (no W is ever
- * materialized). Norms, conv, SSM parameters, embeddings and lm_head
+ * materialized). An expanded pack also carries "<name>.refine"
+ * tensors for chosen projections (the packed residual against the
+ * original weights); their GEMV is added to the base one. Norms, conv, SSM parameters, embeddings and lm_head
  * come from the checkpoint directory (bf16). The lm_head is resident on
  * the GPU as bf16, or as int8 with one scale per row when the bf16 copy
  * does not fit in free VRAM (NEMO_GPU_HEAD, engine flag --lm-head). The
@@ -35,6 +37,8 @@ typedef struct {
     int head_int8;             /* 1: lm_head stored int8 per-row scaled (bf16 did not fit) */
     int full_ok;               /* 1: the full (bf16-faithful decode) kernel can run: EXPAND possible */
     int snap_ok;               /* 1: a step can be snapshotted and redone at full precision */
+    int refine_tensors;        /* expanded pack: projections carrying a refinement tensor */
+    uint64_t refine_bytes;     /* of pack_bytes, the refinement tensors' share */
 } nemo_gpu_info;
 
 /* Open the CUDA lane and upload everything. ckpt_dir must hold the

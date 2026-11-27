@@ -1,0 +1,59 @@
+# Little Nemo expansion probe, 2026-11-27. id, set, category, prompt, gold answer (teacher-forced).
+# tune: the 14 misses of the 2026-11-27 round plus 18 new siblings; used to rank layers.
+# hold: 24 new items never used to choose layers; checks that a choice generalizes.
+q04	tune	math	What is 72 divided by 8? Answer with just the answer.	9
+q05	tune	math	What is the square root of 144? Answer with just the answer.	12
+q08	tune	math	What is 13 times 3? Answer with just the answer.	39
+q14	tune	capital	What is the capital of Canada? Answer with just the answer.	Ottawa
+q31	tune	date	In what year was the United States Declaration of Independence adopted? Answer with just the answer.	1776
+q37	tune	units	How many grams are in one kilogram? Answer with just the answer.	1000
+q38	tune	units	How many seconds are in one hour? Answer with just the answer.	3600
+q39	tune	units	How many inches are in one foot? Answer with just the answer.	12
+q41	tune	units	How many days are in a leap year? Answer with just the answer.	366
+q42	tune	units	How many milliliters are in one liter? Answer with just the answer.	1000
+q44	tune	science	What is the largest planet in our solar system? Answer with just the answer.	Jupiter
+q45	tune	science	What planet is closest to the Sun? Answer with just the answer.	Mercury
+q48	tune	science	How many legs does an insect have? Answer with just the answer.	6
+q49	tune	science	What is the hardest natural substance? Answer with just the answer.	Diamond
+t01	tune	math	What is 56 divided by 7? Answer with just the answer.	8
+t02	tune	math	What is 9 times 8? Answer with just the answer.	72
+t03	tune	math	What is the square root of 81? Answer with just the answer.	9
+t04	tune	math	What is 14 times 3? Answer with just the answer.	42
+t05	tune	math	What is 96 divided by 12? Answer with just the answer.	8
+t06	tune	math	What is 17 plus 26? Answer with just the answer.	43
+t07	tune	units	How many minutes are in one hour? Answer with just the answer.	60
+t08	tune	units	How many hours are in one day? Answer with just the answer.	24
+t09	tune	units	How many millimeters are in one centimeter? Answer with just the answer.	10
+t10	tune	units	How many meters are in one kilometer? Answer with just the answer.	1000
+t11	tune	units	How many ounces are in one pound? Answer with just the answer.	16
+t12	tune	units	How many months are in one year? Answer with just the answer.	12
+t13	tune	fact	What is the capital of Turkey? Answer with just the answer.	Ankara
+t14	tune	fact	What is the largest ocean on Earth? Answer with just the answer.	Pacific
+t15	tune	fact	What planet is known as the Red Planet? Answer with just the answer.	Mars
+t16	tune	fact	What is the capital of Switzerland? Answer with just the answer.	Bern
+t17	tune	fact	How many legs does a spider have? Answer with just the answer.	8
+t18	tune	fact	What is the chemical symbol for copper? Answer with just the answer.	Cu
+h01	hold	math	What is 81 divided by 9? Answer with just the answer.	9
+h02	hold	math	What is 11 times 7? Answer with just the answer.	77
+h03	hold	math	What is the square root of 169? Answer with just the answer.	13
+h04	hold	math	What is 48 divided by 6? Answer with just the answer.	8
+h05	hold	math	What is 23 times 3? Answer with just the answer.	69
+h06	hold	math	What is 250 divided by 5? Answer with just the answer.	50
+h07	hold	math	What is 19 plus 23? Answer with just the answer.	42
+h08	hold	math	What is 6 times 7? Answer with just the answer.	42
+h09	hold	units	How many seconds are in one minute? Answer with just the answer.	60
+h10	hold	units	How many quarts are in one gallon? Answer with just the answer.	4
+h11	hold	units	How many weeks are in one year? Answer with just the answer.	52
+h12	hold	units	How many feet are in one mile? Answer with just the answer.	5280
+h13	hold	units	How many kilograms are in one metric ton? Answer with just the answer.	1000
+h14	hold	units	How many minutes are in one day? Answer with just the answer.	1440
+h15	hold	units	How many days are in a non-leap year? Answer with just the answer.	365
+h16	hold	units	How many centimeters are in one decimeter? Answer with just the answer.	10
+h17	hold	fact	What is the capital of Portugal? Answer with just the answer.	Lisbon
+h18	hold	fact	What is the capital of South Korea? Answer with just the answer.	Seoul
+h19	hold	fact	What is the smallest planet in our solar system? Answer with just the answer.	Mercury
+h20	hold	fact	In what year did World War II begin? Answer with just the answer.	1939
+h21	hold	fact	What is the capital of Norway? Answer with just the answer.	Oslo
+h22	hold	fact	What is the freezing point of water in degrees Celsius? Answer with just the answer.	0
+h23	hold	fact	What is the chemical symbol for carbon? Answer with just the answer.	C
+h24	hold	fact	How many sides does a hexagon have? Answer with just the answer.	6

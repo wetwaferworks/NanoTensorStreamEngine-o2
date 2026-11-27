@@ -132,6 +132,7 @@ typedef struct {
     char type;
     CUdeviceptr norm_w;
     gpq p0, p1, p2, p3;                     /* M: in,out  -: up,down  *: q,k,v,o */
+    gpq r0, r1, r2, r3;                     /* expanded pack: refinement of p0..p3 (rows 0 = none) */
     CUdeviceptr conv_w, conv_b, a_log, d, dt_bias, gnorm_w;
     CUdeviceptr ssm, win;                   /* M state */
     CUdeviceptr kc, vc;                     /* * cache */
@@ -166,6 +167,9 @@ struct nemo_gpu {
     uint64_t used;
     void (*hook)(void *, int, const float *);
     void *hook_user;
+    CUdeviceptr rt, brt;                     /* refinement GEMV / GEMM outputs (expanded packs only) */
+    int nref;                                /* refinement tensors resident */
+    uint64_t ref_bytes;
     char err[256];
 };
 
@@ -563,8 +567,8 @@ static int up_mc(nemo_gpu *g, CUdeviceptr *d, const uint8_t *mn, const uint8_t *
     free(f);
     return rc;
 }
-static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o) {
-    int i = pack_find(k, name);
+static int up_pq2(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, const char *pname, int rows, int cols, gpq *o) {
+    int i = pack_find(k, pname);
     const nemo_tensor_info *t = nemo_find(cp, name);
     if (i < 0 || !t) { snprintf(g->err, sizeof g->err, "projection %s not in pack/checkpoint", name); return -1; }
     uint64_t cnt = (uint64_t)rows * cols;
@@ -588,7 +592,7 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     if (seek64(k->s, k->header + k->nblocks * (k->idxw + 2) + 2 * k->b0[i]) || fread(buf, 1, fsz, k->s) != fsz) goto done;
     h = pack_fnv(buf, fsz, h);
     if (h != k->seg_digest[i]) {
-        snprintf(g->err, sizeof g->err, "tensor %s fails its manifest segment digest", name);
+        snprintf(g->err, sizeof g->err, "tensor %s fails its manifest segment digest", pname);
         goto done;
     }
     if (legacy && up_scale(g, &o->sc, buf, nb)) goto done;
@@ -613,9 +617,28 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     }
     rc = 0;
 done:
-    if (rc && !g->err[0]) snprintf(g->err, sizeof g->err, "reading %s from the pack failed", name);
+    if (rc && !g->err[0]) snprintf(g->err, sizeof g->err, "reading %s from the pack failed", pname);
     free(buf); free(mnb);
     return rc;
+}
+static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o) {
+    return up_pq2(g, k, cp, name, name, rows, cols, o);
+}
+/* Expanded pack (2026-11-27): a projection may carry a refinement tensor
+ * "<name>.refine", the PQ-packed residual W_original - W_decoded, stored in
+ * the same pack with the same geometry. Its GEMV is added to the base
+ * GEMV's output (y = W x + R x, fixed order), so the layer computes with
+ * W + R. A pack without refinements loads exactly as before. */
+static int up_pqr(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o, gpq *r) {
+    if (up_pq(g, k, cp, name, rows, cols, o)) return -1;
+    char rn[300];
+    snprintf(rn, sizeof rn, "%s.refine", name);
+    if (pack_find(k, rn) < 0) return 0;
+    uint64_t before = g->info.pack_bytes;
+    if (up_pq2(g, k, cp, name, rn, rows, cols, r)) return -1;
+    g->nref++;
+    g->ref_bytes += g->info.pack_bytes - before;
+    return 0;
 }
 
 /* ---- launches ---- */
@@ -730,12 +753,26 @@ static int add(nemo_gpu *g, CUdeviceptr x, CUdeviceptr y, int n) {
     void *a[] = {&x, &y, &n};
     return launch(g, K_ADD, (unsigned)((n + 255) / 256), 1, 256, a);
 }
+/* Projection with its optional refinement: y = W x, then y += R x. */
+static int pqr_gemv(nemo_gpu *g, const gpq *w, const gpq *r, CUdeviceptr x, CUdeviceptr y) {
+    if (pq_gemv(g, w, x, y)) return -1;
+    if (!r->rows) return 0;
+    if (pq_gemv(g, r, x, g->rt)) return -1;
+    return add(g, y, g->rt, r->rows);
+}
+static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int n);
+static int pqr_gemm(nemo_gpu *g, const gpq *w, const gpq *r, CUdeviceptr X, CUdeviceptr Y, int n) {
+    if (pq_gemm(g, w, X, Y, n)) return -1;
+    if (!r->rows) return 0;
+    if (pq_gemm(g, r, X, g->brt, n)) return -1;
+    return add(g, Y, g->brt, r->rows * n);
+}
 
 static int run_layer(nemo_gpu *g, int l) {
     glayer *L = &g->L[l];
     if (rmsnorm(g, g->x, L->norm_w, g->h)) return -1;
     if (L->type == 'M') {
-        if (pq_gemv(g, &L->p0, g->h, g->proj)) return -1;
+        if (pqr_gemv(g, &L->p0, &L->r0, g->h, g->proj)) return -1;
         CUdeviceptr u = g->proj + (CUdeviceptr)INNER * 4, dt = g->proj + (CUdeviceptr)(INNER + CONV) * 4;
         int ch = CONV;
         void *ac[] = {&L->win, &u, &L->conv_w, &L->conv_b, &g->v, &ch};
@@ -747,15 +784,15 @@ static int run_layer(nemo_gpu *g, int l) {
         int gs = INNER / 8; float eps = EPSF;
         void *an[] = {&g->y, &g->proj, &L->gnorm_w, &g->inner, &gs, &eps};
         if (launch(g, K_GNORM, 8, 1, 1024, an)) return -1;
-        if (pq_gemv(g, &L->p1, g->inner, g->y)) return -1;
+        if (pqr_gemv(g, &L->p1, &L->r1, g->inner, g->y)) return -1;
     } else if (L->type == '-') {
-        if (pq_gemv(g, &L->p0, g->h, g->mid)) return -1;
+        if (pqr_gemv(g, &L->p0, &L->r0, g->h, g->mid)) return -1;
         int n = MLP;
         void *ar[] = {&g->mid, &n};
         if (launch(g, K_RELU2, (MLP + 255) / 256, 1, 256, ar)) return -1;
-        if (pq_gemv(g, &L->p1, g->mid, g->y)) return -1;
+        if (pqr_gemv(g, &L->p1, &L->r1, g->mid, g->y)) return -1;
     } else {
-        if (pq_gemv(g, &L->p0, g->h, g->q) || pq_gemv(g, &L->p1, g->h, g->k) || pq_gemv(g, &L->p2, g->h, g->vv)) return -1;
+        if (pqr_gemv(g, &L->p0, &L->r0, g->h, g->q) || pqr_gemv(g, &L->p1, &L->r1, g->h, g->k) || pqr_gemv(g, &L->p2, &L->r2, g->h, g->vv)) return -1;
         int pos = g->len, row = NKV * AD;
         void *ak[] = {&L->kc, &L->vc, &g->k, &g->vv, &pos, &row};
         if (launch(g, K_KVPUSH, (row + 255) / 256, 1, 256, ak)) return -1;
@@ -764,7 +801,7 @@ static int run_layer(nemo_gpu *g, int l) {
         if (launch(g, K_ASCORE, (unsigned)((len + 127) / 128), NQ, 128, a1)) return -1;
         void *a2[] = {&g->scores, &L->vc, &g->inner, &len, &nq, &nkv, &d, &mp};
         if (launch(g, K_AOUT, NQ, 1, AD, a2)) return -1;
-        if (pq_gemv(g, &L->p3, g->inner, g->y)) return -1;
+        if (pqr_gemv(g, &L->p3, &L->r3, g->inner, g->y)) return -1;
     }
     return add(g, g->x, g->y, H);
 }
@@ -855,7 +892,7 @@ static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
     { void *a[] = {&g->bx, &L->norm_w, &g->bh, &hn, &eps};
       if (launch_sm(g, K_RMSB, (unsigned)n, 1, 1024, 0, a)) return -1; }
     if (L->type == 'M') {
-        if (pq_gemm(g, &L->p0, g->bh, g->bproj, n)) return -1;
+        if (pqr_gemm(g, &L->p0, &L->r0, g->bh, g->bproj, n)) return -1;
         CUdeviceptr u = g->bproj + (CUdeviceptr)INNER * 4, dt = g->bproj + (CUdeviceptr)(INNER + CONV) * 4;
         int us = PROJ, os = CONV, ch = CONV;
         void *ac[] = {&L->win, &u, &us, &L->conv_w, &L->conv_b, &g->bv, &os, &ch, &n};
@@ -866,15 +903,15 @@ static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
         int gs = INNER / 8, zs = PROJ, o2 = INNER;
         void *an[] = {&g->by, &ys, &g->bproj, &zs, &L->gnorm_w, &g->binner, &o2, &gs, &eps};
         if (launch_sm(g, K_GNORMB, 8, (unsigned)n, 1024, 0, an)) return -1;
-        if (pq_gemm(g, &L->p1, g->binner, g->by, n)) return -1;
+        if (pqr_gemm(g, &L->p1, &L->r1, g->binner, g->by, n)) return -1;
     } else if (L->type == '-') {
-        if (pq_gemm(g, &L->p0, g->bh, g->bmid, n)) return -1;
+        if (pqr_gemm(g, &L->p0, &L->r0, g->bh, g->bmid, n)) return -1;
         int m = MLP * n;
         void *ar[] = {&g->bmid, &m};
         if (launch(g, K_RELU2, (unsigned)((m + 255) / 256), 1, 256, ar)) return -1;
-        if (pq_gemm(g, &L->p1, g->bmid, g->by, n)) return -1;
+        if (pqr_gemm(g, &L->p1, &L->r1, g->bmid, g->by, n)) return -1;
     } else {
-        if (pq_gemm(g, &L->p0, g->bh, g->bq, n) || pq_gemm(g, &L->p1, g->bh, g->bk, n) || pq_gemm(g, &L->p2, g->bh, g->bvv, n)) return -1;
+        if (pqr_gemm(g, &L->p0, &L->r0, g->bh, g->bq, n) || pqr_gemm(g, &L->p1, &L->r1, g->bh, g->bk, n) || pqr_gemm(g, &L->p2, &L->r2, g->bh, g->bvv, n)) return -1;
         int row = NKV * AD, pos = pos0;
         void *ak[] = {&L->kc, &L->vc, &g->bk, &g->bvv, &pos, &row};
         if (launch_sm(g, K_KVPB, (unsigned)((row + 255) / 256), (unsigned)n, 256, 0, ak)) return -1;
@@ -886,7 +923,7 @@ static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
             void *a2[] = {&g->scores, &L->vc, &ot, &len, &nq, &nkv, &d, &mp};
             if (launch(g, K_AOUT, NQ, 1, AD, a2)) return -1;
         }
-        if (pq_gemm(g, &L->p3, g->binner, g->by, n)) return -1;
+        if (pqr_gemm(g, &L->p3, &L->r3, g->binner, g->by, n)) return -1;
     }
     return add(g, g->bx, g->by, H * n);
 }
@@ -941,7 +978,7 @@ static void prefill_resources(nemo_gpu *g) {
     if (ch > 512) ch = 512;
     ch = (ch + 31) / 32 * 32;   /* GEMM tiles read whole token groups (32 covers every tile) */
     size_t c = (size_t)ch;
-    size_t need = c * 4 * ((size_t)H * 2 + PROJ + CONV + INNER * 2 + MLP + NQ * AD + NKV * AD * 2);
+    size_t need = c * 4 * ((size_t)H * 2 + PROJ + CONV + INNER * 2 + MLP + NQ * AD + NKV * AD * 2 + (g->nref ? PROJ : 0));
     size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
     if (fr < need + (48u << 20)) { g->chunk = 0; return; }
     g->emb_host = (float *)malloc(c * H * 4);
@@ -949,8 +986,8 @@ static void prefill_resources(nemo_gpu *g) {
         || dalloc(g, &g->bx, c * H * 4) || dalloc(g, &g->bh, c * H * 4) || dalloc(g, &g->bproj, c * PROJ * 4)
         || dalloc(g, &g->bv, c * CONV * 4) || dalloc(g, &g->by, c * INNER * 4) || dalloc(g, &g->binner, c * INNER * 4)
         || dalloc(g, &g->bmid, c * MLP * 4) || dalloc(g, &g->bq, c * NQ * AD * 4) || dalloc(g, &g->bk, c * NKV * AD * 4)
-        || dalloc(g, &g->bvv, c * NKV * AD * 4)) {
-        CUdeviceptr *b[] = {&g->bx, &g->bh, &g->bproj, &g->bv, &g->by, &g->binner, &g->bmid, &g->bq, &g->bk, &g->bvv};
+        || dalloc(g, &g->bvv, c * NKV * AD * 4) || (g->nref && dalloc(g, &g->brt, c * PROJ * 4))) {
+        CUdeviceptr *b[] = {&g->bx, &g->bh, &g->bproj, &g->bv, &g->by, &g->binner, &g->bmid, &g->bq, &g->bk, &g->bvv, &g->brt};
         for (size_t i = 0; i < sizeof b / sizeof b[0]; i++) if (*b[i]) { g->cu.MemFree(*b[i]); *b[i] = 0; }
         free(g->emb_host); g->emb_host = NULL;
         g->chunk = 0; return;
@@ -1012,15 +1049,15 @@ static void expand_resources(nemo_gpu *g, const pack *k) {
     else {
         size_t nf = (size_t)k->entries * k->block * sizeof(float);
         for (int l = 0; l < g->layer_limit; l++) {
-            gpq *w[4] = {&g->L[l].p0, &g->L[l].p1, &g->L[l].p2, &g->L[l].p3};
-            for (int j = 0; j < 4; j++) {
+            gpq *w[8] = {&g->L[l].p0, &g->L[l].p1, &g->L[l].p2, &g->L[l].p3, &g->L[l].r0, &g->L[l].r1, &g->L[l].r2, &g->L[l].r3};
+            for (int j = 0; j < 8; j++) {
                 if (!w[j]->rows || w[j]->book) continue;
                 size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
                 if (fr < nf + (48u << 20) || up(g, &w[j]->book, k->book + k->book_off[w[j]->pidx], nf)) {
                     snprintf(g->full_why, sizeof g->full_why, "VRAM: no room for the fp32 books (%.0f MiB free)", fr / 1048576.0);
                     for (int l2 = 0; l2 <= l; l2++) {
-                        gpq *v[4] = {&g->L[l2].p0, &g->L[l2].p1, &g->L[l2].p2, &g->L[l2].p3};
-                        for (int j2 = 0; j2 < 4; j2++) if (v[j2]->book) { g->cu.MemFree(v[j2]->book); v[j2]->book = 0; g->used -= nf; }
+                        gpq *v[8] = {&g->L[l2].p0, &g->L[l2].p1, &g->L[l2].p2, &g->L[l2].p3, &g->L[l2].r0, &g->L[l2].r1, &g->L[l2].r2, &g->L[l2].r3};
+                        for (int j2 = 0; j2 < 8; j2++) if (v[j2]->book) { g->cu.MemFree(v[j2]->book); v[j2]->book = 0; g->used -= nf; }
                     }
                     return;
                 }
@@ -1146,8 +1183,8 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         L->type = LAYER_PATTERN[l];
         if (up_param(g, &cp, NM("norm.weight"), H, &L->norm_w)) goto ferr;
         if (L->type == 'M') {
-            if (up_pq(g, &k, &cp, NM("mixer.in_proj.weight"), PROJ, H, &L->p0)) goto ferr;
-            if (up_pq(g, &k, &cp, NM("mixer.out_proj.weight"), H, INNER, &L->p1)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.in_proj.weight"), PROJ, H, &L->p0, &L->r0)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.out_proj.weight"), H, INNER, &L->p1, &L->r1)) goto ferr;
             if (up_param(g, &cp, NM("mixer.conv1d.weight"), (uint64_t)CONV * 4, &L->conv_w)
                 || up_param(g, &cp, NM("mixer.conv1d.bias"), CONV, &L->conv_b)
                 || up_param(g, &cp, NM("mixer.A_log"), NHEAD, &L->a_log)
@@ -1156,13 +1193,13 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
                 || up_param(g, &cp, NM("mixer.norm.weight"), INNER, &L->gnorm_w)) goto ferr;
             if (dalloc(g, &L->ssm, (size_t)NHEAD * HDIM * NSTATE * 4) || dalloc(g, &L->win, (size_t)CONV * 16)) goto ferr;
         } else if (L->type == '-') {
-            if (up_pq(g, &k, &cp, NM("mixer.up_proj.weight"), MLP, H, &L->p0)) goto ferr;
-            if (up_pq(g, &k, &cp, NM("mixer.down_proj.weight"), H, MLP, &L->p1)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.up_proj.weight"), MLP, H, &L->p0, &L->r0)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.down_proj.weight"), H, MLP, &L->p1, &L->r1)) goto ferr;
         } else {
-            if (up_pq(g, &k, &cp, NM("mixer.q_proj.weight"), NQ * AD, H, &L->p0)
-                || up_pq(g, &k, &cp, NM("mixer.k_proj.weight"), NKV * AD, H, &L->p1)
-                || up_pq(g, &k, &cp, NM("mixer.v_proj.weight"), NKV * AD, H, &L->p2)
-                || up_pq(g, &k, &cp, NM("mixer.o_proj.weight"), H, NQ * AD, &L->p3)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.q_proj.weight"), NQ * AD, H, &L->p0, &L->r0)
+                || up_pqr(g, &k, &cp, NM("mixer.k_proj.weight"), NKV * AD, H, &L->p1, &L->r1)
+                || up_pqr(g, &k, &cp, NM("mixer.v_proj.weight"), NKV * AD, H, &L->p2, &L->r2)
+                || up_pqr(g, &k, &cp, NM("mixer.o_proj.weight"), H, NQ * AD, &L->p3, &L->r3)) goto ferr;
             size_t kv = (size_t)g->max_pos * NKV * AD * 2;
             if (dalloc(g, &L->kc, kv) || dalloc(g, &L->vc, kv)) goto ferr;
         }
@@ -1174,6 +1211,7 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         || dalloc(g, &g->mid, MLP * 4) || dalloc(g, &g->q, NQ * AD * 4) || dalloc(g, &g->k, NKV * AD * 4)
         || dalloc(g, &g->vv, NKV * AD * 4) || dalloc(g, &g->logits, (size_t)VOCAB * 4)
         || dalloc(g, &g->scores, (size_t)NQ * g->max_pos * 8) || dalloc(g, &g->xs, (MLP / 16 + 64) * 4)) goto ferr;
+    if (g->nref && dalloc(g, &g->rt, PROJ * 4)) goto ferr;
     {
         /* lm_head: bf16, resident, uploaded in 64 MiB chunks */
         const nemo_tensor_info *t = nemo_find(&cp, "lm_head.weight");
@@ -1239,6 +1277,11 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
     expand_resources(g, &k);
     prefill_resources(g);
     g->info.vram_used_by_us = g->used;
+    g->info.refine_tensors = g->nref;
+    g->info.refine_bytes = g->ref_bytes;
+    if (g->nref)
+        fprintf(stderr, "nemo_gpu: expanded pack: %d refinement tensors, %.1f MiB on the device\n",
+                g->nref, g->ref_bytes / 1048576.0);
     g->info.head_int8 = g->head_i8;
     g->info.full_ok = g->full_ok;
     g->info.snap_ok = g->snap_ok;
