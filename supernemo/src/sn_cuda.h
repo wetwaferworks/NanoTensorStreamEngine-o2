@@ -44,4 +44,50 @@ int sn_cuda_cache_count(const sn_cuda *c);
 int sn_cuda_cache_put(sn_cuda *c, const sn_pack *p, const sn_tensor *t, const sn_pq_res *res);   /* 0 = resident, -1 = no room */
 void sn_cuda_cache_drop(sn_cuda *c, const sn_pack *p, const sn_tensor *t);
 
+/* ---- Expert stream (JD's standing CUDA design, 2026-11-27) ----
+ * Compressed experts are copied to the card, expanded there with CUDA, multiplied there, and their VRAM slots are reused
+ * for the next token. The warm expert cache stays in system RAM holding the COMPRESSED experts, so a load is a memcpy into
+ * pinned staging plus one DMA. Decode (1..8 tokens) runs the DTC kernels straight from a slot (the expansion happens in
+ * registers); prefill expands each matrix into a float scratch on the card and runs a GEMM that mirrors the CPU's AVX2
+ * (or scalar) kernel. Both are bit-identical to the CPU, so the output cannot tell which side computed an expert.
+ * Sizing: the slot count is "as many as fit" in the VRAM the hardware calibration measured free (nemo-calib.txt), never more
+ * than the device reports free right now, after the dense tensors and a 64 MB headroom; staging is two halves of one
+ * routed set (top-k experts). */
+typedef struct {
+    int Lt, I, K, nmax;              /* latent width, expert width, top-k, most tokens per layer call */
+    uint64_t up_blocks, dn_blocks;   /* 256-weight blocks of one expert's up / down matrix */
+    int nkeys;                       /* layers x experts (slot lookup table size) */
+    int simd;                        /* 1: the CPU GEMM is the AVX2/FMA kernel, 0: the scalar one (sn_gemm_simd) */
+} sn_xs_geom;
+
+typedef struct {
+    int on, slots, stage;
+    long long slot_bytes, vram_bytes, pinned_bytes, work_bytes;
+    char sized_by[400];
+    uint64_t hits, loads, bytes_up, experts_dtc, experts_gemm, dense_gemm;
+} sn_xs_info;
+
+int sn_cuda_xs_open(sn_cuda *c, const sn_pack *p, const sn_xs_geom *g, char *why, int whylen);   /* 0, or -1 with a reason */
+int sn_cuda_xs_on(const sn_cuda *c);
+void sn_cuda_xs_info(const sn_cuda *c, sn_xs_info *out);
+int sn_cuda_xs_chunk(const sn_cuda *c);       /* experts staged per half */
+int sn_cuda_xs_nstage(const sn_cuda *c);
+/* staging buffer j (pinned RAM): where the packed bytes of the up (which 0) or down (which 1) matrix go */
+void sn_cuda_xs_stage_ptrs(sn_cuda *c, int j, int which, uint8_t **idx, uint16_t **mn, uint16_t **sc, float **book);
+int sn_cuda_xs_stage_wait(sn_cuda *c, int j0, int n);     /* block until staging buffers j0.. are free to refill */
+void sn_cuda_xs_chunk_begin(sn_cuda *c);                  /* slots claimed after this are protected until the next call */
+int sn_cuda_xs_find(sn_cuda *c, int key);                 /* slot already holding expert `key`, or -1 */
+int sn_cuda_xs_claim(sn_cuda *c, int key);                /* a slot to load `key` into (least recently used), or -1 */
+int sn_cuda_xs_upload(sn_cuda *c, int j, int slot, int key);   /* async DMA staging j -> slot */
+/* per MoE layer: n token latents (and their double prefix sums for decode), the expert-major token / output-row lists */
+int sn_cuda_xs_layer_begin(sn_cuda *c, const float *lat, const double *plat, int n, const int *tok, const int *oidx, int nidx);
+int sn_cuda_xs_dtc(sn_cuda *c, int slot, int tok, int orow);    /* decode: one token through one expert */
+int sn_cuda_xs_gemm(sn_cuda *c, int slot, int start, int cnt);  /* prefill: list entries [start, start + cnt) through one expert */
+int sn_cuda_xs_layer_end(sn_cuda *c, float *eo, int nrows);     /* wait; copy nrows x Lt outputs back */
+void sn_cuda_xs_abort(sn_cuda *c);                              /* after a failure: drain the card, forget slot contents */
+/* prefill product on a dense tensor resident on the card: expand on the card + the CPU-mirroring GEMM (act 0 or 2) */
+int sn_cuda_xs_dense_gemm(sn_cuda *c, const sn_pack *p, const sn_tensor *t, const float *X, int N, int K, int R, float *Y, int act);
+/* test hook: expand [first, first + n) of a resident tensor t, or of slot `slot`'s matrix `which` when t is NULL */
+int sn_cuda_expand(sn_cuda *c, const sn_pack *p, const sn_tensor *t, int slot, int which, uint64_t first, uint64_t n, float *out);
+
 #endif

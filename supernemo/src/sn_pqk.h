@@ -47,6 +47,8 @@ typedef struct {
 uint64_t sn_res_bytes(const sn_pack *p, const sn_tensor *t);          /* RAM a resident copy takes (0 for raw) */
 int sn_res_load(const sn_pack *p, sn_rd *r, const sn_tensor *t, sn_pq_res *out);   /* 0 / -1 */
 void sn_res_free(sn_pq_res *res);
+/* the bytes sn_res_load would copy, into caller-owned buffers (nblocks*nsub idx, nblocks mn and sc, book_floats book) */
+int sn_res_read_into(const sn_pack *p, sn_rd *r, const sn_tensor *t, uint8_t *idx, uint16_t *mn, uint16_t *sc, float *book);
 
 /* ---- DTC geometry and tables ---- */
 /* 0 if DTC applies to a [rows][cols] tensor of this pack (PQ4, cols % 4 == 0); fills phases and groups. */

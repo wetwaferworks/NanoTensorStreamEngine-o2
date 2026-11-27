@@ -25,6 +25,9 @@ int sn_gemm_linear(sn_gemm *g, const sn_tensor *t, const float *bias, const floa
 /* The kernel on an already-expanded matrix W[rows][K]: writes Y[n * R + r0 + r]. */
 void sn_gemm_rows(const float *W, int rows, int K, const float *X, int N, const float *bias, int r0, int R, float *Y, int act);
 
+/* 1 when sn_gemm_rows runs its AVX2/FMA kernel on this CPU, 0 for the scalar one (the GPU expert stream mirrors whichever). */
+int sn_gemm_simd(void);
+
 /* Small helpers shared with the vision attention (n % 8 == 0 for the AVX2 path). */
 float sn_dot(const float *a, const float *b, int n);
 void sn_axpy(float *y, float a, const float *x, int n);

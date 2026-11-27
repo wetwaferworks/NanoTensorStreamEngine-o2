@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include "sn_pack.h"
 #include "sn_pqk.h"
+#include "sn_cuda.h"
 #include "../../littlenemo/src/pool.h"
 
 #define SN_MAX_LAYERS 256
@@ -104,6 +105,14 @@ typedef struct {
 } sn_cache_stats;
 int sn_model_cache(sn_model *m, long long ram_bytes, long long vram_bytes, char *why, int whylen);
 void sn_model_cache_stats(const sn_model *m, sn_cache_stats *s);
+
+/* GPU expert stream (JD's standing CUDA design, 2026-11-27; needs sn_model_cuda first and DTC on). Every routed expert goes
+ * to the card compressed, is expanded and multiplied there, and its VRAM slot is reused for the next token; the RAM expert
+ * cache keeps feeding it packed copies. Slots are sized from the hardware calibration. Bit-identical to the CPU lanes, so
+ * the output does not change. Replaces the VRAM tier of sn_model_cache when on. 0, or -1 with a reason (CPU lanes then). */
+int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen);
+int sn_model_gpu_experts_on(const sn_model *m);
+void sn_model_gpu_experts_info(const sn_model *m, sn_xs_info *out);
 
 /* Optional telemetry: called per layer entered and per MoE routing. */
 typedef void (*sn_layer_cb)(void *user, int layer, char type);

@@ -107,6 +107,8 @@ static void rows_scalar(const float *W, int rows, int K, const float *X, int N, 
     }
 }
 
+int sn_gemm_simd(void) { return have_avx2(); }
+
 void sn_gemm_rows(const float *W, int rows, int K, const float *X, int N, const float *bias, int r0, int R, float *Y, int act)
 {
 #ifdef SN_HAVE_X86

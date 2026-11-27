@@ -49,6 +49,18 @@ int sn_res_load(const sn_pack *p, sn_rd *rd, const sn_tensor *t, sn_pq_res *out)
     return 0;
 }
 
+/* The same bytes as sn_res_load, into buffers the caller owns (the GPU expert stream's pinned staging). */
+int sn_res_read_into(const sn_pack *p, sn_rd *rd, const sn_tensor *t, uint8_t *idx, uint16_t *mn, uint16_t *sc, float *book)
+{
+    if (t->raw || p->pq_d != 4) return -1;
+    uint64_t nb = t->nblocks, g0 = t->block0;
+    int ok = seek64(rd->fs, p->body_off + g0 * p->nsub) == 0 && fread(idx, p->nsub, (size_t)nb, rd->fs) == nb;
+    if (ok) ok = seek64(rd->fs, p->body_off + p->tot_blocks * p->nsub + g0 * 2) == 0 && fread(mn, 2, (size_t)nb, rd->fs) == nb;
+    if (ok) ok = seek64(rd->fs, p->body_off + p->tot_blocks * (p->nsub + 2ull) + g0 * 2) == 0 && fread(sc, 2, (size_t)nb, rd->fs) == nb;
+    if (ok) ok = sn_load_book(p, rd, t, book) == 0;
+    return ok ? 0 : -1;
+}
+
 /* ------------------------------------------------------------------ DTC tables */
 
 static int gcd_i(int a, int b) { while (b) { int t = a % b; a = b; b = t; } return a; }
