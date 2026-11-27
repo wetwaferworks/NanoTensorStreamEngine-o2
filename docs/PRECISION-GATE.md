@@ -156,6 +156,23 @@ no longer matched it. The frozen bytes are restored unchanged at
 stays at `tools/nq2-infer-triforce-dbg.c` and is the buildable debug tool; it
 supersedes the frozen copy as something to run, never as evidence.
 
+**Which boundary fix is live.** Two fixes were written for the 2026-11-25
+`--threads 1` boundary fault. The live one is the consume-tick count
+(`pass_consumed`), which runs the pass boundary once per pass; it is in both
+`tools/nq2-infer-triforce.c` and [`precision-gate/impl/`](precision-gate/impl/)
+and is the fix verified above (token 122388, ticks 181/182/181 at `--threads 12`
+and `--threads 1`). A local 2026-11-26 transplant fixed the tools copy with a
+boundary epoch stamp instead. That transplant never reached this tree and is
+superseded by the consume-tick count; nothing here depends on it.
+
+**Re-derived calibration.** A later review cites a re-derived Sigma calibration
+(`tie_epsilon` 4.699707e-03, drift budget 3.308205e-05, argmax agreement 64 of
+64). Its run record was not found on the bench machine on 2026-11-27, so those
+numbers are not adopted here. The scratch calibration above, with its record in
+[`precision-gate/calib/DERIVATION-2026-11-25.md`](precision-gate/calib/DERIVATION-2026-11-25.md),
+stays the only calibration on file, and the default posture stays Evidence until
+a re-derivation lands with its record.
+
 ## Credits
 
 Directed by JD (2026-11-25). Plan and design: Elfie. Scratch-phase implementation
