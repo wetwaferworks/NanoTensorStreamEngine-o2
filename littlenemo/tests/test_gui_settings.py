@@ -219,6 +219,90 @@ def main():
            > out.index("[remote]"),
            "update_ini_text inserts keys and appends sections")
 
+    # 7. CUDA engine options: stored under [cuda], passed as the same
+    # command-line flags by the panel's Apply and by the launcher's
+    # load_ini, and only to an engine whose name says cuda (the CPU
+    # engine would reject them).
+    cuda_engine = os.path.join(tmp, "nemo-engine-cuda.py")
+    with open(cuda_engine, "w", encoding="utf-8") as f:
+        f.write(FAKE_ENGINE)
+    os.chmod(cuda_engine, os.stat(cuda_engine).st_mode | stat.S_IEXEC)
+    cuda_raw = dict(raw, engine=cuda_engine, simd=False,
+                    cuda_pack="packs/nemo.nq2", accel="cuda",
+                    expand="never", full_path="exact", host_threads="4",
+                    tok_overlap="off", lm_head="int8", prefill_chunk="0",
+                    dtc_margin="0.25", dtc_entropy="3.5",
+                    dtc_prompt_tokens="64", dtc_complexity="5",
+                    dtc_longform="off")
+    errors, cres = nemo_chat.apply_settings(cuda_raw, ini)
+    expect(errors == {}, f"apply accepts CUDA options ({errors})")
+    cmd = cres["cmd"]
+
+    def flag(name):
+        return cmd[cmd.index(name) + 1] if name in cmd else None
+
+    expect(flag("--full-path") == "exact" and flag("--host-threads") == "4"
+           and flag("--tok-overlap") == "0" and flag("--lm-head") == "int8"
+           and flag("--prefill-chunk") == "0" and flag("--accel") == "cuda"
+           and flag("--expand") == "never"
+           and flag("--dtc-margin") == "0.25"
+           and flag("--dtc-entropy") == "3.5"
+           and flag("--dtc-prompt-tokens") == "64"
+           and flag("--dtc-complexity") == "5"
+           and flag("--dtc-longform") == "0",
+           "apply maps every CUDA option to its engine flag")
+    expect(flag("--cuda-pack") == os.path.normpath(
+        os.path.join(tmp, "packs", "nemo.nq2")),
+           "the pack path resolves against the INI's folder")
+    lcmd, _h, _p = nemo_chat.load_ini(argv)
+    expect(lcmd == cmd, "load_ini builds the same command as Apply")
+    values3, _ = nemo_chat.resolve_settings(argv)
+    expect(values3["full_path"] == "exact"
+           and values3["host_threads"] == "4"
+           and values3["tok_overlap"] == "off"
+           and values3["cuda_pack"] == "packs/nemo.nq2",
+           "INI on disk carries the CUDA options (they persist)")
+    events.clear()
+    ready_ev.clear()
+    client3 = nemo_chat.NemoClient(on_event)
+    client3.connect_process(cmd)
+    expect(wait_ready(events, ready_ev) is not None,
+           "an engine started with every CUDA flag reaches READY")
+    client3.quit()
+
+    # Blank or "default" passes nothing: the engine's own (fastest)
+    # defaults apply. The same options on a CPU engine are not passed.
+    blank = dict(cuda_raw, **{k: "" for k in (
+        "cuda_pack", "accel", "expand", "full_path", "host_threads",
+        "tok_overlap", "lm_head", "prefill_chunk", "dtc_margin",
+        "dtc_entropy", "dtc_prompt_tokens", "dtc_complexity")},
+        dtc_longform="default")
+    errors, bres = nemo_chat.apply_settings(blank, ini)
+    expect(errors == {} and not any(a.startswith(("--full-path",
+           "--host-threads", "--tok-overlap", "--lm-head",
+           "--prefill-chunk", "--cuda-pack", "--accel", "--expand",
+           "--dtc")) for a in bres["cmd"]),
+           "blank CUDA options pass no flags")
+    errors, cpu = nemo_chat.apply_settings(dict(cuda_raw, engine=fake), ini)
+    expect(errors == {} and "--full-path" not in cpu["cmd"]
+           and "--cuda-pack" not in cpu["cmd"],
+           "CUDA options are not passed to a non-CUDA engine")
+
+    with open(ini, "rb") as f:
+        before = f.read()
+    errors, none = nemo_chat.apply_settings(
+        dict(cuda_raw, engine=cuda_engine, full_path="turbo",
+             host_threads="9", prefill_chunk="600", tok_overlap="maybe",
+             lm_head="fp4", accel="tpu", dtc_margin="soft",
+             dtc_prompt_tokens="-1"), ini)
+    expect(none is None and all(k in errors for k in (
+        "full_path", "host_threads", "prefill_chunk", "tok_overlap",
+        "lm_head", "accel", "dtc_margin", "dtc_prompt_tokens")),
+           f"invalid CUDA options are named ({sorted(errors)})")
+    with open(ini, "rb") as f:
+        expect(f.read() == before,
+               "invalid CUDA options leave the INI byte-identical")
+
     print("RESULT:", "FAILURES" if fails else "ALL PASS")
     return 1 if fails else 0
 

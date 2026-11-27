@@ -65,6 +65,19 @@ def main():
     if not ok:
         print(out[-4000:])
         fails.append("resize")
+    code, out = run(["--config", cfg, "--model", "littlenemo",
+                     "--supernemo-engine",
+                     f'{py} "{FAKE}" --stdio --model supernemo --delay 0.01',
+                     "--engine",
+                     f'{py} "{FAKE}" --stdio --model littlenemo --delay 0.01',
+                     "--demo", "sizes"])
+    ok = code == 0 and "DEMO OK" in out
+    print(("ok   " if ok else "FAIL ") + "sizes: send button whole and "
+          "composer clear of the stats panel at every size, stats panel "
+          "steps aside below minsize and comes back")
+    if not ok:
+        print(out[-4000:])
+        fails.append("sizes")
     print("RESULT:", "FAILURES" if fails else "ALL PASS")
     return 1 if fails else 0
 

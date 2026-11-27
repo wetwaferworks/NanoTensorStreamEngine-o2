@@ -10,7 +10,9 @@ Tk smoke test (tests/test_gui_ui_smoke.py) and for screenshots.
 Demos drive the real widgets through the same methods a click does;
 the engines are the test fixture, whose replies say they come from a
 fixture. Names: tour (screenshots), smoke (same checks, no shots),
-unavailable (SuperNemo with no engine configured).
+unavailable (SuperNemo with no engine configured), composer (the
+multi-line input bar, the About and credits dialog and the settings
+dialog, with screenshots).
 """
 
 import os
@@ -74,6 +76,10 @@ def script(app, name):
         yield from _resize(app)
     elif name == "mascot":
         yield from _mascot(app)
+    elif name == "composer":
+        yield from _composer(app)
+    elif name == "sizes":
+        yield from _sizes(app)
     else:
         raise ValueError(f"unknown demo {name!r}")
 
@@ -347,3 +353,157 @@ def _resize(app):
     app.set_window_mode("restore")
     yield ("sleep", 0.3)
     _layout(app, "layout after leaving fullscreen")
+
+
+def _new_toplevel(app, before):
+    import tkinter as tk
+
+    for w in app.root.winfo_children():
+        if isinstance(w, tk.Toplevel) and w not in before:
+            return w
+    return None
+
+
+def _composer(app):
+    """The composer: placeholder, growth to a cap, scrolling, word wrap,
+    and the dialogs added with the credits and the CUDA settings."""
+    import tkinter as tk
+    import nemo_ui
+
+    keys = [k for k in app.targets if k != app.model]
+    _check(keys, "the composer demo needs a second model to switch to")
+    yield ("sleep", 0.5)
+    _check(str(app.input.cget("wrap")) == "word", "input wraps at words")
+    ph = app.placeholder.cget("text")
+    _check(ph.startswith("Message ") and ph.endswith("\u2026"),
+           f"placeholder reads 'Message <model>...' ({ph!r})")
+    _check(app.placeholder.winfo_rooty() - app.input.winfo_rooty()
+           == nemo_ui.INPUT_PAD, "placeholder starts on the first text line")
+    yield ("shot", "20-composer-empty-placeholder.png")
+    app.input.insert("1.0", "A short question")
+    app._input_changed()
+    _check(int(app.input.cget("height")) == 1, "one line stays one line")
+    yield ("shot", "21-composer-one-line.png")
+    app.input.insert("end", "\nsecond line\nthird line")
+    app._input_changed()
+    _check(int(app.input.cget("height")) == 3, "three lines grow to three")
+    yield ("shot", "22-composer-three-lines.png")
+    app.input.insert("end", "".join(f"\nline {i}" for i in range(4, 16)))
+    app._input_changed()
+    _check(int(app.input.cget("height")) == nemo_ui.INPUT_MAX_LINES,
+           "the bar stops growing at the cap and scrolls")
+    app.input.see("end")
+    yield ("shot", "23-composer-capped-scrolling.png")
+    app.input.delete("1.0", "end")
+    app._input_changed()
+    app.select_model(keys[0])
+    yield ("sleep", 0.6)
+    ph2 = app.placeholder.cget("text")
+    _check(ph2 != ph and ph2.startswith("Message "),
+           f"placeholder follows the model ({ph!r} -> {ph2!r})")
+    yield ("shot", "24-composer-placeholder-other-model.png")
+    before = set(app.root.winfo_children())
+    app.open_about()
+    dlg = _new_toplevel(app, before)
+    _check(dlg is not None, "About dialog opened")
+    app._appearance_win = dlg
+    yield ("sleep", 0.4)
+    dlg.update()
+    _check(dlg.winfo_rooty() + dlg.winfo_height() <= dlg.winfo_screenheight(),
+           "About dialog fits on the screen")
+    yield ("shot", "25-about-and-credits.png")
+    dlg.destroy()
+    app._appearance_win = None
+    before = set(app.root.winfo_children())
+    app.open_settings()
+    dlg = _new_toplevel(app, before)
+    _check(dlg is not None, "settings dialog opened")
+    app._appearance_win = dlg
+    yield ("sleep", 0.4)
+    dlg.update()
+    # nothing may be clipped: the whole dialog, with its Apply and Cancel
+    # bar, lies on the screen
+    _check(dlg.winfo_rooty() >= 0 and dlg.winfo_rooty() + dlg.winfo_height()
+           <= dlg.winfo_screenheight(), "settings dialog fits on the screen")
+    yield ("shot", "26-settings-dialog.png")
+    dlg.destroy()
+    app._appearance_win = None
+
+
+def _boxes(app):
+    """Screen rectangles (x0, y0, x1, y1) of the parts that must not overlap."""
+    def rect(w):
+        w.update_idletasks()
+        x, y = w.winfo_rootx(), w.winfo_rooty()
+        return (x, y, x + w.winfo_width(), y + w.winfo_height())
+    out = {"window": rect(app.root), "composer": rect(app.box)}
+    if app.send_btn.winfo_ismapped() and app.send_btn.winfo_width() > 4:
+        out["send"] = rect(app.send_btn)
+    sp = getattr(app, "stats_frame", None) or getattr(app, "stats_panel", None)
+    if sp is not None and sp.winfo_ismapped():
+        out["stats"] = rect(sp)
+    return out
+
+
+def _overlap(a, b):
+    return min(a[2], b[2]) - max(a[0], b[0]) > 0 and \
+        min(a[3], b[3]) - max(a[1], b[1]) > 0
+
+
+def _sizes(app):
+    """The window at several sizes with the stats panel open and a
+    three-line message: the composer must not run under the stats panel
+    or past the window edge, and the send button must stay whole inside
+    it. Two sizes below the window's minsize (as Windows Snap or a small
+    display can force) are included. Prints one LAYOUT line per size."""
+    if not getattr(app, "stats_visible", True):
+        app.toggle_stats()
+    app.input.insert("1.0", "A three line message\nsecond line\nthird line")
+    app._input_changed()
+    sw, sh = app.root.winfo_screenwidth(), app.root.winfo_screenheight()
+    print(f"SCREEN {sw}x{sh} min {app._min_w}x{app._min_h}", flush=True)
+    sizes = [("min", None)] + [("normal", s) for s in
+                               ("800x600", "1003x701", "1280x720",
+                                "1366x768", "1600x900")] + \
+        [("maximize", None), ("forced", "1000x700"), ("forced", "900x600")]
+    bad = []
+    for mode, spec in sizes:
+        if spec:
+            w, h = (int(x) for x in spec.split("x"))
+            if w + 20 > sw or h + 40 > sh:
+                print(f"LAYOUT {spec} skipped (larger than the screen)",
+                      flush=True)
+                continue
+        if mode == "forced":
+            app.root.minsize(1, 1)
+            app.set_window_mode("normal", spec)
+        elif spec:
+            app.set_window_mode(mode, spec)
+        else:
+            app.set_window_mode(mode)
+        yield ("sleep", 0.6)
+        b = _boxes(app)
+        win, comp = b["window"], b["composer"]
+        st = b.get("stats")
+        tag = spec or mode
+        under = bool(st) and _overlap(comp, st)
+        past = comp[2] > win[2] + 1 or comp[3] > win[3] + 1
+        send = b.get("send")
+        send_ok = bool(send) and send[0] >= comp[0] and send[2] <= comp[2] \
+            and not (st and _overlap(send, st))
+        if not st:
+            # Stepping aside on a narrow window is fine; it must come back.
+            print(f"LAYOUT {tag} stats panel stepped aside", flush=True)
+        print(f"LAYOUT {tag} window {win[2]-win[0]}x{win[3]-win[1]} "
+              f"composer {comp} stats {st} under_stats={under} "
+              f"past_edge={past} send_ok={send_ok}", flush=True)
+        if under or past or not send_ok:
+            bad.append(tag)
+        yield ("shot", f"30-size-{'forced-' if mode == 'forced' else ''}{tag}.png")
+    app.root.minsize(app._min_w, app._min_h)
+    app.set_window_mode("normal", "1600x900") if sw >= 1640 else app.set_window_mode("min")
+    yield ("sleep", 0.6)
+    _check(app.stats_panel.winfo_ismapped(),
+           "stats panel is back once the window is wide again")
+    app.set_window_mode("restore")
+    _check(not bad, f"composer clipped at {bad}")

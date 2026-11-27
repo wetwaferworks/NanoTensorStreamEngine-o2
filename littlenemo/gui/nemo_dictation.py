@@ -23,16 +23,49 @@ import threading
 import time
 import tkinter as tk
 
-EXE_CANDIDATES = [
-    os.environ.get("PARAKEET_EXE", ""),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "parakeet", "bin", "parakeet-c.exe"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "parakeet-c.exe"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "parakeet", "parakeet-c.exe"),
-]
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXE_NAME = "parakeet-c.exe" if os.name == "nt" else "parakeet-c"
+
+# Overrides from the settings file ([dictation] parakeet_exe, parakeet_model),
+# set by configure(). Blank means "search".
+_configured = {"exe": "", "model": ""}
+
+
+def configure(exe="", model="", base=None):
+    """Remember the settings-file paths. A relative path resolves against
+    base (the settings file's folder)."""
+    def resolve(p):
+        p = (p or "").strip()
+        if not p or os.path.isabs(p) or not base:
+            return p
+        return os.path.normpath(os.path.join(base, p))
+    _configured["exe"] = resolve(exe)
+    _configured["model"] = resolve(model)
+
+
+def exe_candidates():
+    """Where the Parakeet runtime is looked for, in order: the settings
+    file, PARAKEET_EXE, the built tree this GUI belongs to (parakeet/bin
+    beside the repository root), a bin folder beside gui/, a parakeet folder
+    beside this file, and a per-user copy in the NemoChat app-data folder."""
+    local = os.environ.get("LOCALAPPDATA") or ""
+    return [
+        _configured["exe"],
+        os.environ.get("PARAKEET_EXE", ""),
+        os.path.join(HERE, "..", "..", "parakeet", "bin", EXE_NAME),
+        os.path.join(HERE, "..", "bin", EXE_NAME),
+        os.path.join(HERE, "parakeet", EXE_NAME),
+        os.path.join(local, "NemoChat", "parakeet", EXE_NAME) if local else "",
+    ]
+
+
 def _model_dir():
-    """PARAKEET_MODEL, else the Windows user environment (so shortcuts
-    started before the variable existed still find it), else "" and
-    parakeet-c searches its own default locations."""
+    """The settings file's parakeet_model, else PARAKEET_MODEL, else the
+    Windows user environment (so shortcuts started before the variable
+    existed still find it), else "" and parakeet-c searches its own default
+    locations."""
+    if _configured["model"]:
+        return _configured["model"]
     v = os.environ.get("PARAKEET_MODEL", "")
     if not v and os.name == "nt":
         try:
@@ -44,17 +77,20 @@ def _model_dir():
     return v
 
 
-MODEL_DIR = _model_dir()
-
 REC_RED = "#ef4444"
 REC_RED_HOT = "#f87171"
 
 
 def find_exe():
-    for p in EXE_CANDIDATES:
+    """The first Parakeet runtime found, or None."""
+    for p in exe_candidates():
         if p and os.path.isfile(p):
-            return p
-    return None
+            return os.path.normpath(p)
+    import shutil
+    return shutil.which(EXE_NAME)
+
+
+NOT_FOUND = "mic: parakeet-c not found (Settings, parakeet_exe)"
 
 
 class ParakeetProc:
@@ -118,8 +154,8 @@ class Dictation:
         self.c_fg = C.get("fg", "#ececf1")
         self.c_dim = C.get("faint", C.get("dim", "#8e8e98"))
         self.c_accent = C.get("accent", "#a970ff")
-        exe = find_exe()
-        self.proc = ParakeetProc(exe, MODEL_DIR) if exe else None
+        self.proc = None
+        self.refresh()
         self.state = "idle"        # idle | loading | rec | finishing
         self.finals = []
         self.partial = ""
@@ -149,8 +185,7 @@ class Dictation:
         self.root.bind_all("<Control-Shift-space>", lambda e: (self.toggle(), "break")[1])
         self.text.tag_configure("dict_partial", foreground=self.c_dim)
         self._draw()
-        if not self.proc:
-            self.lbl.configure(text="mic: parakeet-c.exe not found")
+        self._show_found()
         self.root.after(30, self._poll)
         self.root.bind("<Destroy>", self._on_destroy, add="+")
 
@@ -181,6 +216,18 @@ class Dictation:
         cv.create_line(cx, s * 0.66, cx, s * 0.78, fill=fg, width=lw)
         cv.create_line(cx - s * 0.12, s * 0.79, cx + s * 0.12, s * 0.79, fill=fg, width=lw)
 
+    on_label = None  # set by the chat window to refit the composer row
+
+    def _say(self, **kw):
+        """Change the status label, then let the composer refit its row
+        (a longer message may need the hint's room)."""
+        self.lbl.configure(**kw)
+        if self.on_label is not None:
+            try:
+                self.on_label()
+            except Exception:
+                pass
+
     def _draw_meter(self):
         m = self.meter
         m.delete("all")
@@ -204,6 +251,27 @@ class Dictation:
             self.stop()          # push-to-talk: let go to finish
         self._ptt = False
 
+    def refresh(self):
+        """Look for the runtime again (at start-up, after the settings
+        change, and on a click when none was found before)."""
+        exe = find_exe()
+        model = _model_dir()
+        if self.proc and self.proc.exe == exe and self.proc.model_dir == model:
+            return
+        if self.proc:
+            self.proc.close()
+        self.proc = ParakeetProc(exe, model) if exe else None
+        self._show_found()
+
+    def _show_found(self):
+        lbl = getattr(self, "lbl", None)  # not built yet during __init__
+        if lbl is None:
+            return
+        if not self.proc:
+            lbl.configure(text=NOT_FOUND)
+        elif lbl.cget("text") == NOT_FOUND:
+            lbl.configure(text="")
+
     def toggle(self):
         if self.state == "idle":
             self.start()
@@ -214,7 +282,9 @@ class Dictation:
         """Begin dictation. sim=<wav path> replays a WAV instead of the mic (tests)."""
         self._start_cmd = f"SIMFILE {sim}" if sim else "START"
         if not self.proc:
-            self.lbl.configure(text="mic: parakeet-c.exe not found", fg=REC_RED)
+            self.refresh()  # the runtime may have been built or set since
+        if not self.proc:
+            self._say(text=NOT_FOUND, fg=REC_RED)
             return
         # anchor the dictation span at the cursor
         t = self.text
@@ -252,16 +322,16 @@ class Dictation:
     def _set_state(self, st):
         self.state = st
         if st == "rec":
-            self.lbl.configure(text="Listening\u2026 0:00", fg=REC_RED)
+            self._say(text="Listening\u2026 0:00", fg=REC_RED)
             self.meter.pack(side="left", padx=(6, 0))
         elif st == "loading":
-            self.lbl.configure(text="Starting mic\u2026", fg=self.c_dim)
+            self._say(text="Starting mic\u2026", fg=self.c_dim)
         elif st == "finishing":
-            self.lbl.configure(text="Finishing\u2026", fg=self.c_dim)
+            self._say(text="Finishing\u2026", fg=self.c_dim)
         else:
             self.meter.pack_forget()
             tail = f"  \u00b7  {self.last_stat}" if self.last_stat else "  \u00b7  Ctrl+Shift+Space"
-            self.lbl.configure(text="Click to dictate" + tail, fg=self.c_fg)
+            self._say(text="Click to dictate" + tail, fg=self.c_fg)
         self._draw()
 
     # ------------------------------------------------------------ composer
@@ -299,7 +369,7 @@ class Dictation:
             pass
         if self.state == "rec" and not getattr(self, "warn_text", ""):
             secs = int(time.monotonic() - self.t_rec)
-            self.lbl.configure(text=f"Listening\u2026 {secs // 60}:{secs % 60:02d}")
+            self._say(text=f"Listening\u2026 {secs // 60}:{secs % 60:02d}")
         try:
             self.root.after(30, self._poll)
         except tk.TclError:
@@ -344,10 +414,10 @@ class Dictation:
                 pass
             self._set_state("idle")
         elif kind == "WARN":
-            self.lbl.configure(text="mic silent? check NVIDIA Broadcast / PARAKEET_MIC", fg="#fbbf24")
+            self._say(text="mic silent? check NVIDIA Broadcast / PARAKEET_MIC", fg="#fbbf24")
             self.warn_text = rest
         elif kind == "ERR":
-            self.lbl.configure(text="mic: " + rest[:60], fg=REC_RED)
+            self._say(text="mic: " + rest[:60], fg=REC_RED)
             if self.state != "idle":
                 self.state = "idle"
                 self.meter.pack_forget()
@@ -358,7 +428,7 @@ class Dictation:
                 self.state = "idle"
                 self.meter.pack_forget()
                 self._draw()
-                self.lbl.configure(text="mic: speech runtime exited", fg=REC_RED)
+                self._say(text="mic: speech runtime exited", fg=REC_RED)
 
     def _on_destroy(self, e):
         if e.widget is self.root and self.proc:

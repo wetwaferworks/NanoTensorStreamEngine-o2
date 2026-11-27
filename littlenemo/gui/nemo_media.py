@@ -23,6 +23,8 @@ worker and hands results back through a queue).
 import os
 import shutil
 import subprocess
+
+import nemo_proc
 import tempfile
 
 import nemo_chat as proto
@@ -221,7 +223,8 @@ def _ffmpeg_frames(ff, src, out_dir, max_frames):
             [ff, "-v", "error", "-i", src, "-vf",
              "thumbnail,scale='min(1024,iw)':-2", "-frames:v",
              str(max_frames), "-vsync", "vfr", pattern],
-            check=True, timeout=120, capture_output=True)
+            check=True, timeout=120, capture_output=True,
+            **nemo_proc.hidden_kwargs())
     except Exception as exc:
         return [], f"ffmpeg could not decode it ({exc}); sent without frames"
     names = sorted(n for n in os.listdir(out_dir) if n.startswith("frame_"))

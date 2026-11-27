@@ -26,6 +26,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
 
+import nemo_about
 import nemo_appearance as appearance
 import nemo_chat as proto
 import nemo_icons as icons
@@ -627,11 +628,13 @@ class ChatApp:
         foot = tk.Frame(sb, bg=SIDEBAR)
         foot.pack(side="bottom", fill="x", padx=12, pady=12)
         self.btn_stats = self.btn_appear = self.btn_settings = self.btn_restart = None
+        self.btn_about = None
         foot_btns = (
             ("Stats panel", self.toggle_stats, None, "btn_stats"),
             ("Appearance\u2026", self.open_appearance, None, "btn_appear"),
             ("Settings\u2026", self.open_settings, "settings", "btn_settings"),
             ("Restart engine", self.restart_engine, None, "btn_restart"),
+            ("About and credits\u2026", self.open_about, None, "btn_about"),
         )
         for text, cmd, action, attr in foot_btns:
             b = flatbtn(foot, text, cmd, SIDEBAR, FG2, SELECT, self.f_small,
@@ -776,8 +779,47 @@ class ChatApp:
         except Exception:
             pass
 
+    # The chat column never gets narrower than this (in unscaled pixels)
+    # because of the stats panel: below it the panel steps aside.
+    MAIN_MIN = 340
+
+    def _fit_panes(self, width):
+        """Keep the chat column usable when the window is narrower than
+        its minsize allows (Windows Snap, a small or rescaled display).
+        The sidebar and stats panel have fixed widths, so grid would take
+        the whole shortfall out of the chat column and the stats panel
+        would end up over the chat bar. Instead the stats panel is hidden
+        while the window is too narrow and comes back when there is room
+        again; the user's Stats panel choice is not changed. The composer
+        margins also tighten on a narrow chat column."""
+        try:
+            stats = getattr(self, "stats_panel", None)
+            sb = getattr(self, "sidebar", None)
+            if stats is None or sb is None or not width or width < 100:
+                return
+            side = self.px(self.theme["spacing"].get("sidebar_width", 236))
+            sw = self.px(self.theme["spacing"].get("stats_width", 372))
+            need = self.px(self.MAIN_MIN)
+            if getattr(self, "stats_visible", True):
+                room = width - side - sw
+                if stats.winfo_ismapped() and room < need:
+                    stats.grid_remove()
+                    self._stats_auto_hidden = True
+                elif getattr(self, "_stats_auto_hidden", False) and \
+                        room >= need + self.px(24):
+                    stats.grid()
+                    self._stats_auto_hidden = False
+            main_w = width - side - (sw if stats.winfo_ismapped() else 0)
+            outer = getattr(self, "composer_outer", None)
+            if outer is not None:
+                pad = 40 if main_w >= self.px(420) else self.px(12)
+                outer.grid_configure(padx=pad)
+        except (tk.TclError, AttributeError, KeyError):
+            pass
+
     def _relayout(self, width=None, height=None):
         """Update wrap-lengths and pane positions after a resize."""
+        self._fit_panes(width or self.root.winfo_width())
         try:
             sbw = self.sidebar.winfo_width()
             if sbw > 40:
@@ -823,19 +865,51 @@ class ChatApp:
                 self._on_chat_resize(self.chat.winfo_width())
         except tk.TclError:
             pass
+        self._fit_composer()
+
+    def _fit_composer(self):
+        """Fit the composer's tool row to its width. The send button is
+        packed first so it always keeps its space; the hint goes first
+        when room runs out, then the idle "Click to dictate" label (the
+        mic icon stays). Mic status and errors are kept but wrap to the
+        room that is left instead of running under the send button."""
         try:
-            hint = getattr(self, "composer_hint", None)
             box = getattr(self, "box", None)
-            if hint is not None and box is not None:
-                used = 16
-                for b in (getattr(self, "btn_img", None),
-                          getattr(self, "btn_vid", None),
-                          getattr(self, "send_btn", None)):
-                    if b is not None:
-                        used += b.winfo_reqwidth() + 8
-                room = box.winfo_width() - used
+            if box is None or box.winfo_width() < 40:
+                return
+            used = self.px(16)
+            for b in (getattr(self, "btn_img", None),
+                      getattr(self, "btn_vid", None),
+                      getattr(self, "send_btn", None)):
+                if b is not None:
+                    used += b.winfo_reqwidth() + self.px(8)
+            room = box.winfo_width() - used
+            d = getattr(self, "dictation", None)
+            lbl = getattr(d, "lbl", None)
+            if d is not None and getattr(d, "cv", None) is not None:
+                room -= d.cv.winfo_reqwidth() + self.px(12)
+                if getattr(d, "meter", None) is not None and \
+                        d.meter.winfo_ismapped():
+                    room -= d.meter.winfo_reqwidth() + self.px(6)
+            if lbl is not None:
+                text = lbl.cget("text")
+                need = tkfont.Font(font=lbl.cget("font")).measure(text) \
+                    + self.px(8)
+                idle = text.startswith("Click to dictate")
+                if idle and room < need:
+                    if lbl.winfo_ismapped():
+                        lbl.pack_forget()
+                else:
+                    if not lbl.winfo_ismapped():
+                        lbl.pack(side="left", padx=(6, 0), after=d.cv)
+                    wrap = max(self.px(60), room)
+                    lbl.configure(wraplength=wrap)
+                    room -= min(need, wrap)
+            hint = getattr(self, "composer_hint", None)
+            if hint is not None:
                 if room < self.px(160):
-                    hint.pack_forget()
+                    if hint.winfo_ismapped():
+                        hint.pack_forget()
                 else:
                     if not hint.winfo_ismapped():
                         hint.pack(side="right", padx=8)
@@ -1340,12 +1414,18 @@ class ChatApp:
         self.chips = tk.Frame(box, bg=SURFACE)
         self.chips_warn = tk.Label(box, text="", bg=SURFACE, fg=WARN,
                                    font=self.f_tiny, anchor="w")
-        self.input = tk.Text(box, height=2, wrap="word", bg=SURFACE, fg=FG,
+        self.input = tk.Text(box, height=1, wrap="word", bg=SURFACE, fg=FG,
                              bd=0, highlightthickness=0, insertbackground=FG,
-                             font=self.f_body, padx=14, pady=10, undo=True)
+                             font=self.f_body, padx=14, pady=INPUT_PAD,
+                             undo=True)
         self.input.pack(fill="x")
+        # No padding or border of its own: it is placed at the Text's inner
+        # origin, which already sits inside the Text's padx/pady, so its
+        # text starts exactly where the first typed character (and the
+        # cursor) would.
         self.placeholder = tk.Label(self.input, text="", bg=SURFACE,
-                                    fg=FAINT, font=self.f_body)
+                                    fg=FAINT, font=self.f_body, padx=0,
+                                    pady=0, bd=0, highlightthickness=0)
         tools = tk.Frame(box, bg=SURFACE)
         tools.pack(fill="x", padx=8, pady=(0, 8))
         self.btn_img = flatbtn(tools, " Image",
@@ -1364,6 +1444,11 @@ class ChatApp:
         # if the module or exe is missing the composer works as before.
         try:
             import nemo_dictation
+            _vals, _ini = proto.resolve_settings(
+                (self.settings_ctx or {}).get("argv", []))
+            nemo_dictation.configure(
+                _vals["parakeet_exe"], _vals["parakeet_model"],
+                os.path.dirname(os.path.abspath(_ini)) if _ini else None)
             self.dictation = nemo_dictation.attach(self, tools)
             self.root.after(1500, lambda: nemo_dictation.prewarm(self.dictation))
         except Exception as _e:  # never break the chat over the mic
@@ -1374,7 +1459,12 @@ class ChatApp:
                                 padx=12, pady=3)
         self.send_btn._glyph_action = "send"
         self.send_btn._glyph_text = ""
-        self.send_btn.pack(side="right", padx=(6, 2))
+        # Packed ahead of everything else in the row: when the composer is
+        # narrow the pack geometry manager squeezes later widgets, never
+        # the send button.
+        self.send_btn.pack(side="right", padx=(6, 2), before=self.btn_img)
+        if self.dictation is not None:
+            self.dictation.on_label = self._fit_composer
         self.composer_hint = tk.Label(
             tools, text="Enter to send \u00b7 Shift+Enter for a new "
             "line \u00b7 Ctrl+V pastes an image", bg=SURFACE, fg=FAINT,
@@ -1450,7 +1540,10 @@ class ChatApp:
         if self.input.get("1.0", "end-1c"):
             self.placeholder.place_forget()
         else:
-            self.placeholder.place(x=14, y=9)
+            # Tk places a child of a Text inside its padx/pady, so (0, 0)
+            # is the first text line: placeholder and cursor share one
+            # vertically centred line
+            self.placeholder.place(x=0, y=0)
 
     def _input_changed(self):
         self._place_placeholder()
@@ -1461,7 +1554,7 @@ class ChatApp:
         if isinstance(n, (tuple, list)):
             n = n[0] if n else None
         lines = int(n or 1)
-        self.input.configure(height=max(2, min(8, lines)))
+        self.input.configure(height=max(1, min(INPUT_MAX_LINES, lines)))
 
     # ------------------------------------------------------------ chat
     def _chat_write(self, fn):
@@ -1677,6 +1770,9 @@ class ChatApp:
         self.show_hero()
 
     def toggle_stats(self):
+        # An explicit choice wins over the narrow-window auto-hide until
+        # the next resize.
+        self._stats_auto_hidden = False
         self.stats_visible = not self.stats_visible
         if self.stats_visible:
             self.stats_panel.grid()
@@ -1690,6 +1786,54 @@ class ChatApp:
         self.root.destroy()
 
     # ------------------------------------------------------------ send
+    def configure_dictation(self, parsed, base):
+        """Apply the voice-input paths from the settings panel."""
+        d = getattr(self, "dictation", None)
+        try:
+            import nemo_dictation
+            nemo_dictation.configure(parsed["parakeet_exe"],
+                                     parsed["parakeet_model"], base)
+            if d is not None:
+                d.refresh()
+        except Exception as exc:  # never break the chat over the mic
+            sys.stderr.write(f"dictation settings not applied: {exc}\n")
+
+    def _engine_log_line(self, line):
+        """Keep the engine's stderr (read through a pipe while its console
+        window is hidden) and show it live if the log window is open."""
+        log = self.__dict__.setdefault("engine_log", [])
+        log.append(line)
+        del log[:-1000]
+        view = self.__dict__.get("engine_log_view")
+        if view is not None:
+            try:
+                view.insert("end", line + "\n")
+                view.see("end")
+            except tk.TclError:
+                self.engine_log_view = None
+
+    def open_engine_log(self):
+        win = tk.Toplevel(self.root)
+        win.title("Engine log")
+        win.configure(bg=BG)
+        view = tk.Text(win, width=100, height=24, wrap="none", bg=SURFACE,
+                       fg=FG, bd=0, highlightthickness=0,
+                       font=self.f_small)
+        bar = tk.Scrollbar(win, command=view.yview)
+        view.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
+        view.pack(side="left", fill="both", expand=True)
+        view.insert("end", "\n".join(self.__dict__.get("engine_log", []))
+                    + "\n")
+        view.see("end")
+        self.engine_log_view = view
+
+        def closed(_e=None):
+            if self.__dict__.get("engine_log_view") is view:
+                self.engine_log_view = None
+
+        win.bind("<Destroy>", closed, add="+")
+
     def _on_return(self, e):
         if e.state & 0x0001:  # Shift: newline
             return None
@@ -1854,6 +1998,7 @@ class ChatApp:
             self.work.put(("att_err", aid, f"could not read the file ({exc})"))
 
     def _on_paste(self, e):
+        self.input.after_idle(self._input_changed)  # a paste can add lines
         try:
             from PIL import ImageGrab
 
@@ -2039,6 +2184,8 @@ class ChatApp:
                 self.cur.icon.on_event("error")
             if self.busy:
                 self.finish_turn(failed=True)
+        elif kind == "log":
+            self._engine_log_line(payload)
         elif kind == "closed":
             self.connected = False
             self.status.configure(text="disconnected")
@@ -2162,6 +2309,9 @@ class ChatApp:
     # -------------------------------------------------------- settings
     def open_settings(self):
         open_settings_dialog(self)
+
+    def open_about(self):
+        return nemo_about.open_about(self, BG, FG, DIM, SURFACE)
 
     def open_appearance(self, model_key=None, tab="icons"):
         open_appearance_dialog(self, model_key=model_key or self.model, tab=tab)
@@ -2856,6 +3006,11 @@ def open_appearance_dialog(app, model_key=None, tab="icons"):
 
 
 
+# Input bar: one line at rest, growing to this many lines, then scrolling.
+INPUT_PAD = 12
+INPUT_MAX_LINES = 6
+
+
 def open_settings_dialog(app):
     """The Little Nemo engine settings (same fields and code path as
     before: resolve_settings / validate_settings / apply_settings)."""
@@ -2869,8 +3024,19 @@ def open_settings_dialog(app):
     dlg.title("Little Nemo engine settings")
     dlg.configure(bg=BG)
     dlg.transient(root)
-    form = tk.Frame(dlg, bg=BG)
-    form.pack(fill="both", expand=True, padx=14, pady=12)
+    # The settings outgrew a screen (the CUDA, console and voice sections),
+    # so the form scrolls inside a canvas and the error line and the
+    # Apply / Cancel buttons stay in a bar that is always visible.
+    bar = tk.Frame(dlg, bg=BG)
+    bar.pack(side="bottom", fill="x", padx=14, pady=(4, 12))
+    sbar = tk.Scrollbar(dlg)
+    sbar.pack(side="right", fill="y")
+    cv = tk.Canvas(dlg, bg=BG, highlightthickness=0, width=300, height=300,
+                   yscrollcommand=sbar.set)
+    cv.pack(side="left", fill="both", expand=True, padx=(14, 0), pady=(12, 0))
+    sbar.configure(command=cv.yview)
+    form = tk.Frame(cv, bg=BG)
+    cv.create_window((0, 0), window=form, anchor="nw")
     r = 0
 
     def head(text):
@@ -2932,6 +3098,65 @@ def open_settings_dialog(app):
     e_max_pos = entry_row("max_pos", values["max_pos"])
     note("Blank max_new / max_pos fall back to the engine defaults "
          "(256 / 4096).")
+    head("CUDA engine (nemo-engine-cuda)")
+    e_cuda_pack = entry_row("cuda_pack", values["cuda_pack"])
+    cuda_frame = tk.Frame(form, bg=BG)
+    cuda_frame.grid(row=r, column=0, columnspan=2, sticky="w", pady=2)
+    r += 1
+    cuda_inputs = {}
+    for n, (key, _flag, kind, allowed, default) in enumerate(
+            proto.CUDA_OPTIONS):
+        col = (n % 2) * 2
+        row = n // 2
+        tk.Label(cuda_frame, text=f"{key} ({default})", bg=BG, fg=FG2,
+                 anchor="w", font=app.f_small).grid(
+                     row=row, column=col, sticky="w", padx=(0, 6), pady=1)
+        shown = values[key].strip().lower()
+        if kind in ("choice", "bool"):
+            choices = ("default",) + (("on", "off") if kind == "bool"
+                                      else allowed)
+            if shown in proto._BOOL_ON and kind == "bool":
+                shown = "on"
+            elif shown in proto._BOOL_OFF and kind == "bool":
+                shown = "off"
+            var = tk.StringVar(value=shown if shown in choices
+                               else "default")
+            widget = tk.OptionMenu(cuda_frame, var, *choices)
+            widget.configure(bg=SURFACE, fg=FG, activebackground=SELECT,
+                             highlightthickness=0, relief="flat", width=8)
+            cuda_inputs[key] = var.get
+        else:
+            widget = tk.Entry(cuda_frame, bg=SURFACE, fg=FG, width=10,
+                              insertbackground=FG, relief="flat",
+                              font=app.f_small)
+            widget.insert(0, values[key])
+            cuda_inputs[key] = widget.get
+        widget.grid(row=row, column=col + 1, sticky="w",
+                    padx=(0, 14), pady=1)
+    note("Blank or default passes no flag, so the engine uses its built-in "
+         "setting, which is the fastest one. full_path exact, lm_head bf16 "
+         "and prefill_chunk 0 are the slower, more reference-faithful "
+         "choices. These options apply only when the engine path is "
+         "nemo-engine-cuda; the CPU engine does not accept them.")
+    console_var = tk.BooleanVar(value=values["show_console"])
+    tk.Checkbutton(form, text="Show console windows (off: engine and helper "
+                   "programs stay hidden)", variable=console_var, bg=BG,
+                   fg=FG2, activebackground=BG, selectcolor=SURFACE,
+                   font=app.f_small).grid(row=r, column=0, columnspan=2,
+                                          sticky="w", pady=1)
+    r += 1
+    note("With windows hidden the engine's messages appear in the engine log "
+         "instead.")
+    flatbtn(form, "Engine log...", app.open_engine_log, RAISED, FG2, SELECT,
+            app.f_small, padx=10, pady=2).grid(row=r, column=1, sticky="w",
+                                               pady=(2, 4))
+    r += 1
+    head("Voice input (Parakeet)")
+    e_pk_exe = entry_row("parakeet_exe", values["parakeet_exe"])
+    e_pk_model = entry_row("parakeet_model", values["parakeet_model"])
+    note("Blank parakeet_exe searches parakeet/bin of this tree, the "
+         "PARAKEET_EXE variable, and the NemoChat app-data folder. Blank "
+         "parakeet_model uses PARAKEET_MODEL or the runtime's own search.")
     head("Paths (local engine)")
     e_engine = entry_row("engine", values["engine"])
     e_ckpt = entry_row("checkpoint", values["checkpoint"])
@@ -2950,12 +3175,11 @@ def open_settings_dialog(app):
          "it stays unavailable.")
     note(f"Settings file: {target}"
          + ("" if found_path else " (will be created by Apply)"))
-    err = tk.Label(form, text="", bg=BG, fg=ERR, anchor="w", justify="left",
+    err = tk.Label(bar, text="", bg=BG, fg=ERR, anchor="w", justify="left",
                    font=app.f_small, wraplength=460)
-    err.grid(row=r, column=0, columnspan=2, sticky="w", pady=(6, 2))
-    r += 1
-    btns = tk.Frame(form, bg=BG)
-    btns.grid(row=r, column=0, columnspan=2, sticky="e", pady=(4, 0))
+    err.pack(side="top", fill="x", pady=(0, 4))
+    btns = tk.Frame(bar, bg=BG)
+    btns.pack(side="top", anchor="e")
 
     def gather():
         return {"engine": e_engine.get(), "checkpoint": e_ckpt.get(),
@@ -2963,7 +3187,12 @@ def open_settings_dialog(app):
                 "threads": "" if auto_var.get() else e_threads.get(),
                 "simd": bool(simd_var.get()), "max_new": e_max_new.get(),
                 "max_pos": e_max_pos.get(), "host": e_host.get(),
-                "port": e_port.get()}
+                "port": e_port.get(),
+                "cuda_pack": e_cuda_pack.get(),
+                "show_console": bool(console_var.get()),
+                "parakeet_exe": e_pk_exe.get(),
+                "parakeet_model": e_pk_model.get(),
+                **{key: read() for key, read in cuda_inputs.items()}}
 
     def on_apply():
         raw = gather()
@@ -2982,6 +3211,7 @@ def open_settings_dialog(app):
             err.configure(text="\n".join(f"{k}: {v}" for k, v in errors.items()))
             return
         dlg.destroy()
+        app.configure_dictation(result["parsed"], result["base"])
         # The applied settings become the session's settings, so a
         # later restart uses them (Archie Round 4 P1-2, 2026-11-25).
         app.targets["littlenemo"] = {"cmd": result["cmd"],
@@ -3002,6 +3232,28 @@ def open_settings_dialog(app):
             padx=12, pady=4).pack(side="left", padx=(0, 6))
     flatbtn(btns, "Cancel", dlg.destroy, RAISED, FG2, SELECT, app.f_small,
             padx=12, pady=4).pack(side="left")
+
+    def fit(_event=None):
+        cv.configure(scrollregion=cv.bbox("all"))
+
+    form.bind("<Configure>", fit)
+    dlg.update_idletasks()
+    want = form.winfo_reqheight() + bar.winfo_reqheight() + 40
+    room = int(dlg.winfo_screenheight() * 0.85)
+    cv.configure(width=form.winfo_reqwidth(), height=max(200, min(want, room)
+                                                         - bar.winfo_reqheight() - 40))
+
+    # keep the whole dialog on the screen, clear of the taskbar
+    dlg.update_idletasks()
+    sh = dlg.winfo_screenheight()
+    y = max(0, min(root.winfo_rooty() + 30,
+                   sh - dlg.winfo_reqheight() - 70))
+    dlg.geometry("+%d+%d" % (max(0, root.winfo_rootx() + 30), y))
+
+    def wheel(e):
+        cv.yview_scroll(-1 if e.delta > 0 else 1, "units")
+    dlg.bind("<MouseWheel>", wheel)
+    form.bind("<MouseWheel>", wheel)
     try:
         dlg.grab_set()
     except Exception:

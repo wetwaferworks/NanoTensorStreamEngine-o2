@@ -72,6 +72,8 @@ import subprocess
 import sys
 import threading
 
+import nemo_proc
+
 # Layer types for NVIDIA-Nemotron-Nano-9B-v2, from the checkpoint's
 # hybrid_override_pattern (M = mamba, - = mlp, * = attention).
 LAYER_PATTERN = "M-M-M-MM-M-M-M*-M-M-M*-M-M-M-M*-M-M-M-M*-M-MM-M-M-M-M-M-"
@@ -383,12 +385,20 @@ class NemoClient:
             # this interpreter instead (Archie Round 4 P1-1,
             # 2026-11-25).
             cmd = [sys.executable] + list(cmd)
+        # With console windows hidden (the default) the engine's error
+        # output is read through a pipe and handed to the GUI as "log"
+        # events. With them shown, the engine's own console gets it.
+        hidden = nemo_proc.console_hidden()
         self._proc = subprocess.Popen(
             cmd, shell=False, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            text=True, encoding="utf-8", bufsize=1,
+            stderr=subprocess.PIPE if hidden else None,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+            **nemo_proc.engine_kwargs()
         )
         self._w = self._proc.stdin
         self._start_reader(self._proc.stdout)
+        if hidden:
+            self._start_log_reader(self._proc.stderr)
 
     def connect_tcp(self, host, port):
         import socket
@@ -402,6 +412,18 @@ class NemoClient:
         f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
         self._w = f
         self._start_reader(f)
+
+    def _start_log_reader(self, r):
+        """Forward the engine's stderr, line by line, as "log" events. The
+        pipe must always be drained or a chatty engine would block."""
+        def run():
+            try:
+                for line in r:
+                    self.on_event("log", line.rstrip("\r\n"))
+            except (OSError, ValueError):
+                pass  # the engine went away
+
+        threading.Thread(target=run, daemon=True).start()
 
     def _start_reader(self, r):
         def run():
@@ -656,6 +678,16 @@ def load_ini(argv):
         max_pos = cfg.get("engine", "max_pos", fallback="").strip()
         if max_pos:
             parts += ["--max-pos", max_pos]
+        if is_cuda_engine(engine):
+            raw = {key: cfg.get("cuda", key, fallback="")
+                   for key, *_rest in CUDA_OPTIONS}
+            raw["cuda_pack"] = cfg.get("paths", "cuda_pack", fallback="")
+            cuda, errors = parse_cuda_options(raw)
+            for key, message in errors.items():
+                sys.stderr.write(f"littlenemo.ini [cuda]: {message}; "
+                                 "ignored\n")
+                cuda[key] = None
+            parts += cuda_flags(cuda, base)
         cmd = parts
     host = cfg.get("remote", "host", fallback="").strip() or None
     port = cfg.get("remote", "port", fallback="").strip() or None
@@ -676,6 +708,108 @@ MODES = ("minimum", "medium", "max", "ultra")
 # Engine built-in defaults (littlenemo/src/engine.c), used only
 # to label what a blank field means in the panel.
 ENGINE_DEFAULTS = {"mode": "max", "max_new": 256, "max_pos": 4096}
+
+# Options of the CUDA engine (nemo-engine-cuda, built from accel/). Each is
+# optional: blank or "default" passes no flag, so the engine's own default
+# applies, and those defaults are the fastest settings (docs/ACCEL-CUDA.md).
+# An option lives in littlenemo.ini under [cuda] with the key in the first
+# column and becomes the command-line flag in the second. The engine itself
+# turns --full-path, --lm-head and --prefill-chunk into the NEMO_GPU_*
+# variables its GPU runtime reads, so the GUI never touches the environment.
+# The last column is the engine default, shown in the panel.
+CUDA_OPTIONS = (
+    ("accel", "--accel", "choice", ("auto", "cuda", "cpu"), "auto"),
+    ("expand", "--expand", "choice", ("auto", "never", "always"), "auto"),
+    ("full_path", "--full-path", "choice", ("fast", "exact"), "fast"),
+    ("host_threads", "--host-threads", "int", (1, 8), "1"),
+    ("tok_overlap", "--tok-overlap", "bool", None, "on"),
+    ("lm_head", "--lm-head", "choice", ("auto", "int8", "bf16"), "auto"),
+    ("prefill_chunk", "--prefill-chunk", "int", (0, 512), "64"),
+    ("dtc_margin", "--dtc-margin", "float", (0.0, None), "0.5"),
+    ("dtc_entropy", "--dtc-entropy", "float", (0.0, None), "4.0"),
+    ("dtc_prompt_tokens", "--dtc-prompt-tokens", "int", (0, None), "96"),
+    ("dtc_complexity", "--dtc-complexity", "int", (0, None), "6"),
+    ("dtc_longform", "--dtc-longform", "bool", None, "on"),
+)
+_BOOL_ON = ("1", "true", "on", "yes")
+_BOOL_OFF = ("0", "false", "off", "no")
+
+
+def is_cuda_engine(engine):
+    """True when the engine path names the CUDA engine. Only that engine
+    understands the CUDA options; the CPU engine rejects unknown flags."""
+    return "cuda" in os.path.basename(engine or "").lower()
+
+
+def parse_cuda_options(raw):
+    """Raw field strings -> (parsed, errors). parsed[key] is None when the
+    option is unset (no flag), otherwise a canonical string: the choice,
+    "on" / "off" for a switch, or the number as typed. parsed["cuda_pack"]
+    is the pack path ("" when unset)."""
+    parsed, errors = {}, {}
+    for key, _flag, kind, allowed, _default in CUDA_OPTIONS:
+        text = str(raw.get(key) or "").strip().lower()
+        parsed[key] = None
+        if text in ("", "default"):
+            continue
+        if kind == "choice":
+            if text in allowed:
+                parsed[key] = text
+            else:
+                errors[key] = (f"{key} must be default or one of: "
+                               + ", ".join(allowed))
+        elif kind == "bool":
+            if text in _BOOL_ON:
+                parsed[key] = "on"
+            elif text in _BOOL_OFF:
+                parsed[key] = "off"
+            else:
+                errors[key] = f"{key} must be on, off or default"
+        else:
+            try:
+                value = int(text, 10) if kind == "int" else float(text)
+            except ValueError:
+                errors[key] = (f"{key} must be a "
+                               + ("whole number" if kind == "int"
+                                  else "number"))
+                continue
+            low, high = allowed
+            if value != value or value in (float("inf"), float("-inf")):
+                errors[key] = f"{key} must be a finite number"
+            elif value < low or (high is not None and value > high):
+                errors[key] = (f"{key} must be between {low} and {high}"
+                               if high is not None
+                               else f"{key} must be at least {low}")
+            else:
+                parsed[key] = text
+    parsed["cuda_pack"] = str(raw.get("cuda_pack") or "").strip()
+    return parsed, errors
+
+
+def cuda_flags(parsed, base):
+    """The command-line flags for parsed CUDA options, in table order.
+    The pack path resolves against base like the other paths."""
+    parts = []
+    pack = _resolve_against(base, parsed.get("cuda_pack"))
+    if pack:
+        parts += ["--cuda-pack", pack]
+    for key, flag, kind, _allowed, _default in CUDA_OPTIONS:
+        value = parsed.get(key)
+        if value is None:
+            continue
+        if kind == "bool":
+            value = "1" if value == "on" else "0"
+        parts += [flag, value]
+    return parts
+
+
+def cuda_ini_updates(parsed):
+    """(section, key, value) rows for the INI; an unset option is written
+    blank so a later Apply can clear it."""
+    rows = [("paths", "cuda_pack", parsed["cuda_pack"])]
+    for key, _flag, _kind, _allowed, _default in CUDA_OPTIONS:
+        rows.append(("cuda", key, parsed[key] or ""))
+    return rows
 
 
 def find_ini_path(argv):
@@ -711,7 +845,11 @@ def resolve_settings(argv):
     separately by main() and only reported by the panel."""
     values = {"engine": "", "checkpoint": "", "tokenizer": "",
               "mode": "", "threads": "", "simd": False,
-              "max_new": "", "max_pos": "", "host": "", "port": ""}
+              "max_new": "", "max_pos": "", "host": "", "port": "",
+              "cuda_pack": "", "show_console": False,
+              "parakeet_exe": "", "parakeet_model": ""}
+    for key, *_rest in CUDA_OPTIONS:
+        values[key] = ""
     path = find_ini_path(argv)
     if not path:
         return values, None
@@ -729,6 +867,15 @@ def resolve_settings(argv):
         values["simd"] = False
     values["host"] = cfg.get("remote", "host", fallback="").strip()
     values["port"] = cfg.get("remote", "port", fallback="").strip()
+    values["cuda_pack"] = cfg.get("paths", "cuda_pack", fallback="").strip()
+    values["show_console"] = nemo_proc.parse_bool(
+        cfg.get("gui", "show_console", fallback=""))
+    values["parakeet_exe"] = cfg.get("dictation", "parakeet_exe",
+                                     fallback="").strip()
+    values["parakeet_model"] = cfg.get("dictation", "parakeet_model",
+                                       fallback="").strip()
+    for key, *_rest in CUDA_OPTIONS:
+        values[key] = cfg.get("cuda", key, fallback="").strip()
     return values, path
 
 
@@ -786,6 +933,12 @@ def parse_settings(raw):
             if not parsed[key]:
                 errors[key] = (f"{key} path is required for a "
                                f"local engine")
+    parsed["show_console"] = bool(raw.get("show_console"))
+    parsed["parakeet_exe"] = (raw.get("parakeet_exe") or "").strip()
+    parsed["parakeet_model"] = (raw.get("parakeet_model") or "").strip()
+    cuda_parsed, cuda_errors = parse_cuda_options(raw)
+    parsed.update(cuda_parsed)
+    errors.update(cuda_errors)
     return parsed, errors
 
 
@@ -876,6 +1029,8 @@ def _cmd_from_parsed(parsed, base):
         parts += ["--simd"]
     if parsed["max_pos"] is not None:
         parts += ["--max-pos", str(parsed["max_pos"])]
+    if is_cuda_engine(engine):
+        parts += cuda_flags(parsed, base)
     return parts
 
 
@@ -905,7 +1060,11 @@ def apply_settings(raw, ini_path):
         ("remote", "host", parsed["host"]),
         ("remote", "port",
          "" if parsed["port"] is None else str(parsed["port"])),
-    ]
+        ("gui", "show_console",
+         "true" if parsed["show_console"] else "false"),
+        ("dictation", "parakeet_exe", parsed["parakeet_exe"]),
+        ("dictation", "parakeet_model", parsed["parakeet_model"]),
+    ] + cuda_ini_updates(parsed)
     text = ""
     if ini_path and os.path.isfile(ini_path):
         with open(ini_path, "r", encoding="utf-8") as f:
@@ -915,7 +1074,9 @@ def apply_settings(raw, ini_path):
         f.write(update_ini_text(text, updates))
     os.replace(tmp, ini_path)
     base = os.path.dirname(os.path.abspath(ini_path))
+    nemo_proc.set_show_console(parsed["show_console"])
     result = {
+        "base": base,
         "cmd": _cmd_from_parsed(parsed, base),
         "host": parsed["host"] or None,
         "port": (str(parsed["port"])
@@ -935,6 +1096,8 @@ def _arg(argv, flag):
 
 
 def main(argv):
+    shown = resolve_settings(argv)[0]["show_console"]
+    nemo_proc.set_show_console(shown or "--show-console" in argv)
     targets = resolve_model_targets(argv)
     model = _arg(argv, "--model") or "littlenemo"
     if model not in MODELS:
