@@ -10,6 +10,7 @@ Adds to the same protocol:
   DTC on by default with predicted expansion (accel/nemo_predict)
     --expand auto|never|always
     --full-path fast|exact  FULL projections: fast (default) or exact order
+    --tok-overlap 0|1       tokenize the prompt tail while the GPU prefills (default 1)
     --dtc-margin X --dtc-entropy X --dtc-prompt-tokens N
     --dtc-complexity N --dtc-longform 0|1 --dtc-trace --log FILE
 READY/HW/STATS/STAT say which lane runs and why the others were
@@ -39,6 +40,7 @@ BRIDGE = r"""#include "tokenizer.h"
 #include "nemo_gpu.h"
 #include "nemo_calib.h"
 #include "nemo_predict.h"
+#include "nemo_tokpipe.h"
 
 /* ---- GPU bridge, lane calibration, DTC/EXPAND prediction (generated) ---- */
 static nemo_gpu *g_gpu = NULL;
@@ -53,6 +55,8 @@ static int g_last_tok = -1;
 static int g_trace = 0;               /* --dtc-trace: every step's confidence on stderr */
 static nemo_pool g_hpool;             /* host lanes for per-step work (zero-mutex pool) */
 static int g_host_threads = 1, g_hpool_ok = 0;
+static nemo_pool g_tokpool;            /* prep thread: prompt tokenization overlapped with the prefill */
+static int g_tok_overlap = 1, g_tokpool_ok = 0;
 static void pct(const char *in, char *out, size_t ol) {
     static const char hx[] = "0123456789ABCDEF";
     size_t j = 0;
@@ -232,6 +236,7 @@ rep('        else if (i + 1 < argc && !strcmp(argv[i], "--threads"))', r'''     
                 return 2;
             }
         }
+        else if (i + 1 < argc && !strcmp(argv[i], "--tok-overlap")) g_tok_overlap = atoi(argv[++i]) != 0;
         else if (i + 1 < argc && !strcmp(argv[i], "--full-path")) {
             /* FULL projections: fast (default) or the exact (reference-order) path */
             const char *fp = argv[++i];
@@ -281,6 +286,8 @@ rep('    if (nthreads < 1) nthreads = 1;', r'''    if (nthreads < 1) nthreads = 
         if (g_pred.mode == 2) g_per_step = 0;
         memset(&g_hpool, 0, sizeof g_hpool);
         if (g_host_threads > 1) g_hpool_ok = nemo_pool_init(&g_hpool, g_host_threads) == 0;
+        memset(&g_tokpool, 0, sizeof g_tokpool);
+        if (g_tok_overlap) g_tokpool_ok = nemo_pool_init(&g_tokpool, 2) == 0;
     }''')
 rep(r'''    printf("READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=raw "
            "layers=%d cores=%d threads=%d mode=%s simd=%d accel=cpu "
@@ -320,12 +327,12 @@ rep(r'''    printf("READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=raw "
         pct(cal.cuda_why, cw, sizeof cw); pct(cal.oclnv_why, ow, sizeof ow);
         pct(cal.igpu_why, iw, sizeof iw); pct(cal.cpu_why, pw, sizeof pw);
         pct(lane_why[0] ? lane_why : "-", lw, sizeof lw);
-        printf("HW cores=%d threads=%d accel=%s gpu=%s calib=%s dtc=%s expand=%s host_threads=%d prefill_chunk=%d full_path=%s\n", cores, model.nthreads, g_lane, gd,
+        printf("HW cores=%d threads=%d accel=%s gpu=%s calib=%s dtc=%s expand=%s host_threads=%d prefill_chunk=%d full_path=%s tok_overlap=%d\n", cores, model.nthreads, g_lane, gd,
                cal.cached ? "cached" : "fresh", g_gpu ? "on" : "off",
                !g_gpu ? "off" : g_pred.mode == 1 ? "never" : g_pred.mode == 2 ? "always"
                : !ginf.full_ok ? "off" : ginf.snap_ok ? "auto" : "turn",
                g_hpool_ok ? g_host_threads : 1, g_gpu ? nemo_gpu_prefill_chunk(g_gpu) : 0,
-               !g_gpu ? "off" : nemo_gpu_full_fast(g_gpu) ? "fast" : "exact");
+               !g_gpu ? "off" : nemo_gpu_full_fast(g_gpu) ? "fast" : "exact", g_tokpool_ok);
         printf("STAT calib=%s calib_ms=%.0f lane=%s lane_cuda=%s lane_opencl_nv=%s lane_opencl_igpu=%s lane_cpu=%s "
                "est_cuda_tps=%.2f est_cpu_tps=%.3f open_note=%s\n",
                cal.cached ? "cached" : "fresh", cal.ms, g_lane, cal.cuda_status, cal.oclnv_status, cal.igpu_status,
@@ -336,6 +343,79 @@ rep(r'''    printf("READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=raw "
                    g_pred.margin, g_pred.entropy, g_pred.prompt_tokens, g_pred.complex_score);
     }''')
 rep('    nemo_model_free(&model);\n    nemo_tokenizer_free(tk);',
-    '    if (g_hpool_ok) nemo_pool_shutdown(&g_hpool);\n    nemo_gpu_close(g_gpu);\n    nemo_model_free(&model);\n    nemo_tokenizer_free(tk);')
+    '    if (g_hpool_ok) nemo_pool_shutdown(&g_hpool);\n    if (g_tokpool_ok) nemo_pool_shutdown(&g_tokpool);\n    nemo_gpu_close(g_gpu);\n    nemo_model_free(&model);\n    nemo_tokenizer_free(tk);')
+# Prompt tokenization overlapped with the prefill (accel/nemo_tokpipe).
+rep('''static void run_turn_raw(engine *e, const char *prompt_text, int think_on) {
+    int ids[8192];
+    int n = nemo_tokenizer_encode(e->tk, prompt_text, ids, 8192);
+''', '''static void run_turn_raw(engine *e, const char *prompt_text, int think_on) {
+    int ids[8192];
+    /* Tokenization overlapped with the prefill (accel/nemo_tokpipe):
+     * segment 0 is encoded here and the rest on the prep thread while
+     * the GPU runs the first chunks, cut only where the pieces encode
+     * to exactly the one-shot ids. Taken only when the byte count bounds
+     * every check below (ids <= bytes), so the turn is identical. */
+    nemo_tokpipe tp;
+    int piped = 0, segs_in = 1, tok_fail = 0, planned = 0, n = -1;
+    size_t plen = strlen(prompt_text);
+    if (g_tokpool_ok && plen > 0 && plen < 8192
+        && !(e->chat && e->pos + (int)plen + 1 > e->max_pos))
+        planned = nemo_tokpipe_plan(&tp, e->tk, prompt_text, 256, 1024);
+    if (planned > 1) {
+        n = nemo_tokpipe_head(&tp);
+        if (n >= 0) {
+            memcpy(ids, tp.buf, (size_t)n * sizeof(int));
+            nemo_pool_prep(&g_tokpool, nemo_tokpipe_run, &tp);
+            piped = 1;
+        } else nemo_tokpipe_free(&tp);
+    } else if (planned == 1) nemo_tokpipe_free(&tp);
+#define TP_DONE() do { if (piped) { nemo_pool_prep_wait(&g_tokpool); nemo_tokpipe_free(&tp); piped = 0; } } while (0)
+    if (!piped) n = nemo_tokenizer_encode(e->tk, prompt_text, ids, 8192);
+''')
+rep('''    if (!logits || !hidden) {
+        free(logits);
+        free(hidden);
+        printf("ERROR out of memory\\n");''', '''    if (!logits || !hidden) {
+        TP_DONE();
+        free(logits);
+        free(hidden);
+        printf("ERROR out of memory\\n");''')
+rep('''    for (int i = 0; i < n; i += NEMO_PREFILL_CHUNK) {
+        int cn = n - i < NEMO_PREFILL_CHUNK ? n - i : NEMO_PREFILL_CHUNK;
+        int rc = gpu_prefill(e->model, ids + i, cn, hidden);
+        if (rc == 0 && i + cn >= n)
+            rc = gpu_head(e->model, hidden, logits);
+        if (rc != 0) {''', '''    for (int i = 0; ; ) {
+        /* the next chunk's ids: wait (acquire) for the segments it needs */
+        while (piped && segs_in < tp.nseg && n < i + NEMO_PREFILL_CHUNK) {
+            const int *sid;
+            int c = nemo_tokpipe_wait(&tp, segs_in, &sid);
+            if (c < 0 || n + c > 8192) { tok_fail = 1; break; }
+            memcpy(ids + n, sid, (size_t)c * sizeof(int));
+            n += c;
+            segs_in++;
+        }
+        if (tok_fail) {
+            TP_DONE();
+            engine_reset(e);
+            printf("ERROR prompt could not be tokenized; state reset\\n");
+            fflush(stdout);
+            free(logits);
+            free(hidden);
+            return;
+        }
+        if (i >= n) break;
+        int cn = n - i < NEMO_PREFILL_CHUNK ? n - i : NEMO_PREFILL_CHUNK;
+        int rc = gpu_prefill(e->model, ids + i, cn, hidden);
+        if (rc == 0 && i + cn >= n && (!piped || segs_in == tp.nseg))
+            rc = gpu_head(e->model, hidden, logits);
+        i += cn;
+        if (rc != 0) {
+            TP_DONE();''')
+rep('''    double prefill_ms = now_ms() - turn_t0;
+    e->pos += n;''', '''    TP_DONE();
+#undef TP_DONE
+    double prefill_ms = now_ms() - turn_t0;
+    e->pos += n;''')
 open(dst, "w", encoding="utf-8", newline="\n").write(s)
 print("wrote", dst)

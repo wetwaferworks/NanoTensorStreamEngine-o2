@@ -1001,3 +1001,17 @@ char *nemo_tokenizer_decode(const nemo_tokenizer *tk, const int *ids, int n,
     out[olen] = '\0';
     return out;
 }
+
+/* 1 when encode(a + b) equals encode(a) followed by encode(b) for every
+ * cut between an ASCII letter and a space that is followed by an ASCII
+ * letter (accel/nemo_tokpipe, overlapping tokenization with the GPU):
+ * the checkpoint's Split pre-tokenizer is in use (a piece holding a
+ * letter never takes a following space, and that space starts the next
+ * piece; merges never cross a piece), and no added token contains a
+ * space, so no added-token match can straddle such a cut. */
+int nemo_tokenizer_cut_safe(const nemo_tokenizer *tk) {
+    if (!tk || !tk->use_split) return 0;
+    for (int a = 0; a < tk->n_added; a++)
+        if (!tk->added_str[a] || strchr(tk->added_str[a], ' ')) return 0;
+    return 1;
+}

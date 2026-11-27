@@ -38,13 +38,15 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' '-c' '-o' 'accel\obj\nemo_calib.o' 'accel\ne
 if ($LASTEXITCODE) { throw 'nemo_calib.c' }
 gcc @F '-Ilittlenemo\src' '-c' '-o' 'accel\obj\nemo_predict.o' 'accel\nemo_predict.c'
 if ($LASTEXITCODE) { throw 'nemo_predict.c' }
+gcc @F '-Ilittlenemo\src' '-c' '-o' 'accel\obj\nemo_tokpipe.o' 'accel\nemo_tokpipe.c'
+if ($LASTEXITCODE) { throw 'nemo_tokpipe.c' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' '-c' '-o' 'accel\obj\engine_gui_cuda.o' 'accel\engine_gui_cuda.c'
 if ($LASTEXITCODE) { throw 'engine_gui_cuda.c' }
 
-gcc -O2 -static -o accel\bin\nemo-engine-cuda.exe accel\obj\engine_gui_cuda.o accel\obj\nemo_gpu.o accel\obj\nemo_calib.o accel\obj\nemo_predict.o @ln -lm -lpsapi
+gcc -O2 -static -o accel\bin\nemo-engine-cuda.exe accel\obj\engine_gui_cuda.o accel\obj\nemo_gpu.o accel\obj\nemo_calib.o accel\obj\nemo_predict.o accel\obj\nemo_tokpipe.o @ln -lm -lpsapi
 if ($LASTEXITCODE) { throw 'link engine' }
 # windowless twin for the GUI shortcut (no console window pops up; same code)
-gcc -O2 -static -mwindows -o accel\bin\nemo-engine-cuda-w.exe accel\obj\engine_gui_cuda.o accel\obj\nemo_gpu.o accel\obj\nemo_calib.o accel\obj\nemo_predict.o @ln -lm -lpsapi
+gcc -O2 -static -mwindows -o accel\bin\nemo-engine-cuda-w.exe accel\obj\engine_gui_cuda.o accel\obj\nemo_gpu.o accel\obj\nemo_calib.o accel\obj\nemo_predict.o accel\obj\nemo_tokpipe.o @ln -lm -lpsapi
 if ($LASTEXITCODE) { throw 'link engine-w' }
 
 $testln = $ln | Where-Object { $_ -notmatch 'tokenizer' }
@@ -56,5 +58,7 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_prefill.c accel\obj\ne
 if ($LASTEXITCODE) { throw 'prefill test' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_hostsplit.c accel\obj\nemo_gpu.o accel\obj\nemo_predict.o @testln -o accel\bin\test_nemo_hostsplit.exe -lm -lpsapi
 if ($LASTEXITCODE) { throw 'hostsplit test' }
+gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_tokpipe.c accel\obj\nemo_tokpipe.o accel\obj\ln_tokenizer.o accel\obj\ln_json.o accel\obj\ln_pool.o -o accel\bin\test_nemo_tokpipe.exe -lm
+if ($LASTEXITCODE) { throw 'tokpipe test' }
 
 'built accel\bin\nemo-engine-cuda.exe, nemo-engine-cuda-w.exe, test_nemo_gpu_layers.exe and test_nemo_pack_ident.exe'

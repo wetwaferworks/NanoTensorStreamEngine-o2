@@ -32,4 +32,8 @@ int nemo_tokenizer_encode(const nemo_tokenizer *tk, const char *utf8,
 char *nemo_tokenizer_decode(const nemo_tokenizer *tk, const int *ids,
                             int n, int skip_specials);
 
+/* 1 when the prompt may be encoded in pieces cut between an ASCII
+ * letter and a following " <letter>" with identical ids (see tokenizer.c). */
+int nemo_tokenizer_cut_safe(const nemo_tokenizer *tk);
+
 #endif
