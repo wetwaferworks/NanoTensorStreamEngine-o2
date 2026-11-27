@@ -1,5 +1,6 @@
 /* sn_cuda.c - see sn_cuda.h. Pure C99; the device code is a string compiled by NVRTC at run time. */
 #include "sn_cuda.h"
+#include "sn_pqk.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -62,6 +63,49 @@ static const char *KERNELS =
 "    if (threadIdx.x == 0) y[row] = s;\n"
 "  }\n"
 "}\n"
+/* DTC: table build then one thread per row. Every float and double operation mirrors sn_pqk.c operation for operation
+   (compiled with --fmad=false), so the result is bit-identical to the CPU DTC kernel. */
+"extern \"C\" __global__ void dtc_build(const float4 *book, const float *x, float *T, int ng, int gph) {\n"
+"  int pg = blockIdx.x; int ph = pg / ng; int G = pg - ph * ng;\n"
+"  int sub = (((ph * gph) >> 2) + G) & 63;\n"
+"  float4 c = book[sub * 256 + threadIdx.x];\n"
+"  float x0 = x[4 * G], x1 = x[4 * G + 1], x2 = x[4 * G + 2], x3 = x[4 * G + 3];\n"
+"  T[(size_t)pg * 256 + threadIdx.x] = c.x * x0 + c.y * x1 + c.z * x2 + c.w * x3;\n"
+"}\n"
+"extern \"C\" __global__ void dtc_rows(const u8 *idx, const u16 *mn, const u16 *sc, const float *T, const double *P, float *y,\n"
+"                                     int cols, int rows, int ng, int nph, int gph) {\n"
+"  int row = blockIdx.x * blockDim.x + threadIdx.x;\n"
+"  if (row >= rows) return;\n"
+"  u64 flat0 = (u64)row * (u64)cols, flat1 = flat0 + (u64)cols;\n"
+"  size_t phbase = 0;\n"
+"  if (nph > 1) phbase = (size_t)((flat0 & 255ull) / (u64)gph) * (size_t)ng * 256;\n"
+"  double acc = 0.0;\n"
+"  for (u64 b = flat0 >> 8; b <= ((flat1 - 1) >> 8); b++) {\n"
+"    u64 bf0 = b << 8;\n"
+"    u64 cur = bf0 > flat0 ? bf0 : flat0;\n"
+"    u64 hi = bf0 + 256 < flat1 ? bf0 + 256 : flat1;\n"
+"    float m = h2f(mn[b]), s = h2f(sc[b]);\n"
+"    const u8 *ix = idx + b * 64;\n"
+"    int sub0 = (int)((cur - bf0) >> 2), sub1 = (int)((hi - bf0) >> 2);\n"
+"    int col = (int)(cur - flat0), len = (int)(hi - cur);\n"
+"    const float *Tp = T + phbase + (size_t)(col >> 2) * 256;\n"
+"    int n = sub1 - sub0, k = 0;\n"
+"    float a0 = 0.f, a1 = 0.f, a2 = 0.f, a3 = 0.f;\n"
+"    for (; k + 4 <= n; k += 4) {\n"
+"      a0 += Tp[(size_t)k * 256 + ix[sub0 + k]];\n"
+"      a1 += Tp[(size_t)(k + 1) * 256 + ix[sub0 + k + 1]];\n"
+"      a2 += Tp[(size_t)(k + 2) * 256 + ix[sub0 + k + 2]];\n"
+"      a3 += Tp[(size_t)(k + 3) * 256 + ix[sub0 + k + 3]];\n"
+"    }\n"
+"    if (k < n) { a0 += Tp[(size_t)k * 256 + ix[sub0 + k]]; k++; }\n"
+"    if (k < n) { a1 += Tp[(size_t)k * 256 + ix[sub0 + k]]; k++; }\n"
+"    if (k < n) { a2 += Tp[(size_t)k * 256 + ix[sub0 + k]]; }\n"
+"    float dotc = (a0 + a1) + (a2 + a3);\n"
+"    double pd = P[col + len] - P[col];\n"
+"    acc = acc + ((double)m * pd + (double)s * (double)dotc);\n"
+"  }\n"
+"  y[row] = (float)acc;\n"
+"}\n"
 "extern \"C\" __global__ void raw_rows(const u16 *w, const float *x, float *y, int cols, int rows, int rpb) {\n"
 "  extern __shared__ float xs[];\n"
 "  __shared__ float red[32];\n"
@@ -78,7 +122,7 @@ static const char *KERNELS =
 "  }\n"
 "}\n";
 
-typedef struct { CUdeviceptr idx, mn, sc, book; long long bytes; int kind; } dres;   /* kind 0 none, 1 pq, 2 raw */
+typedef struct { CUdeviceptr idx, mn, sc, book; long long bytes; int kind; int cache; } dres;   /* kind 0 none, 1 pq, 2 raw */
 
 struct sn_cuda {
     dl_t drv, rtc;
@@ -97,10 +141,12 @@ struct sn_cuda {
     CUresult (*cuMemcpyDtoH)(void *, CUdeviceptr, size_t);
     CUresult (*cuLaunchKernel)(CUfunction, unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, CUstream, void **, void **);
     CUresult (*cuDevicePrimaryCtxRelease)(CUdevice);
-    CUdevice dev; CUcontext ctx; CUmodule mod; CUfunction f_pq, f_raw;
+    CUdevice dev; CUcontext ctx; CUmodule mod; CUfunction f_pq, f_raw, f_dtcb, f_dtcr;
     char name[128];
     long long budget, used; int count;
     CUdeviceptr dx, dy; size_t dx_n, dy_n;
+    CUdeviceptr dT, dP; size_t dT_n, dP_n;      /* DTC table and prefix-sum scratch */
+    long long cache_budget, cache_used; int cache_count;
     dres *res; int nres;
 };
 
@@ -137,6 +183,8 @@ void sn_cuda_close(sn_cuda *c)
     }
     if (c->dx && c->cuMemFree) c->cuMemFree(c->dx);
     if (c->dy && c->cuMemFree) c->cuMemFree(c->dy);
+    if (c->dT && c->cuMemFree) c->cuMemFree(c->dT);
+    if (c->dP && c->cuMemFree) c->cuMemFree(c->dP);
     free(c->res); free(c);
 }
 
@@ -182,10 +230,10 @@ sn_cuda *sn_cuda_open(long long budget_bytes, int pack_tensors, char *why, int w
         snprintf(why, (size_t)whylen, "NVRTC is missing entry points"); goto fail;
     }
     char arch[32]; snprintf(arch, sizeof arch, "--gpu-architecture=sm_%d%d", major, minor);
-    const char *opts[] = { arch, "--std=c++14" };
+    const char *opts[] = { arch, "--std=c++14", "--fmad=false" };
     nvrtcProgram prog = NULL;
     if (nvrtcCreateProgram(&prog, KERNELS, "sn_kernels.cu", 0, NULL, NULL) != 0) { snprintf(why, (size_t)whylen, "NVRTC cannot create the program"); goto fail; }
-    if (nvrtcCompileProgram(prog, 2, opts) != 0) {
+    if (nvrtcCompileProgram(prog, 3, opts) != 0) {
         size_t ls = 0; nvrtcGetProgramLogSize(prog, &ls);
         char *lg = (char *)calloc(ls + 1, 1);
         if (lg) { nvrtcGetProgramLog(prog, lg); snprintf(why, (size_t)whylen, "NVRTC compile failed: %.300s", lg); free(lg); }
@@ -197,11 +245,14 @@ sn_cuda *sn_cuda_open(long long budget_bytes, int pack_tensors, char *why, int w
     nvrtcDestroyProgram(&prog);
     CUresult mr = c->cuModuleLoadData(&c->mod, cubin);
     free(cubin);
-    if (mr != 0 || c->cuModuleGetFunction(&c->f_pq, c->mod, "pq_rows") != 0 || c->cuModuleGetFunction(&c->f_raw, c->mod, "raw_rows") != 0) {
+    if (mr != 0 || c->cuModuleGetFunction(&c->f_pq, c->mod, "pq_rows") != 0 || c->cuModuleGetFunction(&c->f_raw, c->mod, "raw_rows") != 0
+        || c->cuModuleGetFunction(&c->f_dtcb, c->mod, "dtc_build") != 0 || c->cuModuleGetFunction(&c->f_dtcr, c->mod, "dtc_rows") != 0) {
         snprintf(why, (size_t)whylen, "the GPU would not load the kernels (error %d)", mr); goto fail;
     }
     c->dx_n = 32768; c->dy_n = 140000;
     if (c->cuMemAlloc(&c->dx, c->dx_n * 4) != 0 || c->cuMemAlloc(&c->dy, c->dy_n * 4) != 0) { snprintf(why, (size_t)whylen, "no VRAM for the work buffers"); goto fail; }
+    c->dT_n = 2u << 20; c->dP_n = 16400;
+    if (c->cuMemAlloc(&c->dT, c->dT_n * 4) != 0 || c->cuMemAlloc(&c->dP, c->dP_n * 8) != 0) { snprintf(why, (size_t)whylen, "no VRAM for the DTC buffers"); goto fail; }
     c->budget = budget_bytes; c->nres = pack_tensors;
     c->res = (dres *)calloc((size_t)(pack_tensors > 0 ? pack_tensors : 1), sizeof(dres));
     if (!c->res) { snprintf(why, (size_t)whylen, "out of memory"); goto fail; }
@@ -295,4 +346,58 @@ int sn_cuda_matvec(sn_cuda *c, const sn_pack *p, const sn_tensor *t, int cols, i
     if (rc != 0) return -1;
     if (c->cuMemcpyDtoH(y, c->dy, (size_t)rows * 4) != 0) return -1;
     return 0;
+}
+
+/* ------------------------------------------------------------------ DTC and the hot-expert GPU tier */
+
+int sn_cuda_dtc_rows(sn_cuda *c, const sn_pack *p, const sn_tensor *t, int cols, int rows, const float *x, const double *P, float *y)
+{
+    long ti = (long)(t - p->t);
+    int nph = 0, ng = 0;
+    if (ti < 0 || ti >= c->nres || c->res[ti].kind != 1) return -1;
+    if (p->pq_d != 4 || p->block != 256 || p->entries != 256 || p->nsub != 64 || sn_dtc_geom(p, cols, &nph, &ng) != 0) return -1;
+    if ((uint64_t)cols * (uint64_t)rows != t->count || (size_t)cols > c->dx_n || (size_t)rows > c->dy_n || (size_t)cols + 1 > c->dP_n) return -1;
+    if ((size_t)nph * (size_t)ng * 256 > c->dT_n) return -1;
+    const dres *r = &c->res[ti];
+    int gph = 256 / nph, c_ = cols, r_ = rows, ng_ = ng, nph_ = nph;
+    if (c->cuMemcpyHtoD(c->dx, x, (size_t)cols * 4) != 0 || c->cuMemcpyHtoD(c->dP, P, ((size_t)cols + 1) * 8) != 0) return -1;
+    void *a1[] = { (void *)&r->book, &c->dx, &c->dT, &ng_, &gph };
+    if (c->cuLaunchKernel(c->f_dtcb, (unsigned)(nph * ng), 1, 1, 256, 1, 1, 0, NULL, a1, NULL) != 0) return -1;
+    void *a2[] = { (void *)&r->idx, (void *)&r->mn, (void *)&r->sc, &c->dT, &c->dP, &c->dy, &c_, &r_, &ng_, &nph_, &gph };
+    if (c->cuLaunchKernel(c->f_dtcr, (unsigned)((rows + 127) / 128), 1, 1, 128, 1, 1, 0, NULL, a2, NULL) != 0) return -1;
+    return c->cuMemcpyDtoH(y, c->dy, (size_t)rows * 4) == 0 ? 0 : -1;
+}
+
+void sn_cuda_set_cache_budget(sn_cuda *c, long long bytes) { c->cache_budget = bytes; }
+long long sn_cuda_cache_used(const sn_cuda *c) { return c->cache_used; }
+int sn_cuda_cache_count(const sn_cuda *c) { return c->cache_count; }
+
+int sn_cuda_cache_put(sn_cuda *c, const sn_pack *p, const sn_tensor *t, const sn_pq_res *res)
+{
+    long ti = (long)(t - p->t);
+    if (ti < 0 || ti >= c->nres || t->raw || p->nsub != 64) return -1;
+    if (c->res[ti].kind) return 0;
+    long long need = (long long)res->bytes;
+    if (c->cache_used + need > c->cache_budget) return -1;
+    size_t fr = 0, tot = 0;
+    if (c->cuMemGetInfo(&fr, &tot) == 0 && (long long)fr < need + (96ll << 20)) return -1;
+    dres r; memset(&r, 0, sizeof r);
+    r.kind = 1; r.cache = 1; r.bytes = need;
+    uint64_t nidx = res->nblocks * p->nsub, nh = res->nblocks * 2;
+    int ok = c->cuMemAlloc(&r.idx, (size_t)nidx) == 0 && c->cuMemAlloc(&r.mn, (size_t)nh) == 0 && c->cuMemAlloc(&r.sc, (size_t)nh) == 0 && c->cuMemAlloc(&r.book, p->book_floats * 4) == 0;
+    if (ok) ok = c->cuMemcpyHtoD(r.idx, res->idx, (size_t)nidx) == 0 && c->cuMemcpyHtoD(r.mn, res->mn, (size_t)nh) == 0
+              && c->cuMemcpyHtoD(r.sc, res->sc, (size_t)nh) == 0 && c->cuMemcpyHtoD(r.book, res->book, p->book_floats * 4) == 0;
+    if (!ok) { if (r.idx) c->cuMemFree(r.idx); if (r.mn) c->cuMemFree(r.mn); if (r.sc) c->cuMemFree(r.sc); if (r.book) c->cuMemFree(r.book); return -1; }
+    c->res[ti] = r; c->cache_used += r.bytes; c->cache_count++;
+    return 0;
+}
+
+void sn_cuda_cache_drop(sn_cuda *c, const sn_pack *p, const sn_tensor *t)
+{
+    long ti = (long)(t - p->t);
+    if (ti < 0 || ti >= c->nres || !c->res[ti].kind || !c->res[ti].cache) return;
+    dres *r = &c->res[ti];
+    c->cuMemFree(r->idx); c->cuMemFree(r->mn); c->cuMemFree(r->sc); c->cuMemFree(r->book);
+    c->cache_used -= r->bytes; c->cache_count--;
+    memset(r, 0, sizeof *r);
 }

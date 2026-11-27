@@ -138,6 +138,10 @@ typedef struct {
     float *enorm_w, *hnorm_w, *fin_w;
 } layer_t;
 
+/* Hot-expert cache entry: an expert's two packed matrices kept in RAM (byte copies of the pack, so every kernel returns
+ * identical bits from them) and optionally mirrored in VRAM. uses counts tokens that chose the expert (deterministic). */
+typedef struct { sn_pq_res up, dn; unsigned char ram, gpu, pend; uint32_t uses; uint32_t epoch; int rpos; } ecent;
+
 struct sn_model {
     sn_geom g;
     sn_pack pack;
@@ -170,6 +174,13 @@ struct sn_model {
     int mtp_done, mtp_slots;
     float *spec_logits;
     float *probe;                       /* optional: hidden of the last token after each layer (tests) */
+    /* hot-expert cache */
+    ecent *ec; int *rlist; int nrlist;  /* ec[layer * experts + expert]; rlist = RAM-resident keys */
+    uint64_t ec_budget, ec_used, ec_reserved;
+    uint32_t epoch;
+    int gpu_tier;
+    float *gmid; double *gpmid;         /* host scratch for GPU-served experts */
+    uint64_t hits_ram, hits_gpu, misses, admits, evicts, gpu_puts, gpu_drops;
     long spec_cycles, spec_drafted, spec_accepted;
 };
 
@@ -224,7 +235,16 @@ static int lin_n(sn_model *m, const sn_tensor *t, const float *X, int nv, float 
     /* resident on the GPU: same math from the packed form there; any failure falls through to the CPU lanes */
     if (m->cuda && sn_cuda_resident(m->cuda, &m->pack, t)) {
         int ok = 1;
-        for (int v = 0; v < nv && ok; v++) ok = sn_cuda_matvec(m->cuda, &m->pack, t, cols, rows, X + (size_t)v * cols, Y + (size_t)v * rows) == 0;
+        /* tall matrices: tables + lookups on the device (bit-identical to the CPU DTC kernel); short ones: the direct kernel */
+        int dtc_gpu = !t->raw && m->dtc && (m->dtc == 2 || rows >= 4096) && cols <= 8192 && sn_dtc_geom(&m->pack, cols, NULL, NULL) == 0;
+        for (int v = 0; v < nv && ok; v++) {
+            const float *xv = X + (size_t)v * cols; float *yv = Y + (size_t)v * rows;
+            if (dtc_gpu) {
+                double *Pv = m->P + (size_t)v * ((size_t)m->maxcols + 1);
+                Pv[0] = 0.0; for (int j = 0; j < cols; j++) Pv[j + 1] = Pv[j] + (double)xv[j];
+                ok = sn_cuda_dtc_rows(m->cuda, &m->pack, t, cols, rows, xv, Pv, yv) == 0;
+            } else ok = sn_cuda_matvec(m->cuda, &m->pack, t, cols, rows, xv, yv) == 0;
+        }
         if (ok) return 0;
     }
     lin_ctx c; memset(&c, 0, sizeof c);
@@ -255,21 +275,24 @@ static int lin_n(sn_model *m, const sn_tensor *t, const float *X, int nv, float 
 typedef struct {
     sn_model *m; const layer_t *l; const float *lat; const double *plat; float *eo;
     const int *used; int n_used; const int *start, *tok, *slot; int fail;
+    int li; const int *emode; ecent *epend;   /* 0 stream, 1 RAM-resident, 2 served by the GPU already, 3 load a resident copy while computing */
 } fx_ctx;
 
 /* y[v] = W xs[v] for one expert matrix, on this lane (tables built here, never shared) */
-static int expert_mat(sn_model *m, lane_t *ln, const sn_tensor *t, int rows, int cols, int nv,
+static int expert_mat(sn_model *m, lane_t *ln, const sn_tensor *t, const sn_pq_res *res, int rows, int cols, int nv,
                       const float *const *xs, const double *const *ps, float *const *ys)
 {
-    if (sn_load_book(&m->pack, &ln->rd, t, ln->book) != 0) return -1;
+    const float *book = ln->book;
+    if (res) book = res->book;
+    else if (sn_load_book(&m->pack, &ln->rd, t, ln->book) != 0) return -1;
     sn_mv mv = SN_MV_INIT(nv);
     for (int v = 0; v < nv; v++) { mv.x[v] = xs[v]; mv.P[v] = ps[v]; mv.y[v] = ys[v]; }
     if (dtc_wanted(m, rows, cols, nv, 1)) {
         size_t tf = sn_dtc_floats(&m->pack, cols), need_f = tf * (size_t)nv;
         if (ln->t_cap < need_f) { float *p = (float *)realloc(ln->T, need_f * 4); if (!p) return -1; ln->T = p; ln->t_cap = need_f; }
-        for (int v = 0; v < nv; v++) { mv.T[v] = ln->T + (size_t)v * tf; sn_dtc_build(&m->pack, ln->book, cols, xs[v], 0, cols >> 2, ln->T + (size_t)v * tf); }
+        for (int v = 0; v < nv; v++) { mv.T[v] = ln->T + (size_t)v * tf; sn_dtc_build(&m->pack, book, cols, xs[v], 0, cols >> 2, ln->T + (size_t)v * tf); }
     }
-    return sn_pqk_rows(&m->pack, &ln->rd, t, ln->book, cols, &mv, 0, rows);
+    return res ? sn_pqk_rows_res(&m->pack, res, t, cols, &mv, 0, rows) : sn_pqk_rows(&m->pack, &ln->rd, t, book, cols, &mv, 0, rows);
 }
 
 static void fx_job(void *vc, int b, int e)
@@ -281,7 +304,16 @@ static void fx_job(void *vc, int b, int e)
     lane_t *ln = &m->lanes[lane_of(c->n_used, m->nthreads, b)];
     for (int i = b; i < e; i++) {
         int ex = c->used[i], cnt = c->start[i + 1] - c->start[i];
+        int mode = c->emode ? c->emode[i] : 0;
+        if (mode == 2) continue;
         const sn_tensor *up = c->l->eup[ex], *dn = c->l->edn[ex];
+        const sn_pq_res *rup = NULL, *rdn = NULL;
+        if (mode == 1) { const ecent *e = &m->ec[(size_t)c->li * g->moe_experts + (size_t)ex]; rup = &e->up; rdn = &e->dn; }
+        else if (mode == 3) {
+            ecent *pe = &c->epend[i];
+            if (sn_res_load(&m->pack, &ln->rd, up, &pe->up) == 0 && sn_res_load(&m->pack, &ln->rd, dn, &pe->dn) == 0) { pe->pend = 1; rup = &pe->up; rdn = &pe->dn; }
+            else { sn_res_free(&pe->up); sn_res_free(&pe->dn); pe->pend = 0; }
+        }
         const float *xs[SN_NV], *mx[SN_NV]; const double *ps[SN_NV], *pm[SN_NV]; float *ym[SN_NV], *yo[SN_NV];
         for (int v = 0; v < cnt; v++) {
             int tk = c->tok[c->start[i] + v], sl = c->slot[c->start[i] + v];
@@ -289,14 +321,14 @@ static void fx_job(void *vc, int b, int e)
             ym[v] = ln->mid + (size_t)v * I; mx[v] = ym[v]; pm[v] = ln->pmid + (size_t)v * (I + 1);
             yo[v] = c->eo + ((size_t)tk * K + (size_t)sl) * Lt;
         }
-        if (expert_mat(m, ln, up, I, Lt, cnt, xs, ps, ym) != 0) { c->fail = 1; return; }
+        if (expert_mat(m, ln, up, rup, I, Lt, cnt, xs, ps, ym) != 0) { c->fail = 1; return; }
         for (int v = 0; v < cnt; v++) {
             float *mid = ym[v]; double *pp = ln->pmid + (size_t)v * (I + 1);
             for (int j = 0; j < I; j++) mid[j] = sn_relu2(mid[j]);
             pp[0] = 0.0;
             for (int j = 0; j < I; j++) pp[j + 1] = pp[j] + (double)mid[j];
         }
-        if (expert_mat(m, ln, dn, Lt, I, cnt, mx, pm, yo) != 0) { c->fail = 1; return; }
+        if (expert_mat(m, ln, dn, rdn, Lt, I, cnt, mx, pm, yo) != 0) { c->fail = 1; return; }
     }
 }
 
@@ -387,6 +419,8 @@ void sn_model_close(sn_model *m)
     free(m->lanes); free(m->L); free(m->mam); free(m->att); free(m->normf_w);
     free(m->gsc); free(m->P); free(m->book_shared); free(m->Tbuf);
     free(m->hist_hn); free(m->hist_tok); free(m->spec_logits);
+    if (m->ec) { for (size_t k = 0; k < (size_t)m->n_all * (size_t)m->g.moe_experts; k++) { sn_res_free(&m->ec[k].up); sn_res_free(&m->ec[k].dn); } }
+    free(m->ec); free(m->rlist); free(m->gmid); free(m->gpmid);
     sn_pack_close(&m->pack);
     free(m);
 }
@@ -564,6 +598,7 @@ typedef struct {
     float *X, *Hn, *Y, *Sh, *Pr, *In, *Q, *Kb, *Vb, *Lat, *Acc, *EO, *SM, *Tw;
     double *PL;
     int *Top, *cnt, *used, *start, *etok, *eslot, *fill;
+    int *emode; ecent *epend;
 } fws;
 
 static void fws_close(fws *w)
@@ -571,6 +606,7 @@ static void fws_close(fws *w)
     free(w->X); free(w->Hn); free(w->Y); free(w->Sh); free(w->Pr); free(w->In); free(w->Q); free(w->Kb); free(w->Vb); free(w->Lat);
     free(w->Acc); free(w->EO); free(w->SM); free(w->Tw); free(w->PL);
     free(w->Top); free(w->cnt); free(w->used); free(w->start); free(w->etok); free(w->eslot); free(w->fill);
+    free(w->emode); free(w->epend);
     memset(w, 0, sizeof(*w));
 }
 
@@ -590,6 +626,8 @@ static int fws_open(sn_model *m, fws *w, int n)
     w->Top = (int *)calloc((size_t)n * K, sizeof(int)); w->cnt = (int *)calloc((size_t)E, sizeof(int));
     w->used = (int *)calloc((size_t)E, sizeof(int)); w->start = (int *)calloc((size_t)E + 1, sizeof(int));
     w->etok = (int *)calloc((size_t)n * K, sizeof(int)); w->eslot = (int *)calloc((size_t)n * K, sizeof(int)); w->fill = (int *)calloc((size_t)E, sizeof(int));
+    w->emode = (int *)calloc((size_t)E, sizeof(int)); w->epend = (ecent *)calloc((size_t)E, sizeof(ecent));
+    if (!w->emode || !w->epend) { fws_close(w); return -1; }
     if (!w->X || !w->Hn || !w->Y || !w->Sh || !w->Pr || !w->In || !w->Q || !w->Kb || !w->Vb || !w->Lat || !w->Acc || !w->EO || !w->SM || !w->Tw
         || !w->PL || !w->Top || !w->cnt || !w->used || !w->start || !w->etok || !w->eslot || !w->fill) { fws_close(w); return -1; }
     return 0;
@@ -619,6 +657,139 @@ static int lin(sn_model *m, int fused, const sn_tensor *t, const float *X, int n
     int rc = lin_n(m, t, X, n, Y, rows, cols);
     if (!rc && act == 2) for (size_t j = 0; j < (size_t)n * (size_t)rows; j++) Y[j] = sn_relu2(Y[j]);
     return rc;
+}
+
+
+/* ------------------------------------------------------------- hot-expert cache */
+
+static size_t ekey(const sn_model *m, int li, int ex) { return (size_t)li * (size_t)m->g.moe_experts + (size_t)ex; }
+
+static void rlist_add(sn_model *m, size_t key) { m->ec[key].rpos = m->nrlist; m->rlist[m->nrlist++] = (int)key; }
+static void rlist_del(sn_model *m, size_t key)
+{
+    int pos = m->ec[key].rpos, last = m->rlist[--m->nrlist];
+    m->rlist[pos] = last; m->ec[last].rpos = pos;
+}
+
+static void cache_evict(sn_model *m, size_t key)
+{
+    ecent *e = &m->ec[key];
+    int li = (int)(key / (size_t)m->g.moe_experts), ex = (int)(key % (size_t)m->g.moe_experts);
+    const layer_t *l = &m->L[li];
+    if (e->gpu && m->cuda) { sn_cuda_cache_drop(m->cuda, &m->pack, l->eup[ex]); sn_cuda_cache_drop(m->cuda, &m->pack, l->edn[ex]); e->gpu = 0; m->gpu_drops++; }
+    m->ec_used -= e->up.bytes + e->dn.bytes;
+    sn_res_free(&e->up); sn_res_free(&e->dn);
+    e->ram = 0;
+    rlist_del(m, key);
+    m->evicts++;
+}
+
+/* Count the tokens that chose each expert (also during prefill, so popularity reflects the whole conversation). */
+static void cache_count(sn_model *m, int li, fws *w, int nu)
+{
+    for (int i = 0; i < nu; i++) m->ec[ekey(m, li, w->used[i])].uses += (uint32_t)(w->start[i + 1] - w->start[i]);
+}
+
+/* Decide, before the parallel job, how each used expert is served; admission and eviction happen here, on the main thread,
+ * from counts alone, so the cache state never depends on thread timing. */
+static void cache_plan(sn_model *m, int li, fws *w, int nu)
+{
+    const sn_geom *g = &m->g;
+    int gpu_ok = m->gpu_tier && dtc_wanted(m, g->moe_inter, g->moe_latent, 1, 1) && dtc_wanted(m, g->moe_latent, g->moe_inter, 1, 1);
+    m->epoch++;
+    for (int i = 0; i < nu; i++) m->ec[ekey(m, li, w->used[i])].epoch = m->epoch;     /* protected from eviction this step */
+    for (int i = 0; i < nu; i++) {
+        size_t key = ekey(m, li, w->used[i]);
+        ecent *e = &m->ec[key];
+        const layer_t *l = &m->L[li];
+        w->emode[i] = 0;
+        if (e->gpu && gpu_ok) { w->emode[i] = 2; m->hits_gpu++; continue; }
+        if (e->ram) { w->emode[i] = 1; m->hits_ram++; continue; }
+        m->misses++;
+        uint64_t sz = sn_res_bytes(&m->pack, l->eup[w->used[i]]) + sn_res_bytes(&m->pack, l->edn[w->used[i]]);
+        int fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
+        while (!fits && e->uses >= 3) {      /* full: displace the coldest resident expert that is colder than this one */
+            int vi = -1; uint32_t vu = e->uses;
+            for (int r = 0; r < m->nrlist; r++) {
+                const ecent *c = &m->ec[m->rlist[r]];
+                if (c->epoch != m->epoch && c->uses < vu) { vu = c->uses; vi = r; }
+            }
+            if (vi < 0) break;
+            cache_evict(m, (size_t)m->rlist[vi]);
+            fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
+        }
+        if (fits) { m->ec_reserved += sz; w->emode[i] = 3; }
+    }
+}
+
+/* After the job: adopt the copies the lanes loaded (in expert order), then promote hot RAM entries to the GPU. */
+static void cache_adopt(sn_model *m, int li, fws *w, int nu, int failed)
+{
+    for (int i = 0; i < nu; i++) {
+        if (w->emode[i] != 3) continue;
+        size_t key = ekey(m, li, w->used[i]);
+        ecent *pe = &w->epend[i];
+        const layer_t *l = &m->L[li];
+        m->ec_reserved -= sn_res_bytes(&m->pack, l->eup[w->used[i]]) + sn_res_bytes(&m->pack, l->edn[w->used[i]]);
+        if (pe->pend && !failed) {
+            ecent *e = &m->ec[key];
+            e->up = pe->up; e->dn = pe->dn; e->ram = 1;
+            memset(&pe->up, 0, sizeof pe->up); memset(&pe->dn, 0, sizeof pe->dn);
+            m->ec_used += e->up.bytes + e->dn.bytes; m->admits++;
+            rlist_add(m, key);
+        } else { sn_res_free(&pe->up); sn_res_free(&pe->dn); }
+        pe->pend = 0;
+    }
+    if (!m->gpu_tier || failed) return;
+    int promoted = 0;
+    for (int i = 0; i < nu && promoted < 4; i++) {
+        size_t key = ekey(m, li, w->used[i]);
+        ecent *e = &m->ec[key];
+        const layer_t *l = &m->L[li];
+        if (!e->ram || e->gpu || e->uses < 2) continue;
+        for (int attempt = 0; attempt < 2 && !e->gpu; attempt++) {
+            if (sn_cuda_cache_put(m->cuda, &m->pack, l->eup[w->used[i]], &e->up) == 0) {
+                if (sn_cuda_cache_put(m->cuda, &m->pack, l->edn[w->used[i]], &e->dn) == 0) { e->gpu = 1; m->gpu_puts++; promoted++; }
+                else sn_cuda_cache_drop(m->cuda, &m->pack, l->eup[w->used[i]]);
+            }
+            if (e->gpu) break;
+            int vi = -1; uint32_t vu = e->uses;      /* no room: displace the coldest GPU entry that is colder */
+            for (int r = 0; r < m->nrlist; r++) {
+                const ecent *c = &m->ec[m->rlist[r]];
+                if (c->gpu && c->epoch != m->epoch && c->uses < vu) { vu = c->uses; vi = r; }
+            }
+            if (vi < 0) break;
+            {
+                size_t vk = (size_t)m->rlist[vi]; ecent *v = &m->ec[vk];
+                int vli = (int)(vk / (size_t)m->g.moe_experts), vex = (int)(vk % (size_t)m->g.moe_experts);
+                sn_cuda_cache_drop(m->cuda, &m->pack, m->L[vli].eup[vex]); sn_cuda_cache_drop(m->cuda, &m->pack, m->L[vli].edn[vex]);
+                v->gpu = 0; m->gpu_drops++;
+            }
+        }
+    }
+}
+
+/* Experts mirrored in VRAM are computed on the device (main thread, tokens one by one) before the lanes start; DTC on the
+ * device is bit-identical to the CPU DTC kernel, so the output cannot tell. Any device failure leaves the expert to the lanes. */
+static void cache_gpu_serve(sn_model *m, int li, fws *w, int nu, fx_ctx *fc)
+{
+    const sn_geom *g = &m->g;
+    int Lt = g->moe_latent, I = g->moe_inter, K = g->moe_topk;
+    if (!dtc_wanted(m, I, Lt, 1, 1) || !dtc_wanted(m, Lt, I, 1, 1)) return;
+    const layer_t *l = &m->L[li];
+    for (int i = 0; i < nu; i++) {
+        if (w->emode[i] != 2) continue;
+        int ex = w->used[i], ok = 1;
+        for (int v = 0; v < w->start[i + 1] - w->start[i] && ok; v++) {
+            int tk = fc->tok[w->start[i] + v], sl = fc->slot[w->start[i] + v];
+            ok = sn_cuda_dtc_rows(m->cuda, &m->pack, l->eup[ex], Lt, I, w->Lat + (size_t)tk * Lt, w->PL + (size_t)tk * (Lt + 1), m->gmid) == 0;
+            if (!ok) break;
+            m->gpmid[0] = 0.0;
+            for (int j = 0; j < I; j++) { m->gmid[j] = sn_relu2(m->gmid[j]); m->gpmid[j + 1] = m->gpmid[j] + (double)m->gmid[j]; }
+            ok = sn_cuda_dtc_rows(m->cuda, &m->pack, l->edn[ex], I, Lt, m->gmid, m->gpmid, w->EO + ((size_t)tk * K + (size_t)sl) * Lt) == 0;
+        }
+        if (!ok) { w->emode[i] = m->ec[ekey(m, li, ex)].ram ? 1 : 0; }
+    }
 }
 
 /* One residual block (norm, mixer, add) for the n token rows in w->X. li indexes m->L / m->mam / m->att. */
@@ -664,15 +835,19 @@ static int run_layer(sn_model *m, fws *w, int li, char type, int n, int fused, i
         int nu = 0; w->start[0] = 0;
         for (int e = 0; e < E; e++) if (w->cnt[e]) { w->used[nu] = e; w->start[nu + 1] = w->start[nu] + w->cnt[e]; w->fill[e] = w->start[nu]; nu++; }
         for (int t = 0; t < n; t++) for (int k = 0; k < K; k++) { int e = w->Top[(size_t)t * K + k]; w->etok[w->fill[e]] = t; w->eslot[w->fill[e]] = k; w->fill[e]++; }
+        if (m->ec) cache_count(m, li, w, nu);
         if (fused) {
             for (int t = 0; t < n; t++) {
                 double *Pv = w->PL + (size_t)t * (Lt + 1);
                 Pv[0] = 0.0;
                 for (int j = 0; j < Lt; j++) Pv[j + 1] = Pv[j] + (double)w->Lat[(size_t)t * Lt + j];
             }
-            fx_ctx fc = { m, l, w->Lat, w->PL, w->EO, w->used, nu, w->start, w->etok, w->eslot, 0 };
+            if (m->ec) cache_plan(m, li, w, nu);
+            fx_ctx fc = { m, l, w->Lat, w->PL, w->EO, w->used, nu, w->start, w->etok, w->eslot, 0, li, w->emode, w->epend };
+            if (m->ec && m->gpu_tier) cache_gpu_serve(m, li, w, nu, &fc);
             nemo_pool_for(&m->pool, nu, fx_job, &fc);
-            if (fc.fail) return -1;
+            if (fc.fail) { if (m->ec) cache_adopt(m, li, w, nu, 1); return -1; }
+            if (m->ec) cache_adopt(m, li, w, nu, 0);
         } else {
             pfx_ctx pc = { m, l, w->Lat, w->EO, w->used, nu, w->start, w->etok, w->eslot, 0 };
             nemo_pool_for(&m->pool, nu, pfx_job, &pc);
@@ -853,6 +1028,38 @@ long long sn_model_gpu_bytes(const sn_model *m) { return m->cuda ? sn_cuda_used(
 int sn_model_gpu_count(const sn_model *m) { return m->cuda ? sn_cuda_count(m->cuda) : 0; }
 const char *sn_model_gpu_name(const sn_model *m) { return m->cuda ? sn_cuda_name(m->cuda) : ""; }
 nemo_pool *sn_model_pool(sn_model *m) { return &m->pool; }
+
+
+/* Hot-expert cache: ram_bytes of RAM-resident experts (most-used first, by token count), and, when the CUDA lane is open,
+ * vram_bytes of them mirrored in VRAM. Either may be 0. Contents never change what is computed. */
+int sn_model_cache(sn_model *m, long long ram_bytes, long long vram_bytes, char *why, int whylen)
+{
+    if (ram_bytes <= 0) return 0;
+    size_t n = (size_t)m->n_all * (size_t)m->g.moe_experts;
+    if (!m->ec) {
+        m->ec = (ecent *)calloc(n, sizeof(ecent)); m->rlist = (int *)calloc(n, sizeof(int));
+        m->gmid = (float *)xalloc((size_t)m->g.moe_inter * 4 + 64); m->gpmid = (double *)xalloc(((size_t)m->g.moe_inter + 1) * 8);
+        if (!m->ec || !m->rlist || !m->gmid || !m->gpmid) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
+    }
+    m->ec_budget = (uint64_t)ram_bytes;
+    m->gpu_tier = 0;
+    if (vram_bytes > 0) {
+        if (!m->cuda) snprintf(why, (size_t)whylen, "no CUDA lane: the VRAM tier of the expert cache is off");
+        else if (!m->dtc) snprintf(why, (size_t)whylen, "DTC is off: the VRAM tier of the expert cache needs it (bit-identical kernels)");
+        else if (!dtc_wanted(m, m->g.moe_inter, m->g.moe_latent, 1, 1) || !dtc_wanted(m, m->g.moe_latent, m->g.moe_inter, 1, 1)) snprintf(why, (size_t)whylen, "DTC does not pay on the expert shapes: the VRAM tier is off");
+        else { sn_cuda_set_cache_budget(m->cuda, vram_bytes); m->gpu_tier = 1; why[0] = 0; }
+    }
+    return 0;
+}
+
+void sn_model_cache_stats(const sn_model *m, sn_cache_stats *s)
+{
+    memset(s, 0, sizeof *s);
+    s->hits_ram = m->hits_ram; s->hits_gpu = m->hits_gpu; s->misses = m->misses; s->admits = m->admits; s->evicts = m->evicts;
+    s->ram_bytes = m->ec_used; s->ram_budget = m->ec_budget; s->ram_experts = m->nrlist;
+    if (m->cuda) { s->gpu_bytes = (uint64_t)sn_cuda_cache_used(m->cuda); s->gpu_experts = sn_cuda_cache_count(m->cuda) / 2; }
+    s->gpu_puts = m->gpu_puts; s->gpu_drops = m->gpu_drops;
+}
 
 /* ------------------------------------------------------------- MTP head and speculative decoding */
 

@@ -95,6 +95,16 @@ int sn_model_spec_cycle(sn_model *m, int cur, int kmax, int stop_a, int stop_b, 
 int sn_model_spec_verify(sn_model *m, int cur, const int *d, int kmax, int stop_a, int stop_b, int *acc, float *logits_out);
 void sn_model_set_probe(sn_model *m, float *buf);   /* tests: the last token's hidden after each layer lands in buf[layer * hidden] */
 void sn_model_spec_stats(const sn_model *m, long *cycles, long *drafted, long *accepted);
+/* Hot-expert cache (see sn_model.c). ram_bytes / vram_bytes of the most-used experts stay resident; 0 = off. The VRAM tier
+ * needs the CUDA lane (sn_model_cuda first) and DTC. why gets a reason when a tier is left off. Returns 0, or -1 on failure. */
+typedef struct {
+    uint64_t hits_ram, hits_gpu, misses, admits, evicts, gpu_puts, gpu_drops;
+    uint64_t ram_bytes, ram_budget, gpu_bytes;
+    int ram_experts, gpu_experts;
+} sn_cache_stats;
+int sn_model_cache(sn_model *m, long long ram_bytes, long long vram_bytes, char *why, int whylen);
+void sn_model_cache_stats(const sn_model *m, sn_cache_stats *s);
+
 /* Optional telemetry: called per layer entered and per MoE routing. */
 typedef void (*sn_layer_cb)(void *user, int layer, char type);
 typedef void (*sn_moe_cb)(void *user, int layer, const int *experts, int k);
