@@ -14,6 +14,7 @@
 #ifndef NEMO_PREDICT_H
 #define NEMO_PREDICT_H
 #include <stddef.h>
+#include "pool.h"
 
 typedef struct {
     int mode;            /* 0 auto, 1 never expand (DTC only), 2 always expand */
@@ -36,6 +37,9 @@ int nemo_predict_turn(const nemo_predict_cfg *c, const char *text, int ntok, int
                       char *reason, size_t rl);
 /* Confidence of one logits vector (n entries). */
 void nemo_confidence_of(const float *logits, int n, nemo_confidence *out);
+/* The same, with the chunks spread over a pool's lanes (p may be NULL).
+ * Bit-identical for any lane count. */
+void nemo_confidence_of_pool(const float *logits, int n, nemo_confidence *out, nemo_pool *p);
 /* Step decision from that confidence. Returns 1 = EXPAND. */
 int nemo_predict_step(const nemo_predict_cfg *c, const nemo_confidence *k, char *reason, size_t rl);
 #endif

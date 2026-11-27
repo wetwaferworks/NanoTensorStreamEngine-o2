@@ -34,9 +34,9 @@ $ln = @('attn','forward','json','loader','mamba','nn','nn_simd','pool','tokenize
 
 gcc @F '-Ilittlenemo\src' '-c' '-o' 'accel\obj\nemo_gpu.o' 'accel\nemo_gpu.c'
 if ($LASTEXITCODE) { throw 'nemo_gpu.c' }
-gcc @F '-Iaccel' '-c' '-o' 'accel\obj\nemo_calib.o' 'accel\nemo_calib.c'
+gcc @F '-Ilittlenemo\src' '-Iaccel' '-c' '-o' 'accel\obj\nemo_calib.o' 'accel\nemo_calib.c'
 if ($LASTEXITCODE) { throw 'nemo_calib.c' }
-gcc @F '-c' '-o' 'accel\obj\nemo_predict.o' 'accel\nemo_predict.c'
+gcc @F '-Ilittlenemo\src' '-c' '-o' 'accel\obj\nemo_predict.o' 'accel\nemo_predict.c'
 if ($LASTEXITCODE) { throw 'nemo_predict.c' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' '-c' '-o' 'accel\obj\engine_gui_cuda.o' 'accel\engine_gui_cuda.c'
 if ($LASTEXITCODE) { throw 'engine_gui_cuda.c' }
@@ -54,5 +54,7 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_pack_ident.c accel\obj
 if ($LASTEXITCODE) { throw 'pack-ident test' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_prefill.c accel\obj\nemo_gpu.o @testln -o accel\bin\test_nemo_prefill.exe -lm -lpsapi
 if ($LASTEXITCODE) { throw 'prefill test' }
+gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_hostsplit.c accel\obj\nemo_gpu.o accel\obj\nemo_predict.o @testln -o accel\bin\test_nemo_hostsplit.exe -lm -lpsapi
+if ($LASTEXITCODE) { throw 'hostsplit test' }
 
 'built accel\bin\nemo-engine-cuda.exe, nemo-engine-cuda-w.exe, test_nemo_gpu_layers.exe and test_nemo_pack_ident.exe'
