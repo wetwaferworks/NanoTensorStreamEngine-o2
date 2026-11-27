@@ -148,6 +148,43 @@ static void run_model(const char *pre, const char *sh, const char *cfg, int lane
     sn_model_close(m);
 }
 
+
+/* batched prefill vs n single steps: close logits, same state afterwards, bit-identical across lane counts, chunk boundary crossed */
+static void check_prefill(const char *prefix, const char *shapes, const char *config)
+{
+    int V = G_.vocab, n = 300;   /* > 128: crosses two chunk boundaries */
+    int *seq = (int *)malloc((size_t)n * sizeof(int));
+    for (int i = 0; i < n; i++) seq[i] = (SEQ[i % NSEQ] + i / NSEQ * 7) % V;
+    int extra[4] = { 5, 17, 99, 3 };
+    float *la = (float *)malloc((size_t)V * 4), *lb = (float *)malloc((size_t)V * 4), *lc = (float *)malloc((size_t)V * 4);
+    float *ea = (float *)malloc((size_t)4 * V * 4), *eb = (float *)malloc((size_t)4 * V * 4), *ec = (float *)malloc((size_t)4 * V * 4);
+    sn_model *a = sn_model_open(prefix, shapes, config, 512, 4), *b = sn_model_open(prefix, shapes, config, 512, 4), *c = sn_model_open(prefix, shapes, config, 512, 1);
+    CHECK(a && b && c, "prefill: models open");
+    if (!a || !b || !c) return;
+    for (int i = 0; i < n; i++) sn_model_step(a, seq[i], i == n - 1 ? la : NULL);
+    CHECK(sn_model_prefill(b, seq, NULL, NULL, n, lb) == 0, "prefill runs");
+    CHECK(sn_model_prefill(c, seq, NULL, NULL, n, lc) == 0, "prefill runs on 1 lane");
+    CHECK(sn_model_pos(b) == n, "prefill advances the position by n");
+    CHECK(memcmp(lb, lc, (size_t)V * 4) == 0, "prefill is bit-identical on 4 and 1 lanes");
+    double num = 0, den = 0; int am_a = 0, am_b = 0;
+    for (int i = 0; i < V; i++) { double d = (double)la[i] - lb[i]; num += d * d; den += (double)la[i] * la[i]; if (la[i] > la[am_a]) am_a = i; if (lb[i] > lb[am_b]) am_b = i; }
+    printf("prefill vs %d single steps: relative L2 of the last logits %.3e\n", n, sqrt(num / den));
+    CHECK(sqrt(num / den) < 2e-3 && am_a == am_b, "prefill logits match the stepped logits");
+    double worst = 0; int amx = 1;
+    for (int t = 0; t < 4; t++) {
+        sn_model_step(a, extra[t], ea + (size_t)t * V); sn_model_step(b, extra[t], eb + (size_t)t * V); sn_model_step(c, extra[t], ec + (size_t)t * V);
+        double nn = 0, dd = 0; int x = 0, y = 0;
+        for (int i = 0; i < V; i++) { double d = (double)ea[(size_t)t * V + i] - eb[(size_t)t * V + i]; nn += d * d; dd += (double)ea[(size_t)t * V + i] * ea[(size_t)t * V + i]; if (ea[(size_t)t * V + i] > ea[(size_t)t * V + x]) x = i; if (eb[(size_t)t * V + i] > eb[(size_t)t * V + y]) y = i; }
+        if (sqrt(nn / dd) > worst) worst = sqrt(nn / dd);
+        if (x != y) amx = 0;
+    }
+    printf("decode after prefill vs decode after steps: worst relative L2 %.3e\n", worst);
+    CHECK(worst < 4e-3 && amx, "the state left by prefill continues like the stepped state");
+    CHECK(memcmp(eb, ec, (size_t)4 * V * 4) == 0, "decode after prefill is bit-identical across lane counts");
+    sn_model_close(a); sn_model_close(b); sn_model_close(c);
+    free(seq); free(la); free(lb); free(lc); free(ea); free(eb); free(ec);
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 4) { fprintf(stderr, "usage: test_sn_model PREFIX SHAPES CONFIG\n"); return 2; }
@@ -180,6 +217,7 @@ int main(int argc, char **argv)
     printf("max |logit difference| vs dense reference: %.3e (max logit %.3f)\n", worst, scale);
     CHECK(worst <= 2e-3 * (scale + 1.0), "fused stack matches the dense reference");
     CHECK(arg_ok, "argmax agrees at every position");
+    check_prefill(argv[1], argv[2], argv[3]);
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }

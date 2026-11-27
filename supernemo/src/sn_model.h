@@ -53,6 +53,11 @@ void sn_model_reset(sn_model *m);
  * state is already invalid; -3 if the context is full. */
 int sn_model_step(sn_model *m, int token, float *logits);
 int sn_model_pos(const sn_model *m);
+/* Batched prefill of n tokens (layer-major, 128 per chunk): every weight matrix is expanded once per chunk and each
+ * routed expert once for all the tokens that chose it, instead of once per token. embed_row (may be NULL) maps a position
+ * to a row of embeds (vision tokens), -1 for a plain token. logits (may be NULL) is filled for the LAST token.
+ * Numerically close to n sn_model_step calls, not bit-identical (dense float32 products instead of the fused kernel). */
+int sn_model_prefill(sn_model *m, const int *tokens, const int *embed_row, const float *embeds, int n, float *logits);
 /* Same as sn_model_step, but the input is an embedding vector of hidden floats (vision tokens). */
 int sn_model_step_embed(sn_model *m, const float *embed, float *logits);
 /* For the vision tower: it reads the same pack and runs on the same zero-mutex pool. */

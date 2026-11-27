@@ -231,13 +231,14 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
         fflush(stdout); return -1;
     }
     double t0 = now_ms();
-    int ei = 0, Hh = sn_model_geom(e->m)->hidden;
-    for (int i = 0; i < n; i++) {
-        int rc;
-        if (n_embeds > 0 && ids[i] == e->img_id && ei < n_embeds) rc = sn_model_step_embed(e->m, embeds + (size_t)(ei++) * Hh, i == n - 1 ? e->logits : NULL);
-        else rc = sn_model_step(e->m, ids[i], i == n - 1 ? e->logits : NULL);
-        if (rc != 0) { free(ids); engine_reset(e); printf("ERROR forward pass failed during prompt; state reset\n"); fflush(stdout); return -1; }
-    }
+    /* batched, layer-major prefill: each weight matrix and each routed expert is read once per 128-token chunk */
+    int *erow = (int *)malloc(sizeof(int) * (size_t)n);
+    if (!erow) { free(ids); return -1; }
+    int ei = 0;
+    for (int i = 0; i < n; i++) erow[i] = (n_embeds > 0 && ids[i] == e->img_id && ei < n_embeds) ? ei++ : -1;
+    int prc = sn_model_prefill(e->m, ids, erow, embeds, n, e->logits);
+    free(erow);
+    if (prc != 0) { free(ids); engine_reset(e); printf("ERROR forward pass failed during prompt; state reset\n"); fflush(stdout); return -1; }
     double prefill_ms = now_ms() - t0;
     e->pos += n;
     if (!e->quiet) { printf("PREFILL tokens=%d ms=%.0f tps=%.3f\n", n, prefill_ms, prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0); fflush(stdout); }

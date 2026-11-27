@@ -1,18 +1,13 @@
 /* sn_vision.c - see sn_vision.h. Pure C99 (GCC target attributes for the AVX2 kernels), zero mutexes. */
 #include "sn_vision.h"
+#include "sn_gemm.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(__x86_64__) || defined(__i386__)
-#include <immintrin.h>
-#define SN_HAVE_X86 1
-#endif
-
 #define VPFX "vision_model.radio_model.model."
-#define CHUNK_ROWS 32
 
 /* ------------------------------------------------------------ config */
 
@@ -70,125 +65,9 @@ int sn_vgeom_load(sn_vgeom *g, const char *path, int llm_hidden)
     return 0;
 }
 
-/* ------------------------------------------------------------ kernels */
-
-static int g_avx2 = -1;
-static int have_avx2(void)
-{
-    if (g_avx2 < 0) {
-#ifdef SN_HAVE_X86
-        __builtin_cpu_init();
-        g_avx2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
-#else
-        g_avx2 = 0;
-#endif
-    }
-    return g_avx2;
-}
-
-static float gelu_erf(float x) { return 0.5f * x * (1.0f + erff(x * 0.70710678118654752f)); }
-static float apply_act(float x, int act)
-{
-    if (act == 1) return gelu_erf(x);
-    if (act == 2) { float r = x > 0 ? x : 0; return r * r; }
-    return x;
-}
-
-#ifdef SN_HAVE_X86
-__attribute__((target("avx2,fma")))
-static inline float hsum8(__m256 v)
-{
-    __m128 lo = _mm256_castps256_ps128(v), hi = _mm256_extractf128_ps(v, 1);
-    lo = _mm_add_ps(lo, hi); lo = _mm_hadd_ps(lo, lo); lo = _mm_hadd_ps(lo, lo);
-    return _mm_cvtss_f32(lo);
-}
-
-/* rows of W (row-major, K floats each) times 4 tokens at once; K % 8 == 0 */
-__attribute__((target("avx2,fma")))
-static void rows_avx2(const float *W, int rows, int K, const float *X, int N, const float *bias,
-                      int r0, int R, float *Y, int act)
-{
-    int n0 = 0;
-    for (; n0 + 4 <= N; n0 += 4) {
-        const float *x0 = X + (size_t)n0 * K, *x1 = x0 + K, *x2 = x1 + K, *x3 = x2 + K;
-        for (int r = 0; r < rows; r++) {
-            const float *w = W + (size_t)r * K;
-            __m256 a0 = _mm256_setzero_ps(), a1 = a0, a2 = a0, a3 = a0;
-            for (int k = 0; k < K; k += 8) {
-                __m256 wv = _mm256_loadu_ps(w + k);
-                a0 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(x0 + k), a0);
-                a1 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(x1 + k), a1);
-                a2 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(x2 + k), a2);
-                a3 = _mm256_fmadd_ps(wv, _mm256_loadu_ps(x3 + k), a3);
-            }
-            float b = bias ? bias[r0 + r] : 0.0f;
-            Y[(size_t)(n0 + 0) * R + r0 + r] = apply_act(hsum8(a0) + b, act);
-            Y[(size_t)(n0 + 1) * R + r0 + r] = apply_act(hsum8(a1) + b, act);
-            Y[(size_t)(n0 + 2) * R + r0 + r] = apply_act(hsum8(a2) + b, act);
-            Y[(size_t)(n0 + 3) * R + r0 + r] = apply_act(hsum8(a3) + b, act);
-        }
-    }
-    for (; n0 < N; n0++) {
-        const float *x0 = X + (size_t)n0 * K;
-        for (int r = 0; r < rows; r++) {
-            const float *w = W + (size_t)r * K;
-            __m256 a0 = _mm256_setzero_ps();
-            for (int k = 0; k < K; k += 8) a0 = _mm256_fmadd_ps(_mm256_loadu_ps(w + k), _mm256_loadu_ps(x0 + k), a0);
-            float b = bias ? bias[r0 + r] : 0.0f;
-            Y[(size_t)n0 * R + r0 + r] = apply_act(hsum8(a0) + b, act);
-        }
-    }
-}
-
-__attribute__((target("avx2,fma")))
-static float dot_avx2(const float *a, const float *b, int n)   /* n % 8 == 0 */
-{
-    __m256 s = _mm256_setzero_ps();
-    for (int i = 0; i < n; i += 8) s = _mm256_fmadd_ps(_mm256_loadu_ps(a + i), _mm256_loadu_ps(b + i), s);
-    return hsum8(s);
-}
-__attribute__((target("avx2,fma")))
-static void axpy_avx2(float *y, float a, const float *x, int n)
-{
-    __m256 av = _mm256_set1_ps(a);
-    for (int i = 0; i < n; i += 8) _mm256_storeu_ps(y + i, _mm256_fmadd_ps(av, _mm256_loadu_ps(x + i), _mm256_loadu_ps(y + i)));
-}
-#endif
-
-static void rows_scalar(const float *W, int rows, int K, const float *X, int N, const float *bias,
-                        int r0, int R, float *Y, int act)
-{
-    for (int n = 0; n < N; n++) {
-        const float *x = X + (size_t)n * K;
-        for (int r = 0; r < rows; r++) {
-            const float *w = W + (size_t)r * K;
-            float s = 0.0f;
-            for (int k = 0; k < K; k++) s += w[k] * x[k];
-            Y[(size_t)n * R + r0 + r] = apply_act(s + (bias ? bias[r0 + r] : 0.0f), act);
-        }
-    }
-}
-static float dot_scalar(const float *a, const float *b, int n) { float s = 0; for (int i = 0; i < n; i++) s += a[i] * b[i]; return s; }
-static void axpy_scalar(float *y, float a, const float *x, int n) { for (int i = 0; i < n; i++) y[i] += a * x[i]; }
-
-static float vdot(const float *a, const float *b, int n)
-{
-#ifdef SN_HAVE_X86
-    if (have_avx2()) return dot_avx2(a, b, n);
-#endif
-    return dot_scalar(a, b, n);
-}
-static void vaxpy(float *y, float a, const float *x, int n)
-{
-#ifdef SN_HAVE_X86
-    if (have_avx2()) { axpy_avx2(y, a, x, n); return; }
-#endif
-    axpy_scalar(y, a, x, n);
-}
-
 /* ------------------------------------------------------------ the tower */
 
-typedef struct { sn_rd rd; float *book; float *wbuf; float *sbuf; size_t sbuf_n; const sn_tensor *booked; } vlane;
+typedef struct { sn_rd rd; float *sbuf; size_t sbuf_n; } vlane;
 
 typedef struct {
     const sn_tensor *qkv, *proj, *fc1, *fc2;
@@ -201,6 +80,7 @@ struct sn_vision {
     nemo_pool *pool;
     int nthreads;
     vlane *lanes;
+    sn_gemm *gm;
     vlayer *L;
     const sn_tensor *pos_t, *mlp1_a, *mlp1_b;
     float *embedder;                 /* [hidden][3*patch*patch], resident */
@@ -218,36 +98,9 @@ static int lane_of(int n_items, int nthreads, int begin)
     return 0;
 }
 
-typedef struct {
-    sn_vision *v; const sn_tensor *t; const float *bias; const float *X; int N, K, R; float *Y; int act; int fail;
-} gemm_ctx;
-
-static void gemm_job(void *vc, int b, int e)
-{
-    gemm_ctx *c = (gemm_ctx *)vc;
-    sn_vision *v = c->v;
-    int nchunks = (c->R + CHUNK_ROWS - 1) / CHUNK_ROWS;
-    vlane *ln = &v->lanes[lane_of(nchunks, v->nthreads, b)];
-    if (!c->t->raw && ln->booked != c->t) {
-        if (sn_load_book(v->pack, &ln->rd, c->t, ln->book) != 0) { c->fail = 1; return; }
-        ln->booked = c->t;
-    }
-    for (int ch = b; ch < e; ch++) {
-        int r0 = ch * CHUNK_ROWS, r1 = r0 + CHUNK_ROWS < c->R ? r0 + CHUNK_ROWS : c->R;
-        if (sn_expand_book(v->pack, &ln->rd, c->t, ln->book, (uint64_t)r0 * c->K, (uint64_t)(r1 - r0) * c->K, ln->wbuf) != 0) { c->fail = 1; return; }
-#ifdef SN_HAVE_X86
-        if (have_avx2()) { rows_avx2(ln->wbuf, r1 - r0, c->K, c->X, c->N, c->bias, r0, c->R, c->Y, c->act); continue; }
-#endif
-        rows_scalar(ln->wbuf, r1 - r0, c->K, c->X, c->N, c->bias, r0, c->R, c->Y, c->act);
-    }
-}
-
 int sn_vision_linear(sn_vision *v, const sn_tensor *t, const float *bias, const float *X, int N, int K, int R, float *Y, int act)
 {
-    if ((uint64_t)K * (uint64_t)R != t->count || (K & 7)) return -2;
-    gemm_ctx c = { v, t, bias, X, N, K, R, Y, act, 0 };
-    nemo_pool_for(v->pool, (R + CHUNK_ROWS - 1) / CHUNK_ROWS, gemm_job, &c);
-    return c.fail ? -1 : 0;
+    return sn_gemm_linear(v->gm, t, bias, X, N, K, R, Y, act);
 }
 
 /* LayerNorm per token (double accumulation), y = (x - mean) / sqrt(var + eps) * w + b */
@@ -300,7 +153,7 @@ static void attn_job(void *vc, int b, int e)
             const float *qv = c->qkv + (size_t)q * stride + h * hd;
             float mx = -3.4e38f;
             for (int j = 0; j < N; j++) {
-                float s = vdot(qv, c->qkv + (size_t)j * stride + H + h * hd, hd) * scale;
+                float s = sn_dot(qv, c->qkv + (size_t)j * stride + H + h * hd, hd) * scale;
                 sc[j] = s; if (s > mx) mx = s;
             }
             double sum = 0;
@@ -308,7 +161,7 @@ static void attn_job(void *vc, int b, int e)
             float inv = (float)(1.0 / sum);
             float *o = c->out + (size_t)q * H + h * hd;
             memset(o, 0, (size_t)hd * sizeof(float));
-            for (int j = 0; j < N; j++) vaxpy(o, sc[j] * inv, c->qkv + (size_t)j * stride + 2 * H + h * hd, hd);
+            for (int j = 0; j < N; j++) sn_axpy(o, sc[j] * inv, c->qkv + (size_t)j * stride + 2 * H + h * hd, hd);
         }
     }
 }
@@ -351,7 +204,8 @@ static const sn_tensor *need(const sn_pack *p, const char *name, uint64_t want)
 void sn_vision_close(sn_vision *v)
 {
     if (!v) return;
-    if (v->lanes) for (int i = 0; i < v->nthreads; i++) { sn_rd_close(&v->lanes[i].rd); free(v->lanes[i].book); free(v->lanes[i].wbuf); free(v->lanes[i].sbuf); }
+    if (v->lanes) for (int i = 0; i < v->nthreads; i++) { sn_rd_close(&v->lanes[i].rd); free(v->lanes[i].sbuf); }
+    sn_gemm_close(v->gm);
     if (v->L) for (int i = 0; i < v->g.layers; i++) {
         vlayer *l = &v->L[i];
         free(l->n1w); free(l->n1b); free(l->n2w); free(l->n2b); free(l->qkvb); free(l->projb); free(l->fc1b); free(l->fc2b);
@@ -372,12 +226,12 @@ sn_vision *sn_vision_open(const sn_pack *p, nemo_pool *pool, int nthreads, const
     v->lanes = (vlane *)calloc((size_t)v->nthreads, sizeof(vlane));
     v->L = (vlayer *)calloc((size_t)g->layers, sizeof(vlayer));
     if (!v->lanes || !v->L) ok = 0;
-    size_t wmax = (size_t)CHUNK_ROWS * (size_t)(g->proj_hidden > g->mlp ? g->proj_hidden : g->mlp);
-    if (ok) for (int i = 0; i < v->nthreads; i++) {
-        if (sn_rd_open(p, &v->lanes[i].rd) != 0) { ok = 0; break; }
-        v->lanes[i].book = (float *)malloc(p->book_floats * sizeof(float));
-        v->lanes[i].wbuf = (float *)malloc(wmax * sizeof(float));
-        if (!v->lanes[i].book || !v->lanes[i].wbuf) { ok = 0; break; }
+    if (ok) for (int i = 0; i < v->nthreads; i++) if (sn_rd_open(p, &v->lanes[i].rd) != 0) { ok = 0; break; }
+    if (ok) {
+        size_t kmax = (size_t)(g->proj_hidden > g->mlp ? g->proj_hidden : g->mlp);
+        if (kmax < (size_t)Hd * g->shuffle * g->shuffle) kmax = (size_t)Hd * g->shuffle * g->shuffle;
+        v->gm = sn_gemm_open(p, pool, v->nthreads, kmax);
+        if (!v->gm) ok = 0;
     }
     if (ok) {
         v->embedder = load_raw(p, &mrd, VPFX "patch_generator.embedder.weight", (uint64_t)Hd * 3 * ps * ps);
@@ -426,7 +280,7 @@ static void patch_job(void *vc, int b, int e)
                 memcpy(tmp + (ch * c->ps + py) * c->ps, c->pix + ((size_t)ch * c->H + (size_t)i * c->ps + py) * c->W + (size_t)j * c->ps, (size_t)c->ps * sizeof(float));
         float *x = c->X + (size_t)(c->nprefix + t) * c->Hd;
         const float *pe = c->pos + (size_t)t * c->Hd;
-        for (int h = 0; h < c->Hd; h++) x[h] = vdot(c->emb + (size_t)h * K, tmp, K) + pe[h];
+        for (int h = 0; h < c->Hd; h++) x[h] = sn_dot(c->emb + (size_t)h * K, tmp, K) + pe[h];
     }
     free(tmp);
 }

@@ -8,6 +8,7 @@
 #include "sn_moe.h"
 #include "sn_pack.h"
 #include "sn_cuda.h"
+#include "sn_gemm.h"
 #include "../../littlenemo/src/attn.h"
 #include "../../littlenemo/src/mamba.h"
 #include "../../littlenemo/src/pool.h"
@@ -100,6 +101,8 @@ typedef struct {
     float *book;       /* entries*block floats */
     float *mid;        /* moe_inter */
     double *pmid;      /* moe_inter + 1 */
+    float *ew, *G, *U; /* batched prefill: expanded expert matrix, gathered inputs / outputs, hidden */
+    size_t ew_cap, g_cap, u_cap;
     int ok;
 } lane_t;
 
@@ -137,6 +140,7 @@ struct sn_model {
     int *top; float *tw;
     sn_layer_cb on_layer; sn_moe_cb on_moe; void *hook_user;
     sn_cuda *cuda;
+    sn_gemm *gm;
 };
 
 static int lane_of(int n_items, int nthreads, int begin)
@@ -218,12 +222,13 @@ static void gate_job(void *vc, int b, int e)
     }
 }
 
-static int moe_block(sn_model *m, int layer, const float *x_in, float *y_out)
+/* Router: sigmoid scores on the resident fp16 gate, choice on score + e_score_correction_bias, weights from the raw
+ * scores, normalised, times routed_scaling_factor. top/tw receive moe_topk experts and weights. */
+static int route_token(sn_model *m, int layer, const float *x_in, int *top, float *tw)
 {
     const sn_geom *g = &m->g;
     const layer_t *l = &m->L[layer];
-    int H = g->hidden, E = g->moe_experts, K = g->moe_topk, Lt = g->moe_latent;
-    /* router on the resident fp16 gate, experts split across lanes */
+    int H = g->hidden, E = g->moe_experts, K = g->moe_topk;
     float *s = m->gsc;
     gate_ctx gc = { l->gate_w, x_in, s, H };
     nemo_pool_for(&m->pool, E, gate_job, &gc);
@@ -237,11 +242,20 @@ static int moe_block(sn_model *m, int layer, const float *x_in, float *y_out)
             float cv = s[e] + l->gate_bias[e];
             if (best < 0 || cv > bv) { best = e; bv = cv; }
         }
-        taken[best] = 1; m->top[k] = best; m->tw[k] = s[best]; sum += s[best];
+        taken[best] = 1; top[k] = best; tw[k] = s[best]; sum += s[best];
     }
     free(taken);
-    if (g->moe_norm_topk) { float den = sum + 1e-20f; for (int k = 0; k < K; k++) m->tw[k] /= den; }
-    for (int k = 0; k < K; k++) m->tw[k] *= g->moe_scale;
+    if (g->moe_norm_topk) { float den = sum + 1e-20f; for (int k = 0; k < K; k++) tw[k] /= den; }
+    for (int k = 0; k < K; k++) tw[k] *= g->moe_scale;
+    return 0;
+}
+
+static int moe_block(sn_model *m, int layer, const float *x_in, float *y_out)
+{
+    const sn_geom *g = &m->g;
+    const layer_t *l = &m->L[layer];
+    int H = g->hidden, K = g->moe_topk, Lt = g->moe_latent;
+    if (route_token(m, layer, x_in, m->top, m->tw) != 0) return -1;
     if (m->on_moe) m->on_moe(m->hook_user, layer, m->top, K);
     /* latent input */
     if (lin_par(m, l->fc1, x_in, m->lat, Lt, H) != 0) return -1;
@@ -301,7 +315,8 @@ void sn_model_close(sn_model *m)
     if (m->mam) for (int i = 0; i < m->g.n_layers; i++) if (m->mam[i].ssm_state) nemo_mamba_state_free(&m->mam[i]);
     if (m->att) for (int i = 0; i < m->g.n_layers; i++) if (m->att[i].k) nemo_attn_cache_free(&m->att[i]);
     sn_cuda_close(m->cuda);
-    if (m->lanes) for (int i = 0; i < m->nthreads; i++) { sn_rd_close(&m->lanes[i].rd); free(m->lanes[i].book); free(m->lanes[i].mid); free(m->lanes[i].pmid); }
+    sn_gemm_close(m->gm);
+    if (m->lanes) for (int i = 0; i < m->nthreads; i++) { sn_rd_close(&m->lanes[i].rd); free(m->lanes[i].book); free(m->lanes[i].mid); free(m->lanes[i].pmid); free(m->lanes[i].ew); free(m->lanes[i].G); free(m->lanes[i].U); }
     sn_rd_close(&m->main_rd);
     free(m->lanes); free(m->L); free(m->mam); free(m->att); free(m->normf_w);
     free(m->x); free(m->h); free(m->y); free(m->proj); free(m->inner); free(m->qb); free(m->kb); free(m->vb);
@@ -340,6 +355,8 @@ sn_model *sn_model_open(const char *prefix, const char *shapes, const char *conf
     int maxcols = H; if (g->m_inner > maxcols) maxcols = g->m_inner; if (g->moe_shared > maxcols) maxcols = g->moe_shared;
     if (g->moe_inter > maxcols) maxcols = g->moe_inter;
     if (g->a_heads * g->a_hd > maxcols) maxcols = g->a_heads * g->a_hd;
+    m->gm = sn_gemm_open(&m->pack, &m->pool, m->nthreads, (size_t)maxcols);
+    if (!m->gm) { sn_model_close(m); return NULL; }
     m->x = (float *)xalloc((size_t)H * 4); m->h = (float *)xalloc((size_t)H * 4); m->y = (float *)xalloc((size_t)H * 4);
     m->proj = (float *)xalloc((size_t)g->m_in_proj * 4); m->inner = (float *)xalloc((size_t)(g->m_inner > g->a_heads * g->a_hd ? g->m_inner : g->a_heads * g->a_hd) * 4);
     m->qb = (float *)xalloc((size_t)g->a_heads * g->a_hd * 4); m->kb = (float *)xalloc((size_t)g->a_kv * g->a_hd * 4); m->vb = (float *)xalloc((size_t)g->a_kv * g->a_hd * 4);
@@ -405,6 +422,135 @@ sn_model *sn_model_open(const char *prefix, const char *shapes, const char *conf
 }
 
 const sn_geom *sn_model_geom(const sn_model *m) { return &m->g; }
+
+/* ------------------------------------------------------------- batched prefill */
+
+typedef struct {
+    sn_model *m; const layer_t *l; const float *lat; float *eo;
+    const int *used; int n_used; const int *start, *tok, *slot; int fail;
+} pfx_ctx;
+
+static void pfx_job(void *vc, int b, int e)
+{
+    pfx_ctx *c = (pfx_ctx *)vc;
+    sn_model *m = c->m;
+    const sn_geom *g = &m->g;
+    int Lt = g->moe_latent, I = g->moe_inter, K = g->moe_topk;
+    lane_t *ln = &m->lanes[lane_of(c->n_used, m->nthreads, b)];
+    for (int i = b; i < e; i++) {
+        int ex = c->used[i], cnt = c->start[i + 1] - c->start[i];
+        const sn_tensor *up = c->l->eup[ex], *dn = c->l->edn[ex];
+        size_t need_ew = (size_t)I * Lt, need_g = (size_t)cnt * (Lt > I ? Lt : I), need_u = (size_t)cnt * I;
+        if (ln->ew_cap < need_ew) { float *p = (float *)realloc(ln->ew, need_ew * 4); if (!p) { c->fail = 1; return; } ln->ew = p; ln->ew_cap = need_ew; }
+        if (ln->g_cap < need_g) { float *p = (float *)realloc(ln->G, need_g * 4); if (!p) { c->fail = 1; return; } ln->G = p; ln->g_cap = need_g; }
+        if (ln->u_cap < need_u) { float *p = (float *)realloc(ln->U, need_u * 4); if (!p) { c->fail = 1; return; } ln->U = p; ln->u_cap = need_u; }
+        for (int j = 0; j < cnt; j++) memcpy(ln->G + (size_t)j * Lt, c->lat + (size_t)c->tok[c->start[i] + j] * Lt, (size_t)Lt * 4);
+        if ((!up->raw && sn_load_book(&m->pack, &ln->rd, up, ln->book) != 0)
+            || sn_expand_book(&m->pack, &ln->rd, up, ln->book, 0, up->count, ln->ew) != 0) { c->fail = 1; return; }
+        sn_gemm_rows(ln->ew, I, Lt, ln->G, cnt, NULL, 0, I, ln->U, 2);
+        if ((!dn->raw && sn_load_book(&m->pack, &ln->rd, dn, ln->book) != 0)
+            || sn_expand_book(&m->pack, &ln->rd, dn, ln->book, 0, dn->count, ln->ew) != 0) { c->fail = 1; return; }
+        sn_gemm_rows(ln->ew, Lt, I, ln->U, cnt, NULL, 0, Lt, ln->G, 0);
+        for (int j = 0; j < cnt; j++)
+            memcpy(c->eo + ((size_t)c->tok[c->start[i] + j] * K + (size_t)c->slot[c->start[i] + j]) * Lt, ln->G + (size_t)j * Lt, (size_t)Lt * 4);
+    }
+}
+
+#define PF_CHUNK 128
+
+static int prefill_chunk(sn_model *m, const int *tok, const int *erow, const float *emb, int n, float *logits)
+{
+    const sn_geom *g = &m->g;
+    int H = g->hidden, E = g->moe_experts, K = g->moe_topk, Lt = g->moe_latent;
+    int qd = g->a_heads * g->a_hd, kd = g->a_kv * g->a_hd;
+    int inner_w = g->m_inner > qd ? g->m_inner : qd;
+    int rc = 0;
+    float *X = (float *)calloc((size_t)n * H, 4), *Hn = (float *)calloc((size_t)n * H, 4), *Y = (float *)calloc((size_t)n * H, 4), *Sh = (float *)calloc((size_t)n * H, 4);
+    float *Pr = (float *)calloc((size_t)n * g->m_in_proj, 4), *In = (float *)calloc((size_t)n * inner_w, 4);
+    float *Q = (float *)calloc((size_t)n * qd, 4), *Kb = (float *)calloc((size_t)n * kd, 4), *Vb = (float *)calloc((size_t)n * kd, 4);
+    float *Lat = (float *)calloc((size_t)n * Lt, 4), *Acc = (float *)calloc((size_t)n * Lt, 4), *EO = (float *)calloc((size_t)n * K * Lt, 4);
+    float *SM = (float *)calloc((size_t)n * g->moe_shared, 4), *Tw = (float *)calloc((size_t)n * K, 4);
+    int *Top = (int *)calloc((size_t)n * K, sizeof(int)), *cnt = (int *)calloc((size_t)E, sizeof(int));
+    int *used = (int *)calloc((size_t)E, sizeof(int)), *start = (int *)calloc((size_t)E + 1, sizeof(int));
+    int *etok = (int *)calloc((size_t)n * K, sizeof(int)), *eslot = (int *)calloc((size_t)n * K, sizeof(int)), *fill = (int *)calloc((size_t)E, sizeof(int));
+    if (!X || !Hn || !Y || !Sh || !Pr || !In || !Q || !Kb || !Vb || !Lat || !Acc || !EO || !SM || !Tw || !Top || !cnt || !used || !start || !etok || !eslot || !fill) { rc = -1; goto done; }
+    for (int t = 0; t < n; t++) {
+        if (erow && erow[t] >= 0) memcpy(X + (size_t)t * H, emb + (size_t)erow[t] * H, (size_t)H * 4);
+        else if (tok[t] < 0 || tok[t] >= g->vocab || sn_expand(&m->pack, &m->main_rd, m->emb, (uint64_t)tok[t] * H, (uint64_t)H, X + (size_t)t * H) != 0) { rc = -1; goto done; }
+    }
+    for (int i = 0; i < g->n_layers && !rc; i++) {
+        const layer_t *l = &m->L[i];
+        char type = g->types[i];
+        if (m->on_layer) m->on_layer(m->hook_user, i, type);
+        for (int t = 0; t < n; t++) nemo_rmsnorm(X + (size_t)t * H, l->norm_w, Hn + (size_t)t * H, H, g->eps);
+        if (type == 'M') {
+            rc = sn_gemm_linear(m->gm, l->in_proj, NULL, Hn, n, H, g->m_in_proj, Pr, 0);
+            for (int t = 0; t < n && !rc; t++)
+                rc = nemo_mamba_decode(&m->mam[i], Pr + (size_t)t * g->m_in_proj, 0, l->conv_w, l->conv_b, l->a_log, l->dvec, l->dt_bias, l->gnorm_w, g->m_groups, g->eps, In + (size_t)t * inner_w);
+            if (!rc) {   /* the gemm wants densely packed rows of m_inner */
+                if (inner_w != g->m_inner) for (int t = 0; t < n; t++) memmove(In + (size_t)t * g->m_inner, In + (size_t)t * inner_w, (size_t)g->m_inner * 4);
+                rc = sn_gemm_linear(m->gm, l->out_proj, NULL, In, n, g->m_inner, H, Y, 0);
+            }
+        } else if (type == 'A') {
+            rc = sn_gemm_linear(m->gm, l->q, NULL, Hn, n, H, qd, Q, 0);
+            if (!rc) rc = sn_gemm_linear(m->gm, l->k, NULL, Hn, n, H, kd, Kb, 0);
+            if (!rc) rc = sn_gemm_linear(m->gm, l->v, NULL, Hn, n, H, kd, Vb, 0);
+            for (int t = 0; t < n && !rc; t++) {
+                rc = nemo_attn_push(&m->att[i], Kb + (size_t)t * kd, Vb + (size_t)t * kd);
+                if (!rc) rc = nemo_attn_decode(&m->att[i], Q + (size_t)t * qd, In + (size_t)t * qd);
+            }
+            if (!rc) rc = sn_gemm_linear(m->gm, l->o, NULL, In, n, qd, H, Y, 0);
+        } else {
+            for (int t = 0; t < n && !rc; t++) rc = route_token(m, i, Hn + (size_t)t * H, Top + (size_t)t * K, Tw + (size_t)t * K);
+            if (rc) break;
+            if (m->on_moe) m->on_moe(m->hook_user, i, Top + (size_t)(n - 1) * K, K);
+            rc = sn_gemm_linear(m->gm, l->fc1, NULL, Hn, n, H, Lt, Lat, 0);
+            if (rc) break;
+            memset(cnt, 0, (size_t)E * sizeof(int));
+            for (int t = 0; t < n; t++) for (int k = 0; k < K; k++) cnt[Top[(size_t)t * K + k]]++;
+            int nu = 0; start[0] = 0;
+            for (int e = 0; e < E; e++) if (cnt[e]) { used[nu] = e; start[nu + 1] = start[nu] + cnt[e]; fill[e] = start[nu]; nu++; }
+            for (int t = 0; t < n; t++) for (int k = 0; k < K; k++) { int e = Top[(size_t)t * K + k]; etok[fill[e]] = t; eslot[fill[e]] = k; fill[e]++; }
+            pfx_ctx pc = { m, l, Lat, EO, used, nu, start, etok, eslot, 0 };
+            nemo_pool_for(&m->pool, nu, pfx_job, &pc);
+            if (pc.fail) { rc = -1; break; }
+            for (int t = 0; t < n; t++) {
+                float *a = Acc + (size_t)t * Lt; memset(a, 0, (size_t)Lt * 4);
+                for (int k = 0; k < K; k++) { float w = Tw[(size_t)t * K + k]; const float *eo = EO + ((size_t)t * K + k) * Lt; for (int j = 0; j < Lt; j++) a[j] += w * eo[j]; }
+            }
+            rc = sn_gemm_linear(m->gm, l->fc2, NULL, Acc, n, Lt, H, Y, 0);
+            if (!rc) rc = sn_gemm_linear(m->gm, l->sh_up, NULL, Hn, n, H, g->moe_shared, SM, 2);
+            if (!rc) rc = sn_gemm_linear(m->gm, l->sh_dn, NULL, SM, n, g->moe_shared, H, Sh, 0);
+            if (!rc) for (size_t j = 0; j < (size_t)n * H; j++) Y[j] += Sh[j];
+        }
+        if (rc) break;
+        for (size_t j = 0; j < (size_t)n * H; j++) X[j] += Y[j];
+    }
+    if (rc) { m->state_valid = 0; goto done; }
+    m->n_pos += n;
+    if (logits) {
+        nemo_rmsnorm(X + (size_t)(n - 1) * H, m->normf_w, m->h, H, g->eps);
+        if (lin_par(m, m->head, m->h, logits, g->vocab, H) != 0) { m->state_valid = 0; rc = -1; }
+    }
+done:
+    free(X); free(Hn); free(Y); free(Sh); free(Pr); free(In); free(Q); free(Kb); free(Vb); free(Lat); free(Acc); free(EO); free(SM); free(Tw);
+    free(Top); free(cnt); free(used); free(start); free(etok); free(eslot); free(fill);
+    return rc ? -1 : 0;
+}
+
+int sn_model_prefill(sn_model *m, const int *tokens, const int *embed_row, const float *embeds, int n, float *logits)
+{
+    if (n <= 0) return 0;
+    if (!m->state_valid) return -2;
+    if (m->n_pos + n > m->max_pos) return -3;
+    for (int at = 0; at < n; at += PF_CHUNK) {
+        int c = n - at < PF_CHUNK ? n - at : PF_CHUNK;
+        int last = at + c == n;
+        if (prefill_chunk(m, tokens + at, embed_row ? embed_row + at : NULL, embeds, c, last ? logits : NULL) != 0) return -1;
+    }
+    return 0;
+}
+
 int sn_model_threads(const sn_model *m) { return m->nthreads; }
 int sn_model_pos(const sn_model *m) { return m->n_pos; }
 void sn_model_set_hooks(sn_model *m, sn_layer_cb a, sn_moe_cb b, void *u) { m->on_layer = a; m->on_moe = b; m->hook_user = u; }
