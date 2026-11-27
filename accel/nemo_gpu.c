@@ -298,7 +298,7 @@ typedef struct {
     uint32_t pq_d, idxw, entries, block;
     int nt;
     char (*name)[256];
-    uint64_t *b0, *nb, *book_off;
+    uint64_t *b0, *nb, *book_off, *seg_digest, *book_digest;
     float *book;
     uint64_t book_floats;
 } pack;
@@ -322,9 +322,35 @@ static uint64_t size64(FILE *f) {
 #endif
 }
 
+#define PACK_FNV_SEED 14695981039346656037ull
+static uint64_t pack_fnv(const void *data, size_t len, uint64_t h) {
+    const uint8_t *p = (const uint8_t *)data;
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint64_t)p[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+static uint64_t pack_fnv_stream(FILE *f, uint64_t off, uint64_t len, uint64_t h) {
+    uint8_t buf[65536];
+    if (seek64(f, off) != 0) return 0;
+    while (len) {
+        size_t want = len > sizeof(buf) ? sizeof(buf) : (size_t)len;
+        if (fread(buf, 1, want, f) != want) return 0;
+        h = pack_fnv(buf, want, h);
+        len -= want;
+    }
+    return h;
+}
+static void trim_nl(char *s) {
+    size_t n = strlen(s);
+    while (n && (s[n - 1] == '\n' || s[n - 1] == '\r')) s[--n] = 0;
+}
+
 static void pack_free(pack *k) {
     if (k->s) fclose(k->s);
-    free(k->name); free(k->b0); free(k->nb); free(k->book_off); free(k->book);
+    free(k->name); free(k->b0); free(k->nb); free(k->book_off);
+    free(k->seg_digest); free(k->book_digest); free(k->book);
     memset(k, 0, sizeof *k);
 }
 
@@ -371,17 +397,33 @@ static int pack_open(pack *k, const char *path, char *why, size_t wl) {
     k->b0 = malloc(sizeof(uint64_t) * (size_t)nt);
     k->nb = malloc(sizeof(uint64_t) * (size_t)nt);
     k->book_off = malloc(sizeof(uint64_t) * (size_t)nt);
-    if (!k->name || !k->b0 || !k->nb || !k->book_off) { fclose(m); free(seg); return -1; }
+    k->seg_digest = malloc(sizeof(uint64_t) * (size_t)nt);
+    k->book_digest = malloc(sizeof(uint64_t) * (size_t)nt);
+    if (!k->name || !k->b0 || !k->nb || !k->book_off || !k->seg_digest || !k->book_digest) { fclose(m); free(seg); return -1; }
     uint64_t cur = 0;
     for (int i = 0; i < nt; i++) {
         unsigned long long b0, nb, sd, bd; unsigned blk; char kind[16];
         if (!fgets(line, sizeof line, m)
             || sscanf(line, "tensor %255s %llu %llu %u %llx %llx %15s", k->name[i], &b0, &nb, &blk, &sd, &bd, kind) != 7
-            || b0 != cur || nb != seg[i] || blk != k->block) {
+            || b0 != cur || nb != seg[i] || blk != k->block || strcmp(kind, "packed") != 0) {
             fclose(m); free(seg); snprintf(why, wl, "manifest line %d disagrees with the stream", i); return -1;
         }
         k->b0[i] = b0; k->nb[i] = nb; k->book_off[i] = (uint64_t)i * k->entries * k->block;
+        k->seg_digest[i] = (uint64_t)sd; k->book_digest[i] = (uint64_t)bd;
         cur += nb;
+    }
+    {
+        int saw_end = 0;
+        while (fgets(line, sizeof line, m)) {
+            trim_nl(line);
+            if (!line[0]) continue;
+            if (strcmp(line, "end") == 0) { saw_end = 1; break; }
+        }
+        if (!saw_end) {
+            fclose(m); free(seg);
+            snprintf(why, wl, "manifest is missing its trailing end line");
+            return -1;
+        }
     }
     fclose(m);
     free(seg);
@@ -404,7 +446,30 @@ static int pack_open(pack *k, const char *path, char *why, size_t wl) {
         fclose(b); snprintf(why, wl, "book read failed"); return -1;
     }
     fclose(b);
+    for (int i = 0; i < nt; i++) {
+        uint64_t bh = pack_fnv(k->book + k->book_off[i],
+                               (size_t)k->entries * k->block * sizeof(float), PACK_FNV_SEED);
+        if (bh != k->book_digest[i]) {
+            snprintf(why, wl, "tensor %s fails its manifest book digest", k->name[i]);
+            return -1;
+        }
+        uint64_t h = PACK_FNV_SEED;
+        h = pack_fnv_stream(k->s, k->header + k->b0[i] * k->idxw, k->nb[i] * k->idxw, h);
+        h = pack_fnv_stream(k->s, k->header + k->nblocks * k->idxw + 2 * k->b0[i], 2 * k->nb[i], h);
+        h = pack_fnv_stream(k->s, k->header + k->nblocks * (k->idxw + 2) + 2 * k->b0[i], 2 * k->nb[i], h);
+        if (h != k->seg_digest[i]) {
+            snprintf(why, wl, "tensor %s fails its manifest segment digest", k->name[i]);
+            return -1;
+        }
+    }
     return 0;
+}
+
+int nemo_gpu_pack_check(const char *pack_path, char *why, size_t wl) {
+    pack k;
+    int rc = pack_open(&k, pack_path, why, wl);
+    pack_free(&k);
+    return rc;
 }
 
 static int pack_find(const pack *k, const char *name) {
@@ -457,11 +522,19 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     uint8_t *buf = (uint8_t *)malloc(isz);
     if (!buf) return -1;
     int rc = -1;
+    uint64_t h = PACK_FNV_SEED;
     if (seek64(k->s, k->header + k->b0[i] * k->idxw) || fread(buf, 1, isz, k->s) != isz) goto done;
+    h = pack_fnv(buf, isz, h);
     if (up(g, &o->idx, buf, isz)) goto done;
     if (seek64(k->s, k->header + k->nblocks * k->idxw + 2 * k->b0[i]) || fread(buf, 1, fsz, k->s) != fsz) goto done;
+    h = pack_fnv(buf, fsz, h);
     if (up_scale(g, &o->mn, buf, nb)) goto done;
     if (seek64(k->s, k->header + k->nblocks * (k->idxw + 2) + 2 * k->b0[i]) || fread(buf, 1, fsz, k->s) != fsz) goto done;
+    h = pack_fnv(buf, fsz, h);
+    if (h != k->seg_digest[i]) {
+        snprintf(g->err, sizeof g->err, "tensor %s fails its manifest segment digest", name);
+        goto done;
+    }
     if (up_scale(g, &o->sc, buf, nb)) goto done;
     {
         size_t nf = (size_t)k->entries * k->block;
