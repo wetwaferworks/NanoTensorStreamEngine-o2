@@ -119,8 +119,8 @@ static int gpu_prefill(nemo_model *m, const int *ids, int n, float *hidden) {
     if (n < 1 || m->n_pos + n > m->max_pos) return -1;
     if (flush_pending() != 0) { m->state_valid = 0; return -1; }
     nemo_gpu_set_full(g_gpu, g_turn_full);
-    for (int i = 0; i + 1 < n; i++)
-        if (nemo_gpu_step(g_gpu, ids[i], NULL) != 0) { m->state_valid = 0; return -1; }
+    /* batched prefill: bit-identical to stepping the tokens one by one */
+    if (n > 1 && nemo_gpu_prefill(g_gpu, ids, n - 1) != 0) { m->state_valid = 0; return -1; }
     if (n > 1) {
         printf("%s tensor=prefill tok=0 lane=cuda mode=%s reason=prompt%%20tokens%%3D%d\n",
                g_turn_full ? "EXPAND" : "DTC", g_turn_full ? "full" : "dtc", n - 1);

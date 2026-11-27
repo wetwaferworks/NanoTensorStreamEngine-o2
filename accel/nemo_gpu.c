@@ -96,10 +96,12 @@ typedef struct {
 } rtc_api;
 
 enum { K_PQ, K_BF16, K_RMS, K_ADD, K_RELU2, K_CONV, K_SSM, K_GNORM, K_KVPUSH,
-       K_ASCORE, K_AOUT, K_I8, K_XSUM, K_PQF, K_PQH, K_PQS, K_PQU, K_PQV, K_PQW, K_PQT, K_BW, K_N };
+       K_ASCORE, K_AOUT, K_I8, K_XSUM, K_PQF, K_PQH, K_PQS, K_PQU, K_PQV, K_PQW, K_PQT, K_BW,
+       K_GT8, K_GT16, K_GX8, K_GX16, K_RMSB, K_CONVB, K_SSMB, K_GNORMB, K_KVPB, K_N };
 static const char *const kname[K_N] = {
     "k_pq_gemv", "k_bf16_gemv", "k_rmsnorm", "k_add", "k_relu2", "k_conv",
-    "k_ssm", "k_gated_norm", "k_kv_push", "k_attn_scores", "k_attn_out", "k_i8_gemv", "k_xsum16", "k_pq_gemv_fast", "k_pq_gemv_h", "k_pq_gemv_s", "k_pq_gemv_u", "k_pq_gemv_v", "k_pq_gemv_w", "k_pq_gemv_t", "k_bw" };
+    "k_ssm", "k_gated_norm", "k_kv_push", "k_attn_scores", "k_attn_out", "k_i8_gemv", "k_xsum16", "k_pq_gemv_fast", "k_pq_gemv_h", "k_pq_gemv_s", "k_pq_gemv_u", "k_pq_gemv_v", "k_pq_gemv_w", "k_pq_gemv_t", "k_bw",
+    "k_pq_gemm_t8", "k_pq_gemm_t16", "k_pq_gemm_x8", "k_pq_gemm_x16", "k_rmsnorm_b", "k_conv_b", "k_ssm_b", "k_gated_norm_b", "k_kv_push_b" };
 
 #define H 4480
 #define VOCAB 131072
@@ -148,6 +150,10 @@ struct nemo_gpu {
     int head_i8;
     CUdeviceptr x, h, proj, v, y, inner, mid, q, k, vv, logits;
     CUdeviceptr scores, xs;
+    /* batched prefill workspace: [chunk][width] per buffer (0 = per-token prefill) */
+    int chunk, ptb;
+    CUdeviceptr bx, bh, bproj, bv, by, binner, bmid, bq, bk, bvv;
+    float *emb_host;
     int exact, half_book;
     int full_ok, snap_ok, snap_len;          /* EXPAND resources (fp32 books, state snapshot) */
     char full_why[160];
@@ -574,7 +580,7 @@ static double now_s(void) {
  * time to a per-kernel total, printed to stderr at close. Diagnostic only. */
 static int g_prof = -1;
 static double g_prof_t[K_N];
-static int g_shape[16][2]; static double g_shape_t[16]; static long g_shape_n[16];
+static int g_shape[32][2], g_shape_k[32]; static double g_shape_t[32]; static long g_shape_n[32];
 static long g_prof_n[K_N];
 static int launch_sm(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, unsigned smem, void **args);
 static int launch(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, void **args) {
@@ -586,8 +592,8 @@ static int launch_sm(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, 
     if (g_prof) { g->cu.CtxSynchronize(); t0 = now_s(); }
     int rc = ck(g, g->cu.LaunchKernel(g->fn[k], gx, gy, 1, bx, 1, 1, smem, NULL, args, NULL), kname[k]);
     if (g_prof) { g->cu.CtxSynchronize(); double dt = now_s() - t0; g_prof_t[k] += dt; g_prof_n[k]++;
-        if (k >= K_PQF) { int ai = k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
-            for (int q = 0; q < 16; q++) { if (!g_shape[q][0] || (g_shape[q][0] == rr && g_shape[q][1] == cc)) { g_shape[q][0] = rr; g_shape[q][1] = cc; g_shape_t[q] += dt; g_shape_n[q]++; break; } } } }
+        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16)) { int ai = k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
+            for (int q = 0; q < 32; q++) { if (!g_shape[q][0] || (g_shape[q][0] == rr && g_shape[q][1] == cc && g_shape_k[q] == k)) { g_shape[q][0] = rr; g_shape[q][1] = cc; g_shape_k[q] = k; g_shape_t[q] += dt; g_shape_n[q]++; break; } } } }
     return rc;
 }
 static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
@@ -726,6 +732,141 @@ int nemo_gpu_logits(nemo_gpu *g, float *logits) {
     return ck(g, g->cu.MemcpyDtoH(logits, g->logits, (size_t)VOCAB * 4), "logits copy");
 }
 
+/* ---- batched prefill (tokens in) ----
+ * nemo_gpu_prefill runs up to `chunk` prompt tokens through each layer
+ * together. Projections are PQ GEMMs (k_pq_gemm_t* for DTC, k_pq_gemm_x*
+ * for FULL) that keep every output's per-row, per-lane summation order,
+ * the recurrences (conv, SSM) loop over the tokens inside the thread, and
+ * attention runs the decode kernels once per token at its own length, so
+ * the state and residual after a prefill are bit-identical to stepping
+ * the same tokens one by one with nemo_gpu_step. */
+static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int n) {
+    int tb = g->ptb;
+    unsigned gy = (unsigned)((n + tb - 1) / tb);
+    if (g->exact && w->book) {
+        void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &n};
+        return launch_sm(g, tb == 16 ? K_GX16 : K_GX8, (unsigned)((w->rows + 7) / 8), gy, 256, 0, a);
+    }
+    if (g->half_book == 6) {
+        int P = 1;
+        while (P <= 8 && ((uint64_t)P * (uint64_t)w->cols) % 256u) P *= 2;
+        if (P <= 8 && w->rows % (4 * P) == 0) {
+            int nwarps = w->rows / 4;
+            void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->bookh, &X, &Y, (void *)&w->rows, (void *)&w->cols, &P, &n};
+            return launch_sm(g, tb == 16 ? K_GT16 : K_GT8, (unsigned)((nwarps + 15) / 16), gy, 512, 65536u, a);
+        }
+    }
+    /* any other kernel choice: the single-token GEMV per token (same result by construction) */
+    for (int t = 0; t < n; t++)
+        if (pq_gemv(g, w, X + (CUdeviceptr)t * w->cols * 4, Y + (CUdeviceptr)t * w->rows * 4)) return -1;
+    return 0;
+}
+
+static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
+    glayer *L = &g->L[l];
+    int hn = H; float eps = EPSF;
+    { void *a[] = {&g->bx, &L->norm_w, &g->bh, &hn, &eps};
+      if (launch_sm(g, K_RMSB, (unsigned)n, 1, 1024, 0, a)) return -1; }
+    if (L->type == 'M') {
+        if (pq_gemm(g, &L->p0, g->bh, g->bproj, n)) return -1;
+        CUdeviceptr u = g->bproj + (CUdeviceptr)INNER * 4, dt = g->bproj + (CUdeviceptr)(INNER + CONV) * 4;
+        int us = PROJ, os = CONV, ch = CONV;
+        void *ac[] = {&L->win, &u, &us, &L->conv_w, &L->conv_b, &g->bv, &os, &ch, &n};
+        if (launch_sm(g, K_CONVB, (CONV + 255) / 256, 1, 256, 0, ac)) return -1;
+        int xs = CONV, ds = PROJ, ys = INNER, heads = NHEAD, hd = HDIM, ns = NSTATE, gr = NGROUP, inner = INNER;
+        void *as[] = {&L->ssm, &g->bv, &xs, &dt, &ds, &L->a_log, &L->d, &L->dt_bias, &g->by, &ys, &heads, &hd, &ns, &gr, &inner, &n};
+        if (launch_sm(g, K_SSMB, (NHEAD * HDIM + 127) / 128, 1, 128, 0, as)) return -1;
+        int gs = INNER / 8, zs = PROJ, o2 = INNER;
+        void *an[] = {&g->by, &ys, &g->bproj, &zs, &L->gnorm_w, &g->binner, &o2, &gs, &eps};
+        if (launch_sm(g, K_GNORMB, 8, (unsigned)n, 1024, 0, an)) return -1;
+        if (pq_gemm(g, &L->p1, g->binner, g->by, n)) return -1;
+    } else if (L->type == '-') {
+        if (pq_gemm(g, &L->p0, g->bh, g->bmid, n)) return -1;
+        int m = MLP * n;
+        void *ar[] = {&g->bmid, &m};
+        if (launch(g, K_RELU2, (unsigned)((m + 255) / 256), 1, 256, ar)) return -1;
+        if (pq_gemm(g, &L->p1, g->bmid, g->by, n)) return -1;
+    } else {
+        if (pq_gemm(g, &L->p0, g->bh, g->bq, n) || pq_gemm(g, &L->p1, g->bh, g->bk, n) || pq_gemm(g, &L->p2, g->bh, g->bvv, n)) return -1;
+        int row = NKV * AD, pos = pos0;
+        void *ak[] = {&L->kc, &L->vc, &g->bk, &g->bvv, &pos, &row};
+        if (launch_sm(g, K_KVPB, (unsigned)((row + 255) / 256), (unsigned)n, 256, 0, ak)) return -1;
+        for (int t = 0; t < n; t++) {
+            int len = pos0 + t + 1, nq = NQ, nkv = NKV, d = AD, mp = g->max_pos;
+            CUdeviceptr qt = g->bq + (CUdeviceptr)t * NQ * AD * 4, ot = g->binner + (CUdeviceptr)t * NQ * AD * 4;
+            void *a1[] = {&qt, &L->kc, &g->scores, &len, &nq, &nkv, &d, &mp};
+            if (launch(g, K_ASCORE, (unsigned)((len + 127) / 128), NQ, 128, a1)) return -1;
+            void *a2[] = {&g->scores, &L->vc, &ot, &len, &nq, &nkv, &d, &mp};
+            if (launch(g, K_AOUT, NQ, 1, AD, a2)) return -1;
+        }
+        if (pq_gemm(g, &L->p3, g->binner, g->by, n)) return -1;
+    }
+    return add(g, g->bx, g->by, H * n);
+}
+
+int nemo_gpu_prefill_chunk(const nemo_gpu *g) { return g->chunk; }
+
+int nemo_gpu_prefill(nemo_gpu *g, const int *ids, int n) {
+    if (!g->valid) return -2;
+    if (n < 0 || g->len + n > g->max_pos) return -1;
+    for (int i = 0; i < n; i++) if (ids[i] < 0 || ids[i] >= VOCAB) return -1;
+    if (!g->chunk || g->hook) {
+        for (int i = 0; i < n; i++) if (nemo_gpu_step(g, ids[i], NULL)) return -1;
+        return 0;
+    }
+    for (int done = 0; done < n;) {
+        int c = n - done < g->chunk ? n - done : g->chunk;
+        uint16_t row[H];
+        for (int t = 0; t < c; t++) {
+            if (seek64(g->emb_f, g->emb_off + (uint64_t)ids[done + t] * H * 2) || fread(row, 2, H, g->emb_f) != H) {
+                snprintf(g->err, sizeof g->err, "embedding read failed"); return -1;
+            }
+            float *xf = g->emb_host + (size_t)t * H;
+            for (int i = 0; i < H; i++) { uint32_t u = (uint32_t)row[i] << 16; memcpy(&xf[i], &u, 4); }
+        }
+        g->valid = 0;
+        if (ck(g, g->cu.MemcpyHtoD(g->bx, g->emb_host, (size_t)c * H * 4), "cuMemcpyHtoD")) return -1;
+        for (int l = 0; l < g->layer_limit; l++)
+            if (run_layer_b(g, l, c, g->len)) return -1;
+        /* the residual of the chunk's last token is the stream nemo_gpu_logits reads */
+        if (ck(g, g->cu.MemcpyDtoD(g->x, g->bx + (CUdeviceptr)(c - 1) * H * 4, H * 4), "cuMemcpyDtoD")) return -1;
+        g->len += c;
+        g->valid = 1;
+        done += c;
+    }
+    return ck(g, g->cu.CtxSynchronize(), "prefill sync");
+}
+
+/* Workspace for the batched prefill; optional (0 = per-token prefill). */
+static void prefill_resources(nemo_gpu *g) {
+    const char *e = getenv("NEMO_GPU_PREFILL_CHUNK");
+    int ch = e && *e ? atoi(e) : 64;
+    const char *t = getenv("NEMO_GPU_PREFILL_TB");
+    g->ptb = t && atoi(t) == 8 ? 8 : 16;
+    if (ch <= 1) { g->chunk = 0; return; }
+    if (ch > 512) ch = 512;
+    ch = (ch + g->ptb - 1) / g->ptb * g->ptb;   /* GEMM tiles read whole token groups */
+    size_t c = (size_t)ch;
+    size_t need = c * 4 * ((size_t)H * 2 + PROJ + CONV + INNER * 2 + MLP + NQ * AD + NKV * AD * 2);
+    size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
+    if (fr < need + (48u << 20)) { g->chunk = 0; return; }
+    g->emb_host = (float *)malloc(c * H * 4);
+    if (!g->emb_host
+        || dalloc(g, &g->bx, c * H * 4) || dalloc(g, &g->bh, c * H * 4) || dalloc(g, &g->bproj, c * PROJ * 4)
+        || dalloc(g, &g->bv, c * CONV * 4) || dalloc(g, &g->by, c * INNER * 4) || dalloc(g, &g->binner, c * INNER * 4)
+        || dalloc(g, &g->bmid, c * MLP * 4) || dalloc(g, &g->bq, c * NQ * AD * 4) || dalloc(g, &g->bk, c * NKV * AD * 4)
+        || dalloc(g, &g->bvv, c * NKV * AD * 4)) {
+        CUdeviceptr *b[] = {&g->bx, &g->bh, &g->bproj, &g->bv, &g->by, &g->binner, &g->bmid, &g->bq, &g->bk, &g->bvv};
+        for (size_t i = 0; i < sizeof b / sizeof b[0]; i++) if (*b[i]) { g->cu.MemFree(*b[i]); *b[i] = 0; }
+        free(g->emb_host); g->emb_host = NULL;
+        g->chunk = 0; return;
+    }
+    /* zero the padding rows the GEMM tiles read past the last token */
+    g->cu.MemsetD8(g->bx, 0, c * H * 4); g->cu.MemsetD8(g->bh, 0, c * H * 4);
+    g->cu.MemsetD8(g->binner, 0, c * INNER * 4); g->cu.MemsetD8(g->bmid, 0, c * MLP * 4);
+    g->chunk = ch;
+}
+
 void nemo_gpu_reset(nemo_gpu *g) {
     for (int l = 0; l < g->layer_limit; l++) {
         glayer *L = &g->L[l];
@@ -751,8 +892,8 @@ void nemo_gpu_close(nemo_gpu *g) {
     if (g_prof > 0) {
         for (int k = 0; k < K_N; k++)
             if (g_prof_n[k]) fprintf(stderr, "profile %-16s %8ld launches %9.1f ms total %8.1f us each\n", kname[k], g_prof_n[k], g_prof_t[k] * 1e3, g_prof_t[k] * 1e6 / g_prof_n[k]);
-        for (int q = 0; q < 16 && g_shape[q][0]; q++)
-            fprintf(stderr, "profile pq %5dx%-5d %6ld launches %9.1f ms total %8.1f us each %6.1f GB/s idx\n", g_shape[q][0], g_shape[q][1], g_shape_n[q], g_shape_t[q] * 1e3, g_shape_t[q] * 1e6 / g_shape_n[q], (double)g_shape[q][0] * g_shape[q][1] / 4.0 * g_shape_n[q] / g_shape_t[q] / 1e9);
+        for (int q = 0; q < 32 && g_shape[q][0]; q++)
+            fprintf(stderr, "profile %-14s %5dx%-5d %6ld launches %9.1f ms total %8.1f us each %6.1f GB/s idx\n", kname[g_shape_k[q]], g_shape[q][0], g_shape[q][1], g_shape_n[q], g_shape_t[q] * 1e3, g_shape_t[q] * 1e6 / g_shape_n[q], (double)g_shape[q][0] * g_shape[q][1] / 4.0 * g_shape_n[q] / g_shape_t[q] / 1e9);
     }
     if (g->ctx_ok) {
         g->cu.CtxSetCurrent(g->ctx);
@@ -761,6 +902,7 @@ void nemo_gpu_close(nemo_gpu *g) {
         g->cu.PrimaryCtxRelease(g->dev); /* frees every allocation of the primary context */
     }
     if (g->emb_f) fclose(g->emb_f);
+    free(g->emb_host);
     dl_close(g->lrtc);
     dl_close(g->lcu);
     free(g);
@@ -872,7 +1014,8 @@ static int open_device(nemo_gpu *g, char *why, size_t wl) {
     for (int k = 0; k < K_N; k++)
         if (g->cu.ModuleGetFunction(&g->fn[k], g->mod, kname[k])) { snprintf(why, wl, "kernel %s missing", kname[k]); return -1; }
     /* 8 = CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES; 64 KiB for the staged book. */
-    if (g->half_book >= 2 && (g->cu.FuncSetAttribute(g->fn[K_PQS], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQU], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQV], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQW], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQT], 8, 65536))) {
+    if (g->half_book >= 2 && (g->cu.FuncSetAttribute(g->fn[K_PQS], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQU], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQV], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQW], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_PQT], 8, 65536)
+        || g->cu.FuncSetAttribute(g->fn[K_GT8], 8, 65536) || g->cu.FuncSetAttribute(g->fn[K_GT16], 8, 65536))) {
         if (g->half_book >= 5) { snprintf(why, wl, "cannot enable 64 KiB shared memory for k_pq_gemv_w"); return -1; }
         g->half_book = 1;
     }
@@ -993,6 +1136,7 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         if (!g->emb_f) { snprintf(g->err, sizeof g->err, "cannot open embedding shard"); goto ferr; }
     }
     expand_resources(g, &k);
+    prefill_resources(g);
     g->info.vram_used_by_us = g->used;
     g->info.head_int8 = g->head_i8;
     g->info.full_ok = g->full_ok;

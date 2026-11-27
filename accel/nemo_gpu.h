@@ -48,6 +48,13 @@ int nemo_gpu_step(nemo_gpu *g, int token, float *logits);
 /* Final norm + lm_head on the current residual (after a step without
  * logits). */
 int nemo_gpu_logits(nemo_gpu *g, float *logits);
+/* Batched prefill (tokens in): run n prompt tokens through the stack
+ * without logits, `chunk` tokens per layer pass (NEMO_GPU_PREFILL_CHUNK,
+ * default 64; 0 or 1 = one token at a time). The resulting state is
+ * bit-identical to n calls of nemo_gpu_step(.., NULL). Returns 0, -1 on
+ * error (state invalid until nemo_gpu_reset), -2 if already invalid. */
+int nemo_gpu_prefill(nemo_gpu *g, const int *ids, int n);
+int nemo_gpu_prefill_chunk(const nemo_gpu *g);   /* 0: batched prefill off */
 void nemo_gpu_reset(nemo_gpu *g);
 int nemo_gpu_pos(const nemo_gpu *g);
 

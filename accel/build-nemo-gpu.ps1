@@ -52,5 +52,7 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' accel\test_nemo_gpu_layers.c accel\obj\nemo_
 if ($LASTEXITCODE) { throw 'test' }
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_pack_ident.c accel\obj\nemo_gpu.o @testln -o accel\bin\test_nemo_pack_ident.exe -lm -lpsapi
 if ($LASTEXITCODE) { throw 'pack-ident test' }
+gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_prefill.c accel\obj\nemo_gpu.o @testln -o accel\bin\test_nemo_prefill.exe -lm -lpsapi
+if ($LASTEXITCODE) { throw 'prefill test' }
 
 'built accel\bin\nemo-engine-cuda.exe, nemo-engine-cuda-w.exe, test_nemo_gpu_layers.exe and test_nemo_pack_ident.exe'
