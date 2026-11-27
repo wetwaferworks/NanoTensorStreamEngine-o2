@@ -3,6 +3,11 @@
  *   sn-engine --pack PREFIX [--shapes TSV] --config config.json --tokenizer tokenizer.json
  *             [--threads N] [--max-pos N] [--max-new N] [--think] [--below-normal]
  *             [--ask "text"]      one-shot: print the reply and the measured speed, no protocol
+ *             [--no-dtc] [--dtc-force]       Dense Tensor Compute on the packed blocks (default: auto, where it pays)
+ *             [--cache-mb N] [--gpu-cache-mb N]   hot-expert cache budgets in RAM / VRAM (default 4096 / 0)
+ *             [--spec] [--no-spec] [--draft-len K]   speculative decoding with the MTP head (greedy, token-identical)
+ *             [--ini FILE]        read the [supernemo-tuning] section (dtc, cache_mb, gpu_cache_mb, spec, draft_len);
+ *                                 command-line flags win over the ini
  *
  * Speaks the same line protocol as nemo-engine (littlenemo/PROTOCOL.md): PROMPT, STOP, RESET, QUIT in;
  * READY, HW, PREFILL, LAYER, MOE, THINK/TOK, TICK, STATS, MEM, DONE out. MEDIA lines are refused with a
@@ -93,6 +98,7 @@ typedef struct {
     int max_new, max_pos, think_default, turns, pos;
     int eos_a, eos_b;
     int quiet;          /* --ask: no protocol lines */
+    int spec_on, draft_len;   /* speculative decoding active / tokens drafted per cycle */
     char *pending_cmd;
     float *logits;
 } engine;
@@ -247,7 +253,8 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
     sp.thinking = think_on ? 1 : 0;
     int generated = 0, stopped = 0;
     double gen_ms = 0.0;
-    while (generated < e->max_new) {
+    int done = 0;
+    while (generated < e->max_new && !done) {
         int next = argmax(e->logits, V);
         if (next == e->eos_a || next == e->eos_b) {
             /* commit the end-of-message token so the state holds the whole reply */
@@ -257,12 +264,24 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
         char *piece = nemo_tokenizer_decode(e->tk, &next, 1, 0);
         if (piece) { split_feed(&sp, piece); free(piece); }
         generated++;
+        int room = e->max_new - generated, k = e->spec_on ? (e->draft_len < room ? e->draft_len : room) : 0;
+        int acc[SN_NV], na = 0, rc;
         double t1 = now_ms();
-        int rc = sn_model_step(e->m, next, e->logits);
+        if (k >= 1) { rc = sn_model_spec_cycle(e->m, next, k, e->eos_a, e->eos_b, acc, e->logits); if (rc > 0) na = rc; }
+        else rc = sn_model_step(e->m, next, e->logits);
         double ms = now_ms() - t1;
-        gen_ms += ms; e->pos++;
-        if (rc != 0) { engine_reset(e); printf("ERROR forward pass failed during generation; state reset\n"); fflush(stdout); return -1; }
-        if (!e->quiet) printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d ms_tok=%.1f gbs=0\n", sp.thinking ? "thinking" : "answering", sn_model_geom(e->m)->n_layers - 1, generated, ms);
+        gen_ms += ms; e->pos += 1 + na;
+        if (rc < 0) { engine_reset(e); printf("ERROR forward pass failed during generation; state reset\n"); fflush(stdout); return -1; }
+        int emitted = 1, first_tick = generated;
+        for (int j = 0; j < na; j++) {
+            if (acc[j] == e->eos_a || acc[j] == e->eos_b) { done = 1; break; }   /* the stop token is already committed */
+            piece = nemo_tokenizer_decode(e->tk, &acc[j], 1, 0);
+            if (piece) { split_feed(&sp, piece); free(piece); }
+            generated++; emitted++;
+        }
+        if (!e->quiet)
+            for (int j = 0; j < emitted; j++)       /* one TICK per emitted token; a cycle's time is shared evenly */
+                printf("TICK mode=%s layer=%d next=-1 active=1 staged=0 tok=%d ms_tok=%.1f gbs=0\n", sp.thinking ? "thinking" : "answering", sn_model_geom(e->m)->n_layers - 1, first_tick + j, ms / emitted);
         fflush(stdout);
         if (e->pos + 2 >= e->max_pos) break;
         if (!e->quiet && poll_command(e)) {
@@ -276,6 +295,13 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
            generated, total_ms, gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0, generated ? gen_ms / generated : 0.0,
            peak_kb() / 1024.0, n, prefill_ms, prefill_ms > 0 ? n / (prefill_ms / 1000.0) : 0.0, stopped, sn_model_accel(e->m),
            gen_ms > 0 ? generated / (gen_ms / 1000.0) : 0.0, prefill_ms);
+    {
+        sn_cache_stats cs; sn_model_cache_stats(e->m, &cs);
+        long sc = 0, sd = 0, sa = 0; sn_model_spec_stats(e->m, &sc, &sd, &sa);
+        if (e->spec_on) printf("SPEC cycles=%ld drafted=%ld accepted=%ld accept_rate=%.3f\n", sc, sd, sa, sd ? (double)sa / (double)sd : 0.0);
+        if (cs.ram_budget || cs.gpu_bytes)
+            printf("CACHE ram_hits=%llu gpu_hits=%llu misses=%llu admits=%llu evicts=%llu ram_mb=%.1f gpu_mb=%.1f experts=%d\n", (unsigned long long)cs.hits_ram, (unsigned long long)cs.hits_gpu, (unsigned long long)cs.misses, (unsigned long long)cs.admits, (unsigned long long)cs.evicts, cs.ram_bytes / 1048576.0, cs.gpu_bytes / 1048576.0, cs.ram_experts);
+    }
     printf("MEM peak_mb=%.1f\n", peak_kb() / 1024.0);
     e->turns++;
     printf("DONE\n");
@@ -335,10 +361,37 @@ static void run_turn(engine *e, const char *user_text)
     free(u); free(tpl);
 }
 
+/* [supernemo-tuning] keys: dtc (off|auto|force), cache_mb, gpu_cache_mb, spec (0|1), draft_len */
+static void read_ini(const char *path, int *dtc, long *cache_mb, long *gpu_cache_mb, int *spec, int *draft)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) { fprintf(stderr, "sn-engine: cannot read ini %s\n", path); return; }
+    char line[512]; int in = 0;
+    while (fgets(line, sizeof line, f)) {
+        char *p = line; while (*p == ' ' || *p == '\t') p++;
+        size_t L = strlen(p); while (L && (p[L - 1] == '\n' || p[L - 1] == '\r' || p[L - 1] == ' ' || p[L - 1] == '\t')) p[--L] = 0;
+        if (!*p || *p == ';' || *p == '#') continue;
+        if (*p == '[') { in = !strcmp(p, "[supernemo-tuning]"); continue; }
+        if (!in) continue;
+        char *eq = strchr(p, '='); if (!eq) continue;
+        *eq = 0; char *v = eq + 1; while (*v == ' ' || *v == '\t') v++;
+        size_t kl = strlen(p); while (kl && (p[kl - 1] == ' ' || p[kl - 1] == '\t')) p[--kl] = 0;
+        int on = !strcmp(v, "1") || !strcmp(v, "on") || !strcmp(v, "yes") || !strcmp(v, "true");
+        if (!strcmp(p, "dtc")) *dtc = !strcmp(v, "off") || !strcmp(v, "0") ? 0 : !strcmp(v, "force") || !strcmp(v, "2") ? 2 : 1;
+        else if (!strcmp(p, "cache_mb")) *cache_mb = atol(v);
+        else if (!strcmp(p, "gpu_cache_mb")) *gpu_cache_mb = atol(v);
+        else if (!strcmp(p, "spec")) *spec = on;
+        else if (!strcmp(p, "draft_len")) *draft = atoi(v);
+    }
+    fclose(f);
+}
+
 int main(int argc, char **argv)
 {
     const char *pack = NULL, *shapes = NULL, *config = NULL, *tokf = NULL, *ask = NULL;
     int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0, max_patches = 1024, no_vision = 0, gpu_mb = 0;
+    int dtc = 1, spec = 0, draft_len = 3; long cache_mb = 4096, gpu_cache_mb = 0;
+    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--ini")) read_ini(argv[i + 1], &dtc, &cache_mb, &gpu_cache_mb, &spec, &draft_len);
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pack") && i + 1 < argc) pack = argv[++i];
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) shapes = argv[++i];
@@ -351,13 +404,21 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--max-patches") && i + 1 < argc) max_patches = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--no-vision")) no_vision = 1;
         else if (!strcmp(argv[i], "--gpu-mb") && i + 1 < argc) gpu_mb = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--ini") && i + 1 < argc) i++;
+        else if (!strcmp(argv[i], "--no-dtc")) dtc = 0;
+        else if (!strcmp(argv[i], "--dtc-force")) dtc = 2;
+        else if (!strcmp(argv[i], "--cache-mb") && i + 1 < argc) cache_mb = atol(argv[++i]);
+        else if (!strcmp(argv[i], "--gpu-cache-mb") && i + 1 < argc) gpu_cache_mb = atol(argv[++i]);
+        else if (!strcmp(argv[i], "--spec")) spec = 1;
+        else if (!strcmp(argv[i], "--no-spec")) spec = 0;
+        else if (!strcmp(argv[i], "--draft-len") && i + 1 < argc) draft_len = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--think")) think = 1;
         else if (!strcmp(argv[i], "--below-normal")) below = 1;
         else if (!strcmp(argv[i], "--chat") || !strcmp(argv[i], "--serve-stdio")) { /* accepted for GUI parity */ }
         else { fprintf(stderr, "sn-engine: unknown argument %s\n", argv[i]); return 2; }
     }
     if (!pack || !config || !tokf) {
-        fprintf(stderr, "usage: sn-engine --pack PREFIX [--shapes TSV] --config config.json --tokenizer tokenizer.json [--threads N] [--max-pos N] [--max-new N] [--think] [--below-normal] [--ask TEXT]\n");
+        fprintf(stderr, "usage: sn-engine --pack PREFIX [--shapes TSV] --config config.json --tokenizer tokenizer.json [--threads N] [--max-pos N] [--max-new N] [--think] [--below-normal] [--ask TEXT]\n  tuning: [--no-dtc|--dtc-force] [--cache-mb N] [--gpu-cache-mb N] [--spec|--no-spec] [--draft-len K] [--ini FILE]\n");
         return 2;
     }
 #if defined(_WIN32)
@@ -384,6 +445,21 @@ int main(int argc, char **argv)
         int nres = sn_model_cuda(e.m, (long long)gpu_mb << 20, gwhy, sizeof gwhy);
         if (nres < 0) fprintf(stderr, "sn-engine: CUDA lane off: %s\n", gwhy);
         else fprintf(stderr, "sn-engine: CUDA lane on %s: %d tensors, %.0f MB resident\n", sn_model_gpu_name(e.m), nres, sn_model_gpu_bytes(e.m) / 1048576.0);
+    }
+    sn_model_set_dtc(e.m, dtc);
+    if (cache_mb > 0 || gpu_cache_mb > 0) {
+        char cwhy[400] = "";
+        if (sn_model_cache(e.m, cache_mb << 20, gpu_cache_mb << 20, cwhy, sizeof cwhy) != 0) fprintf(stderr, "sn-engine: expert cache: %s\n", cwhy);
+        else {
+            sn_cache_stats cs; sn_model_cache_stats(e.m, &cs);
+            fprintf(stderr, "sn-engine: expert cache on: RAM %ld MB%s%s\n", cache_mb, gpu_cache_mb ? ", VRAM tier " : "", gpu_cache_mb && cwhy[0] ? cwhy : gpu_cache_mb ? "requested" : "");
+        }
+    }
+    if (spec) {
+        if (draft_len < 1) draft_len = 1;
+        if (draft_len > SN_NV - 1) draft_len = SN_NV - 1;
+        if (sn_model_mtp_enable(e.m, 1) == 0) { e.spec_on = 1; e.draft_len = draft_len; fprintf(stderr, "sn-engine: speculative decoding on (MTP head, draft %d)\n", draft_len); }
+        else fprintf(stderr, "sn-engine: speculative decoding off: this pack has no usable MTP head\n");
     }
     e.max_patches = max_patches;
     e.img_id = nemo_tokenizer_special(e.tk, "<image>");

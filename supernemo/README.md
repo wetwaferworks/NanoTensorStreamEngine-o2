@@ -37,3 +37,26 @@ and the measured speed and exits.
   `CUDA_PATH` is needed at run time). Routed experts stay on the CPU lanes.
 * Images: PNG, JPEG, BMP, GIF via MEDIA. The checkpoint's dynamic-resolution rule picks the tile; `--max-patches` caps the
   size this machine will chew on (default 1024 patches = 256 image tokens). Video and audio are not built.
+
+## Speed features (DTC, hot-expert cache, speculative decoding)
+
+All three are exact or deterministic, pure C and lock-free, and each has an off switch.
+
+| Feature | Flag | Ini key (`[supernemo-tuning]`) | Default |
+|---|---|---|---|
+| Dense Tensor Compute straight on the packed PQ blocks (CPU, and GPU for tall tensors and cached experts) | `--no-dtc`, `--dtc-force` | `dtc = off/auto/force` | auto |
+| Hot-expert cache: RAM tier (resident packed experts) and VRAM tier (mirror of the hottest) | `--cache-mb N`, `--gpu-cache-mb N` | `cache_mb`, `gpu_cache_mb` | 4096 / 0 |
+| Speculative decoding with the checkpoint's MTP head (greedy, verify in one fused pass) | `--spec`, `--no-spec`, `--draft-len K` (1..7) | `spec`, `draft_len` | off, 3 |
+
+`--ini FILE` reads the `[supernemo-tuning]` section; command-line flags win. The cache budgets are separate from `--gpu-mb`
+(dense tensors); on the 4 GB card `--gpu-mb 3000` leaves roughly 0.8 GB, so keep `--gpu-cache-mb` at or below about 600.
+
+What is guaranteed (tests: `test_sn_pqk`, `test_sn_spec`, `test_sn_cache`, `test_sn_cuda`):
+- DTC equals the direct kernels to float noise (about 1e-6 relative; bounds 3e-2 per layer, 5e-2 on logits, argmax must match).
+  The GPU DTC kernels are bit-identical to the CPU DTC, and every DTC result is bit-identical across lane counts, row splits and
+  file versus resident sources.
+- The cache never changes a result: the logits hash is identical with it off, roomy, evicting, single-lane and with the VRAM tier.
+  Admission and eviction are decided on the main thread from token counts between pool jobs, so the state is deterministic.
+- Speculative decoding is token-identical to plain greedy by construction (exact verification, rollback of Mamba/KV state).
+  It only pays when the draft acceptance rate is high enough: verifying k+1 tokens reads the union of their experts. Measure on
+  the real pack (`SPEC` and `CACHE` lines appear next to `STATS`) before leaving it on.

@@ -59,3 +59,10 @@ per packed tensor. On Sigma-3B the same recipe matched the raw model's top token
 notes call that class of pack "not yet a quality artifact". Expect a SuperNemo pack that runs and produces text but is clearly
 degraded against bf16. Raising quality needs a higher-rate recipe (an experts-only book per layer, smaller PQ subvectors, or
 residual PQ), which is a converter research item and needs JD's go because it multiplies pack size.
+
+## Speed work added 2026-11-27 (DTC, hot-expert cache, MTP speculation)
+
+Built and tested on the tiny random-weight models; real-pack numbers are measured after the quantize finishes.
+Toy results show the mechanism works, not real gains: the random MTP head accepts nothing, so speculation is slower there.
+Still to measure on the real pack: seconds per token with DTC on/off, cache hit rate and the budget that fits the 16 GB box,
+the VRAM tier next to `--gpu-mb 3000`, and the real MTP acceptance rate (decides the default of `--spec`).
