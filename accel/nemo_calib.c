@@ -175,7 +175,11 @@ static void cache_write(const nemo_calib *c) {
 
 void nemo_calib_run(nemo_calib *c, const char *override, int recal, int have_pack) {
     memset(c, 0, sizeof *c);
-    double t0 = now_ms_c();
+    /* volatile: the start time lives in memory, not a callee-saved register.
+     * A fresh run calls into the CUDA and OpenCL driver DLLs; with t0 kept in
+     * a register the elapsed time came back as the whole system uptime
+     * ("calibration fresh in 629628906 ms"), i.e. t0 read as 0. */
+    volatile double t0 = now_ms_c();
     cache_path(c);
     char dev[128] = ""; int drv = 0, rm = 0, rn = 0;
     int have_cuda = nemo_gpu_identify(dev, sizeof dev, &drv, &rm, &rn) == 0;
