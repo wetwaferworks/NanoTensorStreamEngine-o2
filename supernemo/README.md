@@ -13,6 +13,7 @@ honest notes on speed and quality.
     test_sn_vision.exe PREFIX SHAPES CONFIG                  RADIO + mlp1 vs independent double reference (tiny vision pack)
     test_sn_image.exe  [PNG]                                 target-grid rule, resize invariants, decode
     test_sn_cuda.exe   PREFIX SHAPES [budget_mb]             GPU kernels vs the CPU kernel on every tensor they can take
+    test_sn_xstream.exe PREFIX SHAPES [CONFIG]               GPU expert stream: on-card expansion, slots, model hashes vs CPU
     sn_preflight.exe   PREFIX SHAPES CONFIG                  does the pack carry every tensor the engine needs, with the right sizes
     sn_packcheck.exe   ...                                   pack vs source shards (reconstruction error, fused matvec)
 
@@ -34,7 +35,9 @@ and the measured speed and exits.
   expert once for every token that chose it.
 * Decode uses the fused PQ kernels straight from the pack (no matrix is rebuilt), routed experts split across the lanes.
 * `--gpu-mb` keeps lm_head and the dense mixers / latent / shared projections resident in VRAM in packed form (NVRTC from
-  `CUDA_PATH` is needed at run time). Routed experts stay on the CPU lanes.
+  `CUDA_PATH` is needed at run time). With it, routed experts stream through the card: they are sent compressed, expanded
+  and computed there, and their slots are reused for the next token; the slot count comes from the hardware calibration.
+  `--no-gpu-experts` keeps them on the CPU lanes. Plain-language write-up: `GPU-EXPERT-STREAM.md`.
 * Images: PNG, JPEG, BMP, GIF via MEDIA. The checkpoint's dynamic-resolution rule picks the tile; `--max-patches` caps the
   size this machine will chew on (default 1024 patches = 256 image tokens). Video and audio are not built.
 
@@ -46,6 +49,7 @@ All three are exact or deterministic, pure C and lock-free, and each has an off 
 |---|---|---|---|
 | Dense Tensor Compute straight on the packed PQ blocks (CPU, and GPU for tall tensors and cached experts) | `--no-dtc`, `--dtc-force` | `dtc = off/auto/force` | auto |
 | Hot-expert cache: RAM tier (resident packed experts) and VRAM tier (mirror of the hottest) | `--cache-mb N`, `--gpu-cache-mb N` | `cache_mb`, `gpu_cache_mb` | 4096 / 0 |
+| GPU expert stream: compressed experts sent to the card, expanded and computed there, slots reused per token | `--gpu-experts`, `--no-gpu-experts` | `gpu_experts` | on when `--gpu-mb` > 0 |
 | Speculative decoding with the checkpoint's MTP head (greedy, verify in one fused pass) | `--spec`, `--no-spec`, `--draft-len K` (1..7) | `spec`, `draft_len` | off, 3 |
 
 `--ini FILE` reads the `[supernemo-tuning]` section; command-line flags win. The cache budgets are separate from `--gpu-mb`

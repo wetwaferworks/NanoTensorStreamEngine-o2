@@ -17,6 +17,7 @@ gcc %F% -o test_sn_pqk.exe tests\test_sn_pqk.c src\sn_pqk.c src\sn_pack.c -lm ||
 gcc %F% -o test_sn_spec.exe tests\test_sn_spec.c src\sn_model.c src\sn_pack.c src\sn_pqk.c src\sn_moe.c src\sn_gemm.c src\sn_cuda.c %L%\mamba.c %L%\attn.c %L%\pool.c -lm || exit /b 1
 gcc %F% -o test_sn_cache.exe tests\test_sn_cache.c src\sn_model.c src\sn_pack.c src\sn_pqk.c src\sn_moe.c src\sn_gemm.c src\sn_cuda.c %L%\mamba.c %L%\attn.c %L%\pool.c -lm || exit /b 1
 gcc %F% -o test_sn_cmdloop.exe tests\test_sn_cmdloop.c || exit /b 1
+gcc %F% -o test_sn_xstream.exe tests\test_sn_xstream.c src\sn_model.c src\sn_pack.c src\sn_pqk.c src\sn_moe.c src\sn_gemm.c src\sn_cuda.c %L%\mamba.c %L%\attn.c %L%\pool.c -lm || exit /b 1
 gcc %F% -o test_sn_pack_manifest.exe tests\test_sn_pack_manifest.c src\sn_pack.c -lm || exit /b 1
 echo built
 
