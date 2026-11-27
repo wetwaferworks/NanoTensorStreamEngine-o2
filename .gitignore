@@ -27,3 +27,4 @@ testdata/
 build-*.log
 scan-*.tmp
 scan-*.txt
+data/
