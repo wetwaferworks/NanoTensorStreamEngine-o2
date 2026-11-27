@@ -28,7 +28,8 @@ Every result will be published with its negatives, as Lane 4 was.
 
 - **Little Nemo CUDA lane:** done and measured; source is in `accel/` ([ACCEL-CUDA.md](ACCEL-CUDA.md)).
 - **CUDA runtime for Sigma:** the lanes are verified, but there is no end-to-end GPU decode for the Sigma model yet ([ACCEL.md](ACCEL.md)).
-- **SuperNemo engine:** Nemotron 3.5 Super VL 120B-A12B (512-expert MoE and a vision tower). The GUI side exists; the engine path does not.
+- **SuperNemo engine:** Nemotron 3.5 Super VL 120B-A12B (512-expert MoE and a vision tower). The engine and its tests are in `supernemo/`; real-pack speed and quality are not measured yet ([supernemo/PLAN.md](../supernemo/PLAN.md)).
+- **GPU-accelerated quantizer:** a CUDA path for `nq2-quantize` covering codebook fitting and nearest-code assignment. The output must stay hash-identical to the CPU path, which means a fixed reduction order. First step: measure how a current run splits its time between reading from disk and computing, so we know whether the GPU would help at all.
 - **Precision Gate:** move the scratch implementation into `tools/` and chase the open intermittent `--threads 1` boundary fault ([PRECISION-GATE.md](PRECISION-GATE.md)).
 - **OpenCL Nemotron forward:** the OpenCL lanes have no Nemotron forward in the Little Nemo build; calibration rejects them.
 
