@@ -91,8 +91,12 @@ is the RAM expert cache. The experts-only setting fills the card with about 1684
 is slow on this card (an open issue being looked at: the likely cause is the card running nearly full next to the display).
 Use it only to experiment; the default (`--gpu-mb` with the stream on) is the one to use.
 
-The five short quiz questions (square root of 144, capital of Australia, symbol for helium, year of the Declaration of
-Independence, largest planet) were run again with the stream on: 5 of 5 right, same answers as before. The CPU was shared
-with another job during that run, so its speed (prefill 0.365 tok/s, decode 0.078 tok/s pooled, card peak 3707 MiB, engine
-RAM peak 615 MB) is not comparable with the earlier quiet run (prefill 0.917, decode 0.209, 3685 MiB, 708 MB); the paired
-runs above are the fair comparison.
+The quiz set was run again with the stream on: the five short questions (square root of 144, capital of Australia, symbol
+for helium, year of the Declaration of Independence, largest planet) scored 5 of 5, and the two essays (the seasons, DNA)
+scored 2 of 2, the same as before. The CPU was shared with another job during that run, so its speed is not comparable
+with the earlier quiet run; the paired runs above are the fair comparison.
+
+| Quiz run | Questions prefill / decode tok/s | Essays prefill / decode tok/s | Card peak | Engine RAM peak |
+|---|---|---|---|---|
+| Earlier, quiet, stream off | 0.917 / 0.209 | 0.981 / 0.351 | 3822 MiB | 710 MB |
+| Stream on, CPU shared | 0.365 / 0.078 | 0.356 / 0.125 | 3884 MiB | 616 MB |
