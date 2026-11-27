@@ -489,8 +489,8 @@ sn_model *sn_model_open(const char *prefix, const char *shapes, const char *conf
         } else if (type == 'A') {
             uint64_t qd = (uint64_t)g->a_heads * g->a_hd, kd = (uint64_t)g->a_kv * g->a_hd;
             l->q = need(m, qd * H, 0, "language_model.backbone.layers.%d.mixer.q_proj.weight%.0d", i, 0);
-            l->k = need(m, kd * H, 0, "language_model.backbone.layers.%d.mixer.k_proj.weight%.0d", i, 0);
-            l->v = need(m, kd * H, 0, "language_model.backbone.layers.%d.mixer.v_proj.weight%.0d", i, 0);
+            l->k = need(m, kd * H, -1, "language_model.backbone.layers.%d.mixer.k_proj.weight%.0d", i, 0);
+            l->v = need(m, kd * H, -1, "language_model.backbone.layers.%d.mixer.v_proj.weight%.0d", i, 0);
             l->o = need(m, (uint64_t)H * qd, 0, "language_model.backbone.layers.%d.mixer.o_proj.weight%.0d", i, 0);
             if (!l->q || !l->k || !l->v || !l->o) bad = 1;
             if (!bad && nemo_attn_cache_init(&m->att[i], g->a_heads, g->a_kv, g->a_hd, max_pos) != 0) bad = 1;
@@ -523,8 +523,8 @@ sn_model *sn_model_open(const char *prefix, const char *shapes, const char *conf
         a->hnorm_w = load_f32(m, "language_model.mtp.layers.0.hnorm.weight%.0d", 0, (uint64_t)H, NULL);
         a->eh = need(m, (uint64_t)H * 2 * H, 0, "language_model.mtp.layers.0.eh_proj.weight%.0d%.0d", 0, 0);
         a->q = need(m, qd * H, 0, "language_model.mtp.layers.0.mixer.q_proj.weight%.0d%.0d", 0, 0);
-        a->k = need(m, kd * H, 0, "language_model.mtp.layers.0.mixer.k_proj.weight%.0d%.0d", 0, 0);
-        a->v = need(m, kd * H, 0, "language_model.mtp.layers.0.mixer.v_proj.weight%.0d%.0d", 0, 0);
+        a->k = need(m, kd * H, -1, "language_model.mtp.layers.0.mixer.k_proj.weight%.0d%.0d", 0, 0);
+        a->v = need(m, kd * H, -1, "language_model.mtp.layers.0.mixer.v_proj.weight%.0d%.0d", 0, 0);
         a->o = need(m, (uint64_t)H * qd, 0, "language_model.mtp.layers.0.mixer.o_proj.weight%.0d%.0d", 0, 0);
         if (!a->norm_w || !a->enorm_w || !a->hnorm_w || !a->eh || !a->q || !a->k || !a->v || !a->o) mb = 1;
         if (!mb && nemo_attn_cache_init(&m->att[g->n_layers], g->a_heads, g->a_kv, g->a_hd, max_pos + SN_NV) != 0) mb = 1;
