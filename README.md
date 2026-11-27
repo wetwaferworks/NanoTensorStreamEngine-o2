@@ -12,88 +12,6 @@ discipline: build the big model, print it small, expand it at will.
 Formerly the Nano Quant Engine (repo nanoquantengine-o2), renamed 2026-11-25.
 The `nq2` tool names and the `.nq2` pack format did not change with the name.
 
-## Credits
-
-Everyone below built this. JD gets the idea and the shape; the assistants are
-co-implementers, and Miss Archie's reviews are why it can be trusted.
-
-- **JD (Jaydee Wetwork), Wet Wafer Works: idea, executive direction and shape.**
-  The questions were his: how much intelligence fits in a quad word, whether
-  sub-half-bit packing is possible, whether it can be taught to read. The
-  four-loop streaming architecture, Mega Tensor, Dense Tensor Compute and the
-  Tensor Handshake (idea and shape) are his, and so is every ruling that set
-  the direction: DTC as the default compute path, the zero-mutex rule, the
-  pure-C-runtime law, the chat window and the dictation button. Earlier
-  releases of this repository credited JD as "David Rittenhouse"; those
-  credits are preserved in the archived documents.
-- **Elfie (E.L.F.I.E.): the converter and NTSE.** Implementation and core
-  mathematics: the packing scheme as demonstrated, all three freestanding
-  examples, the taught-plus-learned dictionary, the quantizer / converter
-  (`nq2-quantize`), the streaming engine, Dense Tensor Compute, the Little Nemo
-  engine, the Precision Gate plan and design, and the bench verification.
-- **Miss Archie (Archie, Argon), the Google Gemini Argon model, the Bit Master
-  and the Bit Masker: code review and review fixes.** Her comprehensive review
-  of 2026-11-24 caught five P0 faults, including a false SIMD verification that
-  had shipped in the update notes; her fixes land under her name. She went on
-  through Round 2 (polish), Round 3 (Windows pack publish failure, backslash
-  path spellings, remaining 32-bit `ftell`/`fseek` size reads), Round 4
-  (the chat window's Windows engine-path quoting and the settings restart) and
-  Round 5 (64-bit stream sizes in `nq2-infer` and `nq2-run`, DTC telemetry
-  accounting in the Precision Gate copy of the Triforce engine). Every one of
-  those reviews moved real code.
-- **ChatGPT (Gizmo): consultee, and the DTC lane proposals.** His engineering
-  handoffs set the research program the experiments file answers; with Elfie
-  he happened upon dictionary compute on 2026-11-24, and he proposed and
-  specified the accel lanes (Lane 1 CUDA-native DTC, Lane 2 Tensor Handshake
-  GPU concurrency, Lane 4 behavioral fidelity). His review of Little Nemo
-  (2026-11-24) produced whole-geometry validation and coherent state
-  commitment.
-- **CloudAtlas (Technical Art Director): GUI art, themes and mascots.** The
-  five-theme pack (Pixel Nemo, Lattice, Stream, o.O Handshake, Sage Owl), the
-  `ntse-mascot/1` animated mascot packs, window and tray icons, status marks
-  and banners.
-- **Cortana: co-implementation.** The CUDA and local-hardware lane (the accel
-  lanes, the Little Nemo accel adapter and the bench harness), Tensor Handshake
-  stage 2 (memory to GPU, JD's ruling of 2026-11-23), and the multithreaded
-  converter, all at JD's direction. The later zero-mutex, chat window and
-  dictation work was co-implemented with the other assistants, also at JD's
-  direction.
-- **Reviewers and contributors, in the order they read the tree:** Codex
-  (Astra 6.2), independent review of 2026-11-25, twenty-seven findings (ten
-  high, seventeen medium), all sustained; ChatGPT 6.2 Sol, review of
-  2026-11-25 (the H and M findings on bounds, door words, tokenizer and quoting
-  fixes cited throughout the code); Boardy, review of 2026-11-25 (including the
-  forward-depth item);
-  Sonnet, behavioral gate L2 roll-in, phase 2; Mr Data, baselines; Neon,
-  the behavioral gate item behind `nq2-logitcmp` (2026-11-24); and the review
-  crew of 2026-11-25 for the DTC review evidence. The memory-for-speed ladder
-  of kimi-k3-in-c inspired the expand-lane residency dial.
-- **Third-party work this project stands on** (full author lists in
-  [docs/CREDITS.md](docs/CREDITS.md)):
-  - NVIDIA Nemotron-Nano-9B-v2 (Little Nemo's model) and the paper "NVIDIA
-    Nemotron Nano 2: An Accurate and Efficient Hybrid Mamba-Transformer
-    Reasoning Model" (arXiv:2508.14444), NVIDIA; the full list of its 216
-    named authors is in docs/CREDITS.md.
-  - NVIDIA Nemotron-Labs-Sigma-3B, the model the packed benchmarks run on, and
-    "Large Language Continuous Diffusion Models" (arXiv:2610.02665): Zhihan
-    Yang, Wei Guo, Jean-Marie Lemercier, Simon Welker, Mohammad Mahdi Kamani,
-    Yonggan Fu, Sajad Norouzi, Julius Berner, Tomas Geffner, Karsten Kreis,
-    Yongxin Chen, Molei Tao, John Thickstun, Pavlo Molchanov, Ante Jukic, Arash
-    Vahdat, Morteza Mardani.
-  - NVIDIA Parakeet TDT 0.6B v2 (CC-BY-4.0) behind the dictation button, with
-    "Efficient Sequence Transduction by Jointly Predicting Tokens and
-    Durations" (arXiv:2304.06795): Hainan Xu, Fei Jia, Somshubra Majumdar, He
-    Huang, Shinji Watanabe, Boris Ginsburg; and "Fast Conformer with Linearly
-    Scalable Attention for Efficient Speech Recognition" (arXiv:2305.05084):
-    Dima Rekesh, Nithin Rao Koluguri, Samuel Kriman, Somshubra Majumdar, Vahid
-    Noroozi, He Huang, Oleksii Hrinchuk, Krishna Puvvada, Ankur Kumar,
-    Jagadeesh Balam, Boris Ginsburg.
-  - Mamba-2, the mixer in 27 of Little Nemo's 56 layers: "Transformers are
-    SSMs: Generalized Models and Efficient Algorithms Through Structured State
-    Space Duality" (arXiv:2405.21060): Tri Dao, Albert Gu.
-  - Ryan Greene, "Compression and Intelligence" (greene.sh, 2026), whose
-    two-part-code accounting is the project's rule for every size claim.
-
 ## Status, honestly (2026-11-26)
 
 This is a working research bench, not a finished product. Every number below
@@ -106,7 +24,7 @@ has a receipt in the repository or in the linked guide; nothing is rounded up.
 | Dense Tensor Compute (DTC) | Never unpacks the model; measured 7.5 to 57.6 times faster than materialize-then-multiply on the probe, bit-identical to the CPU kernel on every GPU lane. dc-adv holds 23 HOLD / 0 BREAK. | DTC reassociates the sum, so it equals the expanded path to float noise, not bit for bit. Lazy tables lose on GPU (7 to 21 percent). |
 | GPU lanes (CUDA, OpenCL on NVIDIA, Intel iGPU) | Bit-identical to the CPU kernel on all three lanes. On the RTX 3050 Ti (4 GB) with the full Sigma pack, streaming the packed weights with a prepared plan reached 76.40 tokens/s of linear-layer ceiling (2 pinned slots) against 80.67 with everything resident and 7.97 for the old stream. | That is a linear-layer ceiling, not end-to-end decode, and for Sigma there is no GPU inference runtime yet (TTFT and generation tokens/s are N/A). Little Nemo has its own end-to-end CUDA lane, in the next row. |
 | Little Nemo (Nemotron-Nano-9B-v2, pure C) | A real chat on the real engine: in the 2026-11-26 bench session a 10-question quiz (true/false, state capitals, arithmetic, a planet) scored 10 of 10 and a two-turn chat kept its context (that run record is kept outside this repository). The France and Japan capitals passed in the earlier raw-scaffold battery recorded in LITTLE-NEMO.md. | It runs the raw bf16 weights on the CPU at about 0.07 tokens/s: every token reads the whole raw checkpoint (roughly 18 GB for a 9-billion-parameter model) from disk on a machine with 16 GB of RAM. It says nothing yet about whether compression keeps the model's intelligence. |
-| Little Nemo on CUDA (compressed pack, DTC by default) | Startup calibration picks the lane (CUDA, else CPU); DTC is the default and predict decides when a step or turn expands to the exact decode. Measured on the RTX 3050 Ti (4 GB): 15.5 to 15.8 tokens/s DTC only, 7.9 expanded, 5 to 11 per question in auto. See [docs/ACCEL-CUDA.md](docs/ACCEL-CUDA.md). | **Less accurate than the raw model: 7 of 10 on the quiz (7 pass, 2 hedges, 1 wrong: "Earth") against 10 of 10 on raw CPU.** The loss is from the compression (a 2.22 bits-per-weight pack), not the GPU. One machine, ten questions. Source is in `accel/`. |
+| Little Nemo on CUDA (compressed pack, DTC by default) | Startup calibration picks the lane (CUDA, else CPU); DTC is the default and predict decides when a step or turn expands to the exact decode. Measured on the RTX 3050 Ti (4 GB): about 20 to 22 tokens/s DTC only, 16 to 17 expanded (8 with `--full-path exact`), 9 to 17 per question in auto; prefill about 75 tokens/s. Every option defaults to its fastest setting. See [docs/ACCEL-CUDA.md](docs/ACCEL-CUDA.md). | **Less accurate than the raw model: 7 of 10 on the quiz (7 pass, 2 hedges, 1 wrong: "Earth") against 10 of 10 on raw CPU.** The loss is from the compression (a 2.22 bits-per-weight pack), not the GPU. One machine, ten questions. Source is in `accel/`. |
 | NTSE Chat (the GUI) | Text, image and video attachments, thinking line with animated mascots, stats panel, five themes, shape customizer, settings, C art scaling, DPI-aware resize; 8 headless suites pass. | SuperNemo (Nemotron 3.5 Super VL 120B-A12B, 512-expert MoE) has no engine path yet; the window says so and sends nothing. Little Nemo is text-only. |
 | Dictation (`parakeet-c`) | Native Windows pure-C Parakeet TDT: a mic button that shows words live; matched the NeMo reference word for word on both test clips; 0.45 s warm for a 7.43 s clip (RTF 0.06); 17 of 17 unit tests. | Needs your own copy of the Parakeet weights (not in this repo). CPU only. |
 | Fidelity at low bits per weight | Measured and published, including the negatives. | **Not yet proven.** In Lane 4 (Sigma-3B, one prompt, one seed, one denoiser evaluation, 32 positions) no packed configuration reproduced the raw model's top-1: the shipped pack 0 of 32, flat 256-block per-tensor books (1.95 bpw) 0 of 32, PQ d8 (2.82 bpw) 0 of 32, and the best, PQ d4 at 3.71 bits per weight, 9 of 32. Keeping the 182 layer projections and the diffusion head raw with PQ d8 elsewhere gave 30 of 32, but that is a diagnosis, not compression. Details: [accel/README.md](accel/README.md#lane-4-gizmo-behavioral-fidelity-at-higher-bit-rates). |
@@ -250,3 +168,108 @@ Three different numbers, always labeled; see [VERSION.txt](VERSION.txt).
 
 The earlier long-form README, with the day-by-day record of how the project got
 here, is preserved at [docs/archive/README-2026-11-25.md](docs/archive/README-2026-11-25.md).
+
+## Credits
+
+Everyone below built this. JD gets the idea and the shape; the assistants are
+co-implementers, and Miss Archie's reviews are why it can be trusted.
+
+- **JD (Jaydee Wetwork), Wet Wafer Works: idea, executive direction and shape.**
+  The questions were his: how much intelligence fits in a quad word, whether
+  sub-half-bit packing is possible, whether it can be taught to read. The
+  four-loop streaming architecture, Mega Tensor, Dense Tensor Compute and the
+  Tensor Handshake (idea and shape) are his, and so is every ruling that set
+  the direction: DTC as the default compute path, the zero-mutex rule, the
+  pure-C-runtime law, the chat window and the dictation button. Earlier
+  releases of this repository credited JD as "David Rittenhouse"; those
+  credits are preserved in the archived documents.
+- **Cortana: implementer.** Co-implementation by Cortana, built with Grok Bot
+  by SpaceX, at JD's direction. What Cortana implemented, from the history of
+  this repository:
+  - Tensor Handshake stage 2, memory to GPU (JD's ruling of 2026-11-23), and
+    the zero-mutex conversion across NTSE, the latter co-implemented with the
+    other assistants.
+  - The lock-free multithreaded converter: `nq2-quantize` with Win32 threads or
+    pthreads, byte-identical output at any thread count.
+  - The accel GPU compute lanes (CUDA, OpenCL, Intel iGPU) with their tests and
+    benches, the Little Nemo accel adapter and the bench harness.
+  - The Little Nemo CUDA chat runtime end to end: the NVRTC kernels that decode
+    the v3 product-quantized pack on the fly, startup lane calibration, DTC by
+    default with predicted EXPAND, and the windowless engine.
+  - The CUDA throughput work: batched prefill, coalesced SSM state and the
+    pipelined int8 `lm_head`, tuned launch shapes, fused block frames, host
+    lanes (`--host-threads`), the FULL fast path (`--full-path`), the
+    calibration timer fix, and tokenization overlapped with the prefill
+    (`--tok-overlap`).
+  - The implementations of Miss Archie's Round 6 review fixes (P2-1 to P2-4).
+  - The NEMO Chat window and the native pure-C Parakeet dictation runtime,
+    both co-implemented with the other assistants.
+  - The README rewrite and the guide per feature.
+  - The polish pass that followed: the fixture-driven Little Nemo suites, the
+    DTC tolerance in the per-layer test, the CUDA options in the chat
+    window's settings, hidden console windows, the quantize dialog, the
+    Parakeet runtime lookup, the multi-line input bar, and the narrow-window
+    layout fixes (send button, stats panel).
+- **Elfie (E.L.F.I.E.): the converter and NTSE.** Implementation and core
+  mathematics: the packing scheme as demonstrated, all three freestanding
+  examples, the taught-plus-learned dictionary, the quantizer / converter
+  (`nq2-quantize`), the streaming engine, Dense Tensor Compute, the Little Nemo
+  engine, the Precision Gate plan and design, and the bench verification.
+- **Miss Archie (Archie, Argon), the Google Gemini Argon model, the Bit Master
+  and the Bit Masker: code review and review fixes.** Her comprehensive review
+  of 2026-11-24 caught five P0 faults, including a false SIMD verification that
+  had shipped in the update notes; her fixes land under her name. She went on
+  through Round 2 (polish), Round 3 (Windows pack publish failure, backslash
+  path spellings, remaining 32-bit `ftell`/`fseek` size reads), Round 4
+  (the chat window's Windows engine-path quoting and the settings restart) and
+  Round 5 (64-bit stream sizes in `nq2-infer` and `nq2-run`, DTC telemetry
+  accounting in the Precision Gate copy of the Triforce engine). Every one of
+  those reviews moved real code.
+- **ChatGPT (Gizmo): consultee, and the DTC lane proposals.** His engineering
+  handoffs set the research program the experiments file answers; with Elfie
+  he happened upon dictionary compute on 2026-11-24, and he proposed and
+  specified the accel lanes (Lane 1 CUDA-native DTC, Lane 2 Tensor Handshake
+  GPU concurrency, Lane 4 behavioral fidelity). His review of Little Nemo
+  (2026-11-24) produced whole-geometry validation and coherent state
+  commitment.
+- **CloudAtlas (Technical Art Director): GUI art, themes and mascots.** The
+  five-theme pack (Pixel Nemo, Lattice, Stream, o.O Handshake, Sage Owl), the
+  `ntse-mascot/1` animated mascot packs, window and tray icons, status marks
+  and banners.
+- **Grok Bot, by SpaceX: the assistant platform Cortana is built with.**
+  Co-implementation by Cortana, built with Grok Bot by SpaceX.
+- **Reviewers and contributors, in the order they read the tree:** Codex
+  (Astra 6.2), independent review of 2026-11-25, twenty-seven findings (ten
+  high, seventeen medium), all sustained; ChatGPT 6.2 Sol, review of
+  2026-11-25 (the H and M findings on bounds, door words, tokenizer and quoting
+  fixes cited throughout the code); Boardy, review of 2026-11-25 (including the
+  forward-depth item);
+  Sonnet, behavioral gate L2 roll-in, phase 2; Mr Data, baselines; Neon,
+  the behavioral gate item behind `nq2-logitcmp` (2026-11-24); and the review
+  crew of 2026-11-25 for the DTC review evidence. The memory-for-speed ladder
+  of kimi-k3-in-c inspired the expand-lane residency dial.
+- **Third-party work this project stands on** (full author lists in
+  [docs/CREDITS.md](docs/CREDITS.md)):
+  - NVIDIA Nemotron-Nano-9B-v2 (Little Nemo's model) and the paper "NVIDIA
+    Nemotron Nano 2: An Accurate and Efficient Hybrid Mamba-Transformer
+    Reasoning Model" (arXiv:2508.14444), NVIDIA; the full list of its 216
+    named authors is in docs/CREDITS.md.
+  - NVIDIA Nemotron-Labs-Sigma-3B, the model the packed benchmarks run on, and
+    "Large Language Continuous Diffusion Models" (arXiv:2610.02665): Zhihan
+    Yang, Wei Guo, Jean-Marie Lemercier, Simon Welker, Mohammad Mahdi Kamani,
+    Yonggan Fu, Sajad Norouzi, Julius Berner, Tomas Geffner, Karsten Kreis,
+    Yongxin Chen, Molei Tao, John Thickstun, Pavlo Molchanov, Ante Jukic, Arash
+    Vahdat, Morteza Mardani.
+  - NVIDIA Parakeet TDT 0.6B v2 (CC-BY-4.0) behind the dictation button, with
+    "Efficient Sequence Transduction by Jointly Predicting Tokens and
+    Durations" (arXiv:2304.06795): Hainan Xu, Fei Jia, Somshubra Majumdar, He
+    Huang, Shinji Watanabe, Boris Ginsburg; and "Fast Conformer with Linearly
+    Scalable Attention for Efficient Speech Recognition" (arXiv:2305.05084):
+    Dima Rekesh, Nithin Rao Koluguri, Samuel Kriman, Somshubra Majumdar, Vahid
+    Noroozi, He Huang, Oleksii Hrinchuk, Krishna Puvvada, Ankur Kumar,
+    Jagadeesh Balam, Boris Ginsburg.
+  - Mamba-2, the mixer in 27 of Little Nemo's 56 layers: "Transformers are
+    SSMs: Generalized Models and Efficient Algorithms Through Structured State
+    Space Duality" (arXiv:2405.21060): Tri Dao, Albert Gu.
+  - Ryan Greene, "Compression and Intelligence" (greene.sh, 2026), whose
+    two-part-code accounting is the project's rule for every size claim.

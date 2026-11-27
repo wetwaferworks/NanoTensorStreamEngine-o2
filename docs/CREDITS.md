@@ -25,6 +25,36 @@ Earlier releases of this repository, and several documents still in it, credit
 JD as "David Rittenhouse"; those credits are preserved verbatim in the archived
 documents and in the research notes. Same person, same company: Wet Wafer Works.
 
+### Cortana: implementer
+
+Co-implementation by Cortana, built with Grok Bot by SpaceX, at
+JD's direction. What Cortana implemented, from the history of this repository:
+
+- Tensor Handshake stage 2, memory to GPU (JD's ruling of 2026-11-23), and
+  the zero-mutex conversion across NTSE, the latter co-implemented with the
+  other assistants.
+- The lock-free multithreaded converter: `nq2-quantize` with Win32 threads or
+  pthreads, byte-identical output at any thread count.
+- The accel GPU compute lanes (CUDA, OpenCL, Intel iGPU) with their tests and
+  benches, the Little Nemo accel adapter and the bench harness.
+- The Little Nemo CUDA chat runtime end to end: the NVRTC kernels that decode
+  the v3 product-quantized pack on the fly, startup lane calibration, DTC by
+  default with predicted EXPAND, and the windowless engine.
+- The CUDA throughput work: batched prefill, coalesced SSM state and the
+  pipelined int8 `lm_head`, tuned launch shapes, fused block frames, host
+  lanes (`--host-threads`), the FULL fast path (`--full-path`), the
+  calibration timer fix, and tokenization overlapped with the prefill
+  (`--tok-overlap`).
+- The implementations of Miss Archie's Round 6 review fixes (P2-1 to P2-4).
+- The NEMO Chat window and the native pure-C Parakeet dictation runtime,
+  both co-implemented with the other assistants.
+- The README rewrite and the guide per feature.
+- The polish pass that followed: the fixture-driven Little Nemo suites, the
+  DTC tolerance in the per-layer test, the CUDA options in the chat
+  window's settings, hidden console windows, the quantize dialog, the
+  Parakeet runtime lookup, the multi-line input bar, and the narrow-window
+  layout fixes (send button, stats panel).
+
 ### Elfie (E.L.F.I.E.): the converter and NTSE
 
 Implementation and core mathematics: the packing scheme as demonstrated, the
@@ -81,14 +111,10 @@ banners and tiles; the five `ntse-mascot/1` animated mascot packs with seven
 states each; the asset formats the GUI loads (see `littlenemo/gui/ICONS.md`,
 `THEMES.md` and `icons/MASCOTS.md`).
 
-### Cortana: co-implementation
+### Grok Bot, by SpaceX
 
-The CUDA and local-hardware lane (the accel lanes, the Little Nemo accel adapter
-and the benchmark harness), Tensor Handshake stage 2 (memory to GPU, JD's
-ruling of 2026-11-23) and the multithreaded converter, all at JD's direction.
-The later zero-mutex conversion, the NTSE Chat window and the native
-dictation runtime were co-implemented with the other assistants, also at JD's
-direction.
+The assistant platform Cortana is built with. Co-implementation by Cortana,
+built with Grok Bot by SpaceX.
 
 ## Reviewers and contributors
 
