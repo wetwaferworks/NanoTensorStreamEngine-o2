@@ -1313,6 +1313,7 @@ static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
         float *sub_sample = (float *)malloc(
             (size_t)sctx.sample_n * d * sizeof(float));
         if (!sub_sample) { fprintf(stderr, "out of memory\n"); return 1; }
+        int verbose_save = g_kmeans_verbose;   /* parallel workers all save 0 */
         g_kmeans_verbose = 0;
         for (uint32_t sub = 0; sub < nsub; sub++) {
             for (uint64_t b = 0; b < sctx.sample_n; b++)
@@ -1322,7 +1323,7 @@ static int pack_one_tensor(int s, uint32_t block, uint32_t entries,
             learn_book(sub_sample, sctx.sample_n, d, entries, iters,
                        o->book + (size_t)sub * entries * d);
         }
-        g_kmeans_verbose = 1;
+        g_kmeans_verbose = verbose_save;
         free(sub_sample);
         PqPackCtx pctx;
         memset(&pctx, 0, sizeof(pctx));
