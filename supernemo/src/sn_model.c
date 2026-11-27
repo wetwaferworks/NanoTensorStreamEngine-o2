@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "sn_moe.h"
 #include "sn_pack.h"
@@ -185,7 +186,28 @@ struct sn_model {
     /* GPU expert stream (sn_cuda_xs_*): every routed expert goes to the card compressed and is computed there */
     int xs_on;
     int *xs_oidx, *xs_list, *xs_slot; unsigned char *xs_done;
+    struct sn_prof *prof; int prof_state;   /* optional profile (env SN_PROF=1); measurement only */
 };
+
+/* ------------------------------------------------------------------ profile
+ * SN_PROF=1 turns it on. It times each kind of work, measures how well three cheap predictors would have
+ * guessed the router's choice (same layer last token, next layer's router run one layer early, the layer's most
+ * used experts so far), times the stages of the GPU expert stream, and counts MTP draft hits by position. It reads
+ * state and writes only its own counters, so results are unchanged. */
+enum { PC_NORM, PC_MIN, PC_MCORE, PC_MOUT, PC_QKV, PC_ACORE, PC_O, PC_ROUTE, PC_FC1, PC_EXP, PC_FC2, PC_SHARED, PC_HEAD, PC_N };
+static const char *pc_name[PC_N] = { "norms and residual adds", "mamba in_proj", "mamba scan", "mamba out_proj", "attention q k v",
+    "attention core", "attention o", "router", "moe fc1 (to latent)", "routed experts", "moe fc2 (from latent)", "shared expert", "lm_head" };
+#define PROF_MISS 48
+typedef struct sn_prof {
+    double ms[2][PC_N]; long calls[2][PC_N], on_card[2][PC_N]; long tokens[2];
+    int nl, E, K; int *next_moe, *prev, *early; unsigned char *has_prev, *has_early; uint32_t *cnt; float *tmp, *tw;
+    long *n_tok, *n_prev, *n_early, *ov_prev, *ov_early, *ov_hot, *ov_union, *sz_union;
+    double xs_wait, xs_prep, xs_issue, xs_end; long xs_layers, xs_hit, xs_mode[4];
+    long pos_tried[SN_NV], pos_ok[SN_NV]; int miss_d[PROF_MISS], miss_a[PROF_MISS], miss_pos[PROF_MISS], nmiss;
+} sn_prof;
+
+static void prof_free(sn_prof *p);
+static double pnow(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6; }
 
 static int lane_of(int n_items, int nthreads, int begin)
 {
@@ -403,6 +425,7 @@ static const sn_tensor *need(sn_model *m, uint64_t want, int raw, const char *fm
 void sn_model_close(sn_model *m)
 {
     if (!m) return;
+    prof_free(m->prof); m->prof = NULL;
     nemo_pool_shutdown(&m->pool);
     if (m->L) for (int i = 0; i < m->n_all; i++) {
         layer_t *l = &m->L[i];
@@ -877,17 +900,21 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
     for (int v = 0; v < n * K; v++) m->xs_oidx[v] = w->etok[v] * K + w->eslot[v];
     if (sn_cuda_xs_layer_begin(c, w->Lat, fused ? w->PL : NULL, n, w->etok, m->xs_oidx, n * K) != 0) rc = -1;
     sn_cuda_xs_chunk_begin(c);
+    sn_prof *pf = m->prof; double q0 = pf ? pnow() : 0.0, q1;
     for (int i = 0; i < nu && !rc; i++) {
         int key = (int)ekey(m, li, w->used[i]);
         int s = sn_cuda_xs_find(c, key);
         if (s >= 0) rc = xs_compute(m, w, i, s, fused);
         else m->xs_list[nmiss++] = i;
     }
+    if (pf) { q1 = pnow(); pf->xs_issue += q1 - q0; q0 = q1; pf->xs_layers++; pf->xs_hit += nu - nmiss;
+              for (int k = 0; k < nmiss; k++) { int md = w->emode[m->xs_list[k]]; pf->xs_mode[md >= 0 && md < 4 ? md : 0]++; } }
     int C = sn_cuda_xs_chunk(c), half = 0;
     for (int b = 0; b < nmiss && !rc; b += C, half ^= 1) {
         int e = b + C < nmiss ? b + C : nmiss, cnt = e - b, j0 = half * C;
         sn_cuda_xs_chunk_begin(c);
         if (sn_cuda_xs_stage_wait(c, j0, cnt) != 0) { rc = -1; break; }
+        if (pf) { q1 = pnow(); pf->xs_wait += q1 - q0; q0 = q1; }
         for (int k = b; k < e && !rc; k++) {
             int s = sn_cuda_xs_claim(c, (int)ekey(m, li, w->used[m->xs_list[k]]));
             if (s < 0) rc = -1; else m->xs_slot[k - b] = s;
@@ -896,13 +923,16 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
         xprep_ctx pc = { m, l, li, w, b, j0, cnt, 0 };
         nemo_pool_for(&m->pool, cnt, xprep_job, &pc);
         if (pc.fail) { rc = -1; break; }
+        if (pf) { q1 = pnow(); pf->xs_prep += q1 - q0; q0 = q1; }
         for (int k = b; k < e && !rc; k++) {
             int i = m->xs_list[k], s = m->xs_slot[k - b];
             rc = sn_cuda_xs_upload(c, j0 + (k - b), s, (int)ekey(m, li, w->used[i]));
             if (!rc) rc = xs_compute(m, w, i, s, fused);
         }
+        if (pf) { q1 = pnow(); pf->xs_issue += q1 - q0; q0 = q1; }
     }
     if (!rc) rc = sn_cuda_xs_layer_end(c, w->EO, n * K);
+    if (pf) pf->xs_end += pnow() - q0;
     if (rc) {
         sn_cuda_xs_abort(c);
         if (fused) for (int i = 0; i < nu; i++) if (w->emode[i] == 3 && w->epend[i].pend) { sn_res_free(&w->epend[i].up); sn_res_free(&w->epend[i].dn); w->epend[i].pend = 0; }
@@ -955,6 +985,85 @@ void sn_model_gpu_experts_info(const sn_model *m, sn_xs_info *out)
     out->on = m->xs_on;
 }
 
+static void prof_free(sn_prof *p)
+{
+    if (!p) return;
+    free(p->next_moe); free(p->prev); free(p->early); free(p->has_prev); free(p->has_early); free(p->cnt); free(p->tmp); free(p->tw);
+    free(p->n_tok);
+    free(p);
+}
+
+static sn_prof *prof_get(sn_model *m)
+{
+    if (m->prof_state == 0) {
+        const char *e = getenv("SN_PROF");
+        m->prof_state = (e && *e && strcmp(e, "0")) ? 1 : -1;
+        if (m->prof_state == 1) {
+            const sn_geom *g = &m->g;
+            int nl = g->n_layers, E = g->moe_experts, K = g->moe_topk;
+            sn_prof *p = (sn_prof *)calloc(1, sizeof *p);
+            if (p) {
+                p->nl = nl; p->E = E; p->K = K;
+                p->next_moe = (int *)calloc((size_t)nl, sizeof(int));
+                p->prev = (int *)calloc((size_t)nl * K, sizeof(int)); p->early = (int *)calloc((size_t)nl * K, sizeof(int));
+                p->has_prev = (unsigned char *)calloc((size_t)nl, 1); p->has_early = (unsigned char *)calloc((size_t)nl, 1);
+                p->cnt = (uint32_t *)calloc((size_t)nl * E, 4); p->tmp = (float *)malloc((size_t)g->hidden * 4); p->tw = (float *)malloc((size_t)K * 4);
+                p->n_tok = (long *)calloc((size_t)nl * 8, sizeof(long));
+            }
+            if (!p || !p->next_moe || !p->prev || !p->early || !p->has_prev || !p->has_early || !p->cnt || !p->tmp || !p->tw || !p->n_tok || E > 4096) {
+                prof_free(p); m->prof_state = -1; return NULL;
+            }
+            p->n_prev = p->n_tok + nl; p->n_early = p->n_tok + 2 * nl; p->ov_prev = p->n_tok + 3 * nl; p->ov_early = p->n_tok + 4 * nl;
+            p->ov_hot = p->n_tok + 5 * nl; p->ov_union = p->n_tok + 6 * nl; p->sz_union = p->n_tok + 7 * nl;
+            for (int i = 0; i < nl; i++) {
+                p->next_moe[i] = -1;
+                for (int j = i + 1; j < nl; j++) if (g->types[j] != 'M' && g->types[j] != 'A') { p->next_moe[i] = j; break; }
+            }
+            m->prof = p;
+        }
+    }
+    return m->prof;
+}
+
+static int pres(const sn_model *m, const sn_tensor *t) { return m->cuda && t && sn_cuda_resident(m->cuda, &m->pack, t); }
+
+/* router predictability at MoE layer li (decode tokens), then the next MoE layer's router run one layer early */
+static void prof_route(sn_model *m, sn_prof *p, int li, fws *w, int n, int fused)
+{
+    const sn_geom *g = &m->g;
+    int E = p->E, K = p->K, H = g->hidden;
+    if (li >= p->nl) return;
+    uint32_t *cn = p->cnt + (size_t)li * E;
+    int early_now = p->has_early[li]; p->has_early[li] = 0;
+    if (fused && n == 1) {
+        unsigned char inA[4096], inU[4096], hot[4096];
+        memset(inA, 0, (size_t)E); memset(inU, 0, (size_t)E); memset(hot, 0, (size_t)E);
+        for (int k = 0; k < K; k++) inA[w->Top[k]] = 1;
+        p->n_tok[li]++;
+        for (int k = 0; k < K; k++) {   /* the layer's K most used experts so far (ties: lower index) */
+            int b = -1;
+            for (int e = 0; e < E; e++) if (!hot[e] && (b < 0 || cn[e] > cn[b])) b = e;
+            hot[b] = 1; p->ov_hot[li] += inA[b];
+        }
+        if (p->has_prev[li]) { p->n_prev[li]++; for (int k = 0; k < K; k++) p->ov_prev[li] += inA[p->prev[(size_t)li * K + k]]; }
+        if (early_now) { p->n_early[li]++; for (int k = 0; k < K; k++) p->ov_early[li] += inA[p->early[(size_t)li * K + k]]; }
+        if (early_now && p->has_prev[li]) {
+            for (int k = 0; k < K; k++) { inU[p->prev[(size_t)li * K + k]] = 1; inU[p->early[(size_t)li * K + k]] = 1; }
+            for (int e = 0; e < E; e++) if (inU[e]) { p->sz_union[li]++; p->ov_union[li] += inA[e]; }
+        }
+    }
+    for (int t = 0; t < n; t++) for (int k = 0; k < K; k++) cn[w->Top[(size_t)t * K + k]]++;
+    memcpy(p->prev + (size_t)li * K, w->Top + (size_t)(n - 1) * K, (size_t)K * sizeof(int)); p->has_prev[li] = 1;
+    int nx = p->next_moe[li];
+    if (nx >= 0 && fused && n == 1) {
+        nemo_rmsnorm(w->X, m->L[nx].norm_w, p->tmp, H, g->eps);
+        if (route_token(m, nx, p->tmp, p->early + (size_t)nx * K, p->tw) == 0) p->has_early[nx] = 1;
+    }
+}
+
+#define PT0() double pt_ = m->prof ? pnow() : 0.0
+#define PT(c, t) do { if (m->prof) { double q_ = pnow(); int f_ = fused != 0; m->prof->ms[f_][c] += q_ - pt_; m->prof->calls[f_][c]++; m->prof->on_card[f_][c] += pres(m, (t)); pt_ = q_; } } while (0)
+
 /* One residual block (norm, mixer, add) for the n token rows in w->X. li indexes m->L / m->mam / m->att. */
 static int run_layer(sn_model *m, fws *w, int li, char type, int n, int fused, int snap)
 {
@@ -964,9 +1073,13 @@ static int run_layer(sn_model *m, fws *w, int li, char type, int n, int fused, i
     int qd = g->a_heads * g->a_hd, kd = g->a_kv * g->a_hd;
     int inner_w = g->m_inner > qd ? g->m_inner : qd;
     int rc = 0;
+    prof_get(m);
+    PT0();
     for (int t = 0; t < n; t++) nemo_rmsnorm(w->X + (size_t)t * H, l->norm_w, w->Hn + (size_t)t * H, H, g->eps);
+    PT(PC_NORM, NULL);
     if (type == 'M') {
         rc = lin(m, fused, l->in_proj, w->Hn, n, H, g->m_in_proj, w->Pr, 0);
+        PT(PC_MIN, l->in_proj);
         for (int t = 0; t < n && !rc; t++) {
             rc = nemo_mamba_decode(&m->mam[li], w->Pr + (size_t)t * g->m_in_proj, 0, l->conv_w, l->conv_b, l->a_log, l->dvec, l->dt_bias, l->gnorm_w, g->m_groups, g->eps, w->In + (size_t)t * inner_w);
             if (!rc && snap && t < n - 1) {
@@ -974,25 +1087,33 @@ static int run_layer(sn_model *m, fws *w, int li, char type, int n, int fused, i
                 memcpy(m->snap_conv[t][li], m->mam[li].conv_win, (size_t)g->m_conv_dim * 4 * 4);
             }
         }
+        PT(PC_MCORE, NULL);
         if (!rc) {   /* the matrix kernels want densely packed rows of m_inner */
             if (inner_w != g->m_inner) for (int t = 0; t < n; t++) memmove(w->In + (size_t)t * g->m_inner, w->In + (size_t)t * inner_w, (size_t)g->m_inner * 4);
             rc = lin(m, fused, l->out_proj, w->In, n, g->m_inner, H, w->Y, 0);
+            PT(PC_MOUT, l->out_proj);
         }
     } else if (type == 'A') {
         rc = lin(m, fused, l->q, w->Hn, n, H, qd, w->Q, 0);
         if (!rc) rc = lin(m, fused, l->k, w->Hn, n, H, kd, w->Kb, 0);
         if (!rc) rc = lin(m, fused, l->v, w->Hn, n, H, kd, w->Vb, 0);
+        PT(PC_QKV, l->q);
         for (int t = 0; t < n && !rc; t++) {
             rc = nemo_attn_push(&m->att[li], w->Kb + (size_t)t * kd, w->Vb + (size_t)t * kd);
             if (!rc) rc = nemo_attn_decode(&m->att[li], w->Q + (size_t)t * qd, w->In + (size_t)t * qd);
         }
+        PT(PC_ACORE, NULL);
         if (!rc) rc = lin(m, fused, l->o, w->In, n, qd, H, w->Y, 0);
+        PT(PC_O, l->o);
     } else {
         for (int t = 0; t < n && !rc; t++) rc = route_token(m, li, w->Hn + (size_t)t * H, w->Top + (size_t)t * K, w->Tw + (size_t)t * K);
         if (rc) return rc;
+        PT(PC_ROUTE, NULL);
+        if (m->prof) { prof_route(m, m->prof, li, w, n, fused); pt_ = pnow(); }
         if (m->on_moe && li < g->n_layers) m->on_moe(m->hook_user, li, w->Top + (size_t)(n - 1) * K, K);
         rc = lin(m, fused, l->fc1, w->Hn, n, H, Lt, w->Lat, 0);
         if (rc) return rc;
+        PT(PC_FC1, l->fc1);
         memset(w->cnt, 0, (size_t)E * sizeof(int));
         for (int t = 0; t < n; t++) for (int k = 0; k < K; k++) w->cnt[w->Top[(size_t)t * K + k]]++;
         int nu = 0; w->start[0] = 0;
@@ -1024,13 +1145,17 @@ static int run_layer(sn_model *m, fws *w, int li, char type, int n, int fused, i
             float *a = w->Acc + (size_t)t * Lt; memset(a, 0, (size_t)Lt * 4);
             for (int k = 0; k < K; k++) { float wt = w->Tw[(size_t)t * K + k]; const float *eo = w->EO + ((size_t)t * K + k) * Lt; for (int j = 0; j < Lt; j++) a[j] += wt * eo[j]; }
         }
+        PT(PC_EXP, NULL);
         rc = lin(m, fused, l->fc2, w->Acc, n, Lt, H, w->Y, 0);
+        PT(PC_FC2, l->fc2);
         if (!rc) rc = lin(m, fused, l->sh_up, w->Hn, n, H, g->moe_shared, w->SM, 2);
         if (!rc) rc = lin(m, fused, l->sh_dn, w->SM, n, g->moe_shared, H, w->Sh, 0);
+        PT(PC_SHARED, l->sh_up);
         if (!rc) for (size_t j = 0; j < (size_t)n * H; j++) w->Y[j] += w->Sh[j];
     }
     if (rc) return rc;
     for (size_t j = 0; j < (size_t)n * H; j++) w->X[j] += w->Y[j];
+    PT(PC_NORM, NULL);
     return 0;
 }
 
@@ -1071,11 +1196,16 @@ static int fwd_chunk(sn_model *m, const fwd_args *a)
         memcpy(m->hist_hn + (size_t)m->n_pos * H, hn, (size_t)n * H * 4);
         for (int t = 0; t < n; t++) m->hist_tok[m->n_pos + t] = (a->erow && a->erow[t] >= 0) ? -1 : a->tok[t];
     }
+    double th_ = m->prof ? pnow() : 0.0;
+    if (m->prof) m->prof->tokens[a->fused != 0] += n;
     if (a->logits_all) {
         if (lin_n(m, m->head, hn, n, a->logits_all, V, H) != 0) { m->state_valid = 0; rc = -1; goto done; }
         if (a->logits_last) memcpy(a->logits_last, a->logits_all + (size_t)(n - 1) * V, (size_t)V * 4);
     } else if (a->logits_last) {
         if (lin_n(m, m->head, hn + (size_t)(n - 1) * H, 1, a->logits_last, V, H) != 0) { m->state_valid = 0; rc = -1; goto done; }
+    }
+    if (m->prof && (a->logits_all || a->logits_last)) {
+        int f = a->fused != 0; m->prof->ms[f][PC_HEAD] += pnow() - th_; m->prof->calls[f][PC_HEAD]++; if (pres(m, m->head)) m->prof->on_card[f][PC_HEAD]++;
     }
     m->n_pos += n;
 done:
@@ -1359,6 +1489,11 @@ int sn_model_spec_verify(sn_model *m, int cur, const int *d, int kmax, int stop_
     if (sn_model_step_n(m, toks, n, m->spec_logits, 1) != 0) return -1;
     int j = 0;
     while (j < kmax && d[j] == argmax_f(m->spec_logits + (size_t)j * V, V)) j++;
+    if (m->prof) {
+        sn_prof *p = m->prof;
+        for (int i = 0; i < kmax && i <= j; i++) { p->pos_tried[i]++; if (i < j) p->pos_ok[i]++; }
+        if (j < kmax && p->nmiss < PROF_MISS) { p->miss_d[p->nmiss] = d[j]; p->miss_a[p->nmiss] = argmax_f(m->spec_logits + (size_t)j * V, V); p->miss_pos[p->nmiss++] = j; }
+    }
     for (int i = 0; i < j; i++) if (d[i] == stop_a || d[i] == stop_b) { j = i + 1; break; }
     int keep = j + 1;
     if (keep < n && sn_model_rollback(m, base, keep, n) != 0) { m->state_valid = 0; return -1; }
@@ -1372,4 +1507,47 @@ void sn_model_spec_stats(const sn_model *m, long *cycles, long *drafted, long *a
     if (cycles) *cycles = m->spec_cycles;
     if (drafted) *drafted = m->spec_drafted;
     if (accepted) *accepted = m->spec_accepted;
+}
+
+void sn_model_prof_report(sn_model *m, FILE *f, void (*tokname)(void *u, int tok, char *buf, int len), void *u)
+{
+    sn_prof *p = prof_get(m);
+    if (!p) return;
+    const char *ph[2] = { "prefill", "decode" };
+    for (int f2 = 1; f2 >= 0; f2--) {
+        double tot = 0; for (int c = 0; c < PC_N; c++) tot += p->ms[f2][c];
+        if (tot <= 0) continue;
+        fprintf(f, "PROF %s: %ld tokens, %.0f ms in the layers and lm_head (%.1f ms per token)\n", ph[f2], p->tokens[f2], tot, p->tokens[f2] ? tot / p->tokens[f2] : 0.0);
+        for (int c = 0; c < PC_N; c++) if (p->calls[f2][c])
+            fprintf(f, "PROF %s %-24s %9.0f ms %5.1f%%  %7.1f ms/token  calls=%ld on_card=%ld\n", ph[f2], pc_name[c], p->ms[f2][c], 100.0 * p->ms[f2][c] / tot,
+                    p->tokens[f2] ? p->ms[f2][c] / p->tokens[f2] : 0.0, p->calls[f2][c], p->on_card[f2][c]);
+    }
+    if (p->xs_layers) {
+        long miss = p->xs_mode[0] + p->xs_mode[1] + p->xs_mode[2] + p->xs_mode[3];
+        fprintf(f, "PROF stream: %ld layer passes; slot hits %ld, misses %ld (from RAM cache %ld, read into the cache %ld, read from the pack %ld)\n",
+                p->xs_layers, p->xs_hit, miss, p->xs_mode[1], p->xs_mode[3], p->xs_mode[0] + p->xs_mode[2]);
+        fprintf(f, "PROF stream time: staging wait %.0f ms | CPU fill of pinned staging %.0f ms | queueing copies and kernels %.0f ms | waiting for the card at layer end %.0f ms\n",
+                p->xs_wait, p->xs_prep, p->xs_issue, p->xs_end);
+    }
+    long a = 0, b = 0, c2 = 0, d = 0, n = 0, np = 0, ne = 0, su = 0;
+    for (int li = 0; li < p->nl; li++) if (p->n_tok[li]) {
+        n += p->n_tok[li]; np += p->n_prev[li]; ne += p->n_early[li]; a += p->ov_prev[li]; b += p->ov_early[li]; c2 += p->ov_hot[li]; d += p->ov_union[li]; su += p->sz_union[li];
+        fprintf(f, "PROF route layer %2d: %ld tokens | same as last token %.1f%% | next-layer router run early %.1f%% | most used so far %.1f%% | both guesses together cover %.1f%% with %.1f experts\n",
+                li, p->n_tok[li], p->n_prev[li] ? 100.0 * p->ov_prev[li] / (p->n_prev[li] * (double)p->K) : 0.0,
+                p->n_early[li] ? 100.0 * p->ov_early[li] / (p->n_early[li] * (double)p->K) : 0.0, 100.0 * p->ov_hot[li] / (p->n_tok[li] * (double)p->K),
+                p->n_early[li] ? 100.0 * p->ov_union[li] / (p->n_early[li] * (double)p->K) : 0.0, p->n_early[li] ? (double)p->sz_union[li] / p->n_early[li] : 0.0);
+    }
+    if (n) fprintf(f, "PROF route all layers: same as last token %.1f%% | next-layer router run early %.1f%% | most used so far %.1f%% | both guesses %.1f%% with %.1f experts (of %d picked)\n",
+                   np ? 100.0 * a / (np * (double)p->K) : 0.0, ne ? 100.0 * b / (ne * (double)p->K) : 0.0, 100.0 * c2 / (n * (double)p->K),
+                   ne ? 100.0 * d / (ne * (double)p->K) : 0.0, ne ? (double)su / ne : 0.0, p->K);
+    if (p->pos_tried[0]) {
+        fprintf(f, "PROF spec by draft position:");
+        for (int i = 0; i < SN_NV && p->pos_tried[i]; i++) fprintf(f, " %d: %ld/%ld (%.0f%%)", i + 1, p->pos_ok[i], p->pos_tried[i], 100.0 * p->pos_ok[i] / p->pos_tried[i]);
+        fprintf(f, "\n");
+        for (int i = 0; i < p->nmiss; i++) {
+            char bd[64] = "", ba[64] = "";
+            if (tokname) { tokname(u, p->miss_d[i], bd, sizeof bd); tokname(u, p->miss_a[i], ba, sizeof ba); }
+            fprintf(f, "PROF spec miss at position %d: drafted %d \"%s\", model wanted %d \"%s\"\n", p->miss_pos[i] + 1, p->miss_d[i], bd, p->miss_a[i], ba);
+        }
+    }
 }

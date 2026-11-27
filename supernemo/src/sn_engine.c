@@ -106,6 +106,17 @@ typedef struct {
     float *logits;
 } engine;
 
+/* SN_PROF: token text for the MTP miss lines (control characters shown as spaces) */
+static void prof_tokname(void *u, int tok, char *buf, int len)
+{
+    char *piece = nemo_tokenizer_decode((nemo_tokenizer *)u, &tok, 1, 0);
+    buf[0] = 0;
+    if (!piece) return;
+    snprintf(buf, (size_t)len, "%s", piece);
+    for (char *q = buf; *q; q++) if ((unsigned char)*q < 32 || *q == '"') *q = ' ';
+    free(piece);
+}
+
 static void on_layer_cb(void *u, int layer, char t)
 {
     (void)u;
@@ -311,6 +322,7 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
                               xi.on, xi.slots, (unsigned long long)xi.hits, (unsigned long long)xi.loads, xi.bytes_up / 1048576.0,
                               (unsigned long long)xi.experts_dtc, (unsigned long long)xi.experts_gemm, (unsigned long long)xi.dense_gemm);
     }
+    if (getenv("SN_PROF")) sn_model_prof_report(e->m, stderr, prof_tokname, e->tk);
     printf("MEM peak_mb=%.1f\n", peak_kb() / 1024.0);
     e->turns++;
     printf("DONE\n");
@@ -461,7 +473,7 @@ int main(int argc, char **argv)
     sn_model_set_dtc(e.m, dtc);
     if (cache_mb > 0 || gpu_cache_mb > 0) {
         char cwhy[400] = "";
-        if (sn_model_cache(e.m, cache_mb << 20, gpu_cache_mb << 20, cwhy, sizeof cwhy) != 0) fprintf(stderr, "sn-engine: expert cache: %s\n", cwhy);
+        if (sn_model_cache(e.m, (long long)cache_mb << 20, (long long)gpu_cache_mb << 20, cwhy, sizeof cwhy) != 0) fprintf(stderr, "sn-engine: expert cache: %s\n", cwhy);
         else {
             sn_cache_stats cs; sn_model_cache_stats(e.m, &cs);
             fprintf(stderr, "sn-engine: expert cache on: RAM %ld MB%s%s\n", cache_mb, gpu_cache_mb ? ", VRAM tier " : "", gpu_cache_mb && cwhy[0] ? cwhy : gpu_cache_mb ? "requested" : "");

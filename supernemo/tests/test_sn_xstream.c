@@ -100,7 +100,7 @@ static void kernels(const char *pfx, const char *shp, long dense_mb, int n_exper
     printf("experts: %d layer(s) found, up %d x %d, down %d x %d\n", nel, I, Lt, Lt, I);
     if (!sn_dtc_pays(&pk, I, Lt, 1, 1) || !sn_dtc_pays(&pk, Lt, I, 1, 1)) printf("note: DTC does not pay on these shapes; the engine would keep the stream off\n");
     char why[600];
-    sn_cuda *c = sn_cuda_open(dense_mb << 20, pk.n, why, sizeof why);
+    sn_cuda *c = sn_cuda_open((long long)dense_mb << 20, pk.n, why, sizeof why);
     if (!c) { printf("no CUDA lane: %s\n", why); fails++; return; }
     printf("GPU: %s\n", sn_cuda_name(c));
     /* dense tensors first (they take their budget), then the stream sizes itself on what is left */

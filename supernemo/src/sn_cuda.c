@@ -469,6 +469,7 @@ typedef struct xs_lane {
     CUdeviceptr dLat, dPL, dEO, dU, dPmid, dT, dW, dTok, dOidx, dX, dY;
     size_t dT_n, dW_n, dX_n, dY_n;   /* floats */
     uint64_t tick; uint32_t pin;
+    uint32_t *key_cnt; uint64_t uses, age_every; int policy;   /* policy 1: keep hot experts (use counts, halved now and then) */
     int nph[2], ng[2];
     sn_xs_info info;
 } xs_lane;
@@ -489,7 +490,7 @@ static void xs_free(sn_cuda *c)
     if (x->stage) c->cuMemFreeHost(x->stage);
     if (x->s_copy) c->cuStreamDestroy(x->s_copy);
     if (x->s_comp) c->cuStreamDestroy(x->s_comp);
-    free(x->slot_key); free(x->slot_tick); free(x->slot_pin); free(x->key_slot);
+    free(x->slot_key); free(x->slot_tick); free(x->slot_pin); free(x->key_slot); free(x->key_cnt);
     free(x->ev_ready); free(x->ev_free); free(x->ev_staged);
     free(x); c->xs = NULL;
 }
@@ -612,6 +613,14 @@ int sn_cuda_xs_open(sn_cuda *c, const sn_pack *p, const sn_xs_geom *g, char *why
     for (int i = 0; i < x->nstage; i++) if (c->cuEventCreate(&x->ev_staged[i], 2) != 0) bad = 1;
     if (bad || c->cuStreamCreate(&x->s_copy, 0) != 0 || c->cuStreamCreate(&x->s_comp, 0) != 0) { snprintf(why, (size_t)whylen, "cannot create CUDA streams or events"); xs_free(c); return -1; }
     x->pin = 1;
+    {   /* slot policy: least recently used (default); SN_XS_POLICY=hot keeps the experts used most often in their slots
+         * (measured on the real pack: more slot hits, no clear speed change at about 100 slots; results identical) */
+        const char *pol = getenv("SN_XS_POLICY");
+        x->policy = (pol && !strcmp(pol, "hot")) ? 1 : 0;
+        x->key_cnt = (uint32_t *)calloc((size_t)g->nkeys, 4);
+        if (!x->key_cnt) { snprintf(why, (size_t)whylen, "out of memory"); xs_free(c); return -1; }
+        x->age_every = (uint64_t)x->nslots * 64u;
+    }
     x->info.on = 1; x->info.slots = x->nslots; x->info.stage = x->nstage; x->info.slot_bytes = (long long)x->slot_bytes;
     x->info.vram_bytes = (long long)x->nslots * (long long)x->slot_bytes; x->info.work_bytes = work;
     x->info.pinned_bytes = (long long)x->nstage * (long long)x->slot_bytes;
@@ -643,11 +652,19 @@ int sn_cuda_xs_stage_wait(sn_cuda *c, int j0, int n)
 
 void sn_cuda_xs_chunk_begin(sn_cuda *c) { c->xs->pin++; }
 
+/* use counts: one per lookup; every age_every lookups all counts halve, so experts that were hot long ago can leave */
+static void xs_count(xs_lane *x, int key)
+{
+    if (x->key_cnt[key] < 0xffffffffu) x->key_cnt[key]++;
+    if (++x->uses % x->age_every == 0) for (int k = 0; k < x->nkeys; k++) x->key_cnt[k] >>= 1;
+}
+
 int sn_cuda_xs_find(sn_cuda *c, int key)
 {
     xs_lane *x = c->xs;
     if (key < 0 || key >= x->nkeys) return -1;
     int s = x->key_slot[key];
+    xs_count(x, key);
     if (s < 0) return -1;
     x->slot_tick[s] = ++x->tick; x->slot_pin[s] = x->pin;
     x->info.hits++;
@@ -662,7 +679,11 @@ int sn_cuda_xs_claim(sn_cuda *c, int key)
     for (int s = 0; s < x->nslots; s++) {
         if (x->slot_pin[s] == x->pin) continue;          /* staged in this chunk: its kernels are not queued yet */
         if (x->slot_key[s] < 0) { v = s; break; }
-        if (v < 0 || x->slot_tick[s] < x->slot_tick[v]) v = s;
+        if (v < 0) { v = s; continue; }
+        if (x->policy) {          /* fewest uses goes first; among equals the least recently used */
+            uint32_t cs = x->key_cnt[x->slot_key[s]], cv = x->key_cnt[x->slot_key[v]];
+            if (cs < cv || (cs == cv && x->slot_tick[s] < x->slot_tick[v])) v = s;
+        } else if (x->slot_tick[s] < x->slot_tick[v]) v = s;
     }
     if (v < 0) return -1;
     if (x->slot_key[v] >= 0) x->key_slot[x->slot_key[v]] = -1;

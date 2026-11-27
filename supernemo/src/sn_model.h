@@ -16,6 +16,7 @@
 #define SN_MODEL_H
 
 #include <stdint.h>
+#include <stdio.h>
 #include "sn_pack.h"
 #include "sn_pqk.h"
 #include "sn_cuda.h"
@@ -96,6 +97,9 @@ int sn_model_spec_cycle(sn_model *m, int cur, int kmax, int stop_a, int stop_b, 
 int sn_model_spec_verify(sn_model *m, int cur, const int *d, int kmax, int stop_a, int stop_b, int *acc, float *logits_out);
 void sn_model_set_probe(sn_model *m, float *buf);   /* tests: the last token's hidden after each layer lands in buf[layer * hidden] */
 void sn_model_spec_stats(const sn_model *m, long *cycles, long *drafted, long *accepted);
+/* Optional profile, on when the environment has SN_PROF=1 (measurement only, results unchanged): time per kind of work,
+ * router predictability per MoE layer, GPU expert stream stage times, MTP draft hits by position. tokname may be NULL. */
+void sn_model_prof_report(sn_model *m, FILE *f, void (*tokname)(void *u, int tok, char *buf, int len), void *u);
 /* Hot-expert cache (see sn_model.c). ram_bytes / vram_bytes of the most-used experts stay resident; 0 = off. The VRAM tier
  * needs the CUDA lane (sn_model_cuda first) and DTC. why gets a reason when a tier is left off. Returns 0, or -1 on failure. */
 typedef struct {
