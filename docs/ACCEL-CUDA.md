@@ -79,6 +79,8 @@ The predict rules (`nemo_predict.c`) make two decisions, and every decision goes
 | step | redo one step at full precision if the DTC logits' top-1 margin is below 0.5 | `--dtc-margin X` |
 | step | redo one step at full precision if the softmax entropy is above 4.0 nats | `--dtc-entropy X` |
 
+**The two step thresholds are uncalibrated heuristics.** The margin of 0.5 and the entropy of 4.0 nats were picked by hand on the one pack this guide measures and its ten-question quiz. They are not derived per pack, and nothing shows they suit another pack, another bit width or longer answers. The same holds for the turn-level numbers (96 prompt tokens, complexity 6). Per-pack calibration of these thresholds is on the [roadmap](ROADMAP.md#engines-and-lanes); until then, treat the defaults as starting points to tune through `dtc_margin` and `dtc_entropy` in `[cuda]`.
+
 All ten quiz prompts classified as short-factual (13 to 17 tokens, complexity 1), so they ran in DTC at the turn level, and only the step rule fired. On the capitals, 7 times 8 and the planet question the whole answer line ran in DTC and expansions fired only in the rambling after it. On questions 2 and 4 the True/False token itself had a low margin and was expanded, and full expansion gave the same answer. The GUI counts the lines as "Expansions this session" and "DTC ops this session".
 
 ## Flags
@@ -91,8 +93,8 @@ The CUDA engines accept every `engine_gui` flag ([LITTLE-NEMO-ENGINE.md](LITTLE-
 | `--accel auto\|cuda\|cpu` | override the calibrated choice; the cache is still read and written for the record; anything else is a startup error | `auto` |
 | `--recalibrate` | ignore the cache and re-run the tests | off |
 | `--expand auto\|never\|always` | `auto`: the rules above; `never`: DTC only; `always`: full expansion | `auto` |
-| `--dtc-margin X` | step: top-1 margin below this expands | 0.5 |
-| `--dtc-entropy X` | step: entropy (nats) above this expands | 4.0 |
+| `--dtc-margin X` | step: top-1 margin below this expands | 0.5 (uncalibrated heuristic) |
+| `--dtc-entropy X` | step: entropy (nats) above this expands | 4.0 (uncalibrated heuristic) |
 | `--dtc-prompt-tokens N` | turn: a prompt longer than this expands | 96 |
 | `--dtc-complexity N` | turn: a complexity score at or above this expands | 6 |
 | `--dtc-longform 0\|1` | turn: long-form keywords and `/think` expand | 1 |
