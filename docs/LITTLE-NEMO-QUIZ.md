@@ -66,3 +66,7 @@ The published pack score is 7 of 10 under the default auto expand policy.
 This checks the ten exact prompts, the first-line rules, and that the
 published pack first lines still score 7 of 10 (7 pass, 2 hedge, 1 fail)
 while clean expected answers score 10 of 10.
+
+## The larger verifiable round
+
+A 50-question set with gold answers and aliases (`questions50.json`), a 10-essay fact rubric (`essays.json`, graded by `grade_essay.py`) and a profiling runner (`run_round.py`) live beside this quiz. The 2026-11-27 results on the CUDA pack are in [LITTLE-NEMO-ROUND-2026-11-27.md](LITTLE-NEMO-ROUND-2026-11-27.md). `test_round_grade.py` checks the set and the rubric without a model.

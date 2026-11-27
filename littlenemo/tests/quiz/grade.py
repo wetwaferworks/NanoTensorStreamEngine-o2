@@ -53,15 +53,16 @@ def first_answer_line(text: str) -> str:
     return ""
 
 
-def _word_re(word: str) -> re.Pattern:
-    return re.compile(r"(?<![A-Za-z0-9])" + re.escape(word) + r"(?![A-Za-z0-9])", re.I)
+def _word_re(word: str, case_sensitive: bool = False) -> re.Pattern:
+    flags = 0 if case_sensitive else re.I
+    return re.compile(r"(?<![A-Za-z0-9])" + re.escape(word) + r"(?![A-Za-z0-9])", flags)
 
 
-def _first_match_pos(line: str, words) -> tuple[int, str] | tuple[None, None]:
+def _first_match_pos(line: str, words, case_sensitive: bool = False) -> tuple[int, str] | tuple[None, None]:
     best_pos = None
     best_word = None
     for w in words:
-        m = _word_re(w).search(line)
+        m = _word_re(w, case_sensitive).search(line)
         if m and (best_pos is None or m.start() < best_pos):
             best_pos = m.start()
             best_word = w
@@ -96,8 +97,13 @@ def grade_question(q: dict[str, Any], text: str) -> dict[str, Any]:
             result["grade"] = "hedge"
         return result
 
-    pos_ok, _ = _first_match_pos(line, [expect])
-    pos_bad, bad = _first_match_pos(line, wrong)
+    # accept lists other spellings of the same gold answer ("1,024",
+    # "seven"); case_sensitive keeps element symbols like "He" from
+    # matching ordinary words.
+    cs = bool(q.get("case_sensitive", False))
+    golds = [expect] + [str(a) for a in q.get("accept", [])]
+    pos_ok, _ = _first_match_pos(line, golds, cs)
+    pos_bad, bad = _first_match_pos(line, wrong, cs)
     if pos_ok is None:
         return result
     if pos_bad is not None and (pos_ok is None or pos_bad < pos_ok):

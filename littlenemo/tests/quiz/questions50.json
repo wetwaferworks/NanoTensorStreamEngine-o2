@@ -1,0 +1,515 @@
+{
+  "name": "Little Nemo 50-question verifiable quiz",
+  "created": "2026-11-27",
+  "notes": "Fifty single-answer facts with one gold answer each, plus accepted spellings in accept and common wrong answers in wrong. Graded by the first non-empty answer line with grade.py (case_sensitive is used for element symbols so 'He' is not the pronoun). Same conditions as the 10-question record: greedy, chat template on, thinking off, RESET between questions. No model or pack path is stored here.",
+  "conditions": {
+    "decoding": "greedy",
+    "chat_template": true,
+    "thinking": false,
+    "max_new": 16,
+    "fresh_conversation_per_question": true,
+    "grade": "first_answer_line"
+  },
+  "questions": [
+    {
+      "id": 1,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 12 times 12? Answer with just the answer.",
+      "expect": "144"
+    },
+    {
+      "id": 2,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 15 plus 27? Answer with just the answer.",
+      "expect": "42"
+    },
+    {
+      "id": 3,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 100 minus 37? Answer with just the answer.",
+      "expect": "63"
+    },
+    {
+      "id": 4,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 72 divided by 8? Answer with just the answer.",
+      "expect": "9",
+      "accept": [
+        "nine"
+      ]
+    },
+    {
+      "id": 5,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is the square root of 144? Answer with just the answer.",
+      "expect": "12",
+      "accept": [
+        "twelve"
+      ]
+    },
+    {
+      "id": 6,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 2 to the power of 10? Answer with just the answer.",
+      "expect": "1024",
+      "accept": [
+        "1,024"
+      ]
+    },
+    {
+      "id": 7,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 25 percent of 200? Answer with just the answer.",
+      "expect": "50",
+      "accept": [
+        "fifty"
+      ]
+    },
+    {
+      "id": 8,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 13 times 3? Answer with just the answer.",
+      "expect": "39"
+    },
+    {
+      "id": 9,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 1000 divided by 8? Answer with just the answer.",
+      "expect": "125"
+    },
+    {
+      "id": 10,
+      "category": "math",
+      "kind": "short-answer",
+      "prompt": "What is 3 cubed? Answer with just the answer.",
+      "expect": "27"
+    },
+    {
+      "id": 11,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of France? Answer with just the answer.",
+      "expect": "Paris"
+    },
+    {
+      "id": 12,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Japan? Answer with just the answer.",
+      "expect": "Tokyo"
+    },
+    {
+      "id": 13,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Italy? Answer with just the answer.",
+      "expect": "Rome"
+    },
+    {
+      "id": 14,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Canada? Answer with just the answer.",
+      "expect": "Ottawa",
+      "wrong": [
+        "Toronto",
+        "Montreal",
+        "Vancouver"
+      ]
+    },
+    {
+      "id": 15,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Australia? Answer with just the answer.",
+      "expect": "Canberra",
+      "wrong": [
+        "Sydney",
+        "Melbourne"
+      ]
+    },
+    {
+      "id": 16,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Germany? Answer with just the answer.",
+      "expect": "Berlin",
+      "wrong": [
+        "Bonn",
+        "Munich"
+      ]
+    },
+    {
+      "id": 17,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Egypt? Answer with just the answer.",
+      "expect": "Cairo",
+      "wrong": [
+        "Alexandria"
+      ]
+    },
+    {
+      "id": 18,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Spain? Answer with just the answer.",
+      "expect": "Madrid",
+      "wrong": [
+        "Barcelona"
+      ]
+    },
+    {
+      "id": 19,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Kenya? Answer with just the answer.",
+      "expect": "Nairobi",
+      "wrong": [
+        "Mombasa"
+      ]
+    },
+    {
+      "id": 20,
+      "category": "capital",
+      "kind": "short-answer",
+      "prompt": "What is the capital of Brazil? Answer with just the answer.",
+      "expect": "Brasilia",
+      "accept": [
+        "Brasília"
+      ],
+      "wrong": [
+        "Rio de Janeiro",
+        "Sao Paulo",
+        "São Paulo"
+      ]
+    },
+    {
+      "id": 21,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+      "expect": "Au",
+      "wrong": [
+        "Ag",
+        "Go"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 22,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for silver? Answer with just the answer.",
+      "expect": "Ag",
+      "wrong": [
+        "Au",
+        "Si",
+        "Sv"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 23,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for iron? Answer with just the answer.",
+      "expect": "Fe",
+      "wrong": [
+        "Ir"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 24,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for sodium? Answer with just the answer.",
+      "expect": "Na",
+      "wrong": [
+        "So",
+        "S",
+        "Sd"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 25,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for potassium? Answer with just the answer.",
+      "expect": "K",
+      "wrong": [
+        "P",
+        "Po",
+        "Pt"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 26,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for oxygen? Answer with just the answer.",
+      "expect": "O",
+      "wrong": [
+        "Ox",
+        "Os"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 27,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for lead? Answer with just the answer.",
+      "expect": "Pb",
+      "wrong": [
+        "Le",
+        "Ld",
+        "L"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 28,
+      "category": "chem-symbol",
+      "kind": "short-answer",
+      "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+      "expect": "He",
+      "wrong": [
+        "H",
+        "Hl",
+        "Hm"
+      ],
+      "case_sensitive": true
+    },
+    {
+      "id": 29,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did humans first land on the Moon? Answer with just the answer.",
+      "expect": "1969"
+    },
+    {
+      "id": 30,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did World War II end? Answer with just the answer.",
+      "expect": "1945"
+    },
+    {
+      "id": 31,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+      "expect": "1776"
+    },
+    {
+      "id": 32,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did the Berlin Wall fall? Answer with just the answer.",
+      "expect": "1989"
+    },
+    {
+      "id": 33,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did Christopher Columbus first reach the Americas? Answer with just the answer.",
+      "expect": "1492"
+    },
+    {
+      "id": 34,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did the Titanic sink? Answer with just the answer.",
+      "expect": "1912"
+    },
+    {
+      "id": 35,
+      "category": "date",
+      "kind": "short-answer",
+      "prompt": "In what year did World War I begin? Answer with just the answer.",
+      "expect": "1914"
+    },
+    {
+      "id": 36,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many centimeters are in one meter? Answer with just the answer.",
+      "expect": "100",
+      "accept": [
+        "one hundred"
+      ]
+    },
+    {
+      "id": 37,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+      "expect": "1000",
+      "accept": [
+        "1,000",
+        "one thousand"
+      ]
+    },
+    {
+      "id": 38,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many seconds are in one hour? Answer with just the answer.",
+      "expect": "3600",
+      "accept": [
+        "3,600"
+      ]
+    },
+    {
+      "id": 39,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many inches are in one foot? Answer with just the answer.",
+      "expect": "12",
+      "accept": [
+        "twelve"
+      ]
+    },
+    {
+      "id": 40,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many feet are in one yard? Answer with just the answer.",
+      "expect": "3",
+      "accept": [
+        "three"
+      ]
+    },
+    {
+      "id": 41,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many days are in a leap year? Answer with just the answer.",
+      "expect": "366",
+      "wrong": [
+        "365"
+      ]
+    },
+    {
+      "id": 42,
+      "category": "units",
+      "kind": "short-answer",
+      "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+      "expect": "1000",
+      "accept": [
+        "1,000",
+        "one thousand"
+      ]
+    },
+    {
+      "id": 43,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "At sea level, at how many degrees Celsius does water boil? Answer with just the answer.",
+      "expect": "100",
+      "accept": [
+        "one hundred"
+      ],
+      "wrong": [
+        "212"
+      ]
+    },
+    {
+      "id": 44,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+      "expect": "Jupiter",
+      "wrong": [
+        "Earth",
+        "Saturn",
+        "Neptune",
+        "Uranus"
+      ]
+    },
+    {
+      "id": 45,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+      "expect": "Mercury",
+      "wrong": [
+        "Venus",
+        "Earth",
+        "Mars"
+      ]
+    },
+    {
+      "id": 46,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "What is the chemical formula for water? Answer with just the answer.",
+      "expect": "H2O",
+      "accept": [
+        "H₂O"
+      ],
+      "wrong": [
+        "HO2",
+        "H2O2",
+        "CO2"
+      ]
+    },
+    {
+      "id": 47,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "How many continents are there on Earth? Answer with just the answer.",
+      "expect": "7",
+      "accept": [
+        "seven"
+      ]
+    },
+    {
+      "id": 48,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "How many legs does an insect have? Answer with just the answer.",
+      "expect": "6",
+      "accept": [
+        "six"
+      ],
+      "wrong": [
+        "8",
+        "eight"
+      ]
+    },
+    {
+      "id": 49,
+      "category": "science",
+      "kind": "short-answer",
+      "prompt": "What is the hardest natural substance? Answer with just the answer.",
+      "expect": "diamond",
+      "accept": [
+        "diamonds"
+      ]
+    },
+    {
+      "id": 50,
+      "category": "general",
+      "kind": "short-answer",
+      "prompt": "Who wrote the play Romeo and Juliet? Answer with just the answer.",
+      "expect": "Shakespeare",
+      "accept": [
+        "William Shakespeare"
+      ]
+    }
+  ]
+}

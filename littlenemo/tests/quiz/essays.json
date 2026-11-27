@@ -1,0 +1,653 @@
+{
+  "name": "Little Nemo 10-essay fact rubric",
+  "created": "2026-11-27",
+  "notes": "Each essay is graded automatically by grade_essay.py: a required fact counts as present when any of its case-insensitive regular expressions matches the essay text; a forbidden claim counts when any of its patterns matches. Score = required facts present / required facts. An essay passes at 70 percent or more of its required facts and no forbidden claim. The full essay text is kept in the run output for a human read.",
+  "pass_fraction": 0.7,
+  "conditions": {
+    "decoding": "greedy",
+    "chat_template": true,
+    "thinking": false,
+    "max_new": 320,
+    "fresh_conversation_per_question": true
+  },
+  "essays": [
+    {
+      "id": 1,
+      "topic": "photosynthesis",
+      "prompt": "Write a short factual essay of about 150 words. Explain how photosynthesis works in plants.",
+      "required": [
+        {
+          "fact": "uses light energy",
+          "any": [
+            "\\b(sun)?light\\b",
+            "\\bsunlight\\b",
+            "light energy"
+          ]
+        },
+        {
+          "fact": "takes in carbon dioxide",
+          "any": [
+            "carbon dioxide",
+            "\\bCO2\\b",
+            "CO₂"
+          ]
+        },
+        {
+          "fact": "uses water",
+          "any": [
+            "\\bwater\\b",
+            "\\bH2O\\b"
+          ]
+        },
+        {
+          "fact": "makes glucose or sugar",
+          "any": [
+            "glucose",
+            "\\bsugars?\\b",
+            "carbohydrate"
+          ]
+        },
+        {
+          "fact": "releases oxygen",
+          "any": [
+            "oxygen",
+            "\\bO2\\b"
+          ]
+        },
+        {
+          "fact": "chlorophyll absorbs the light",
+          "any": [
+            "chlorophyll"
+          ]
+        },
+        {
+          "fact": "happens in chloroplasts",
+          "any": [
+            "chloroplasts?"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "photosynthesis happens in the mitochondria",
+          "any": [
+            "photosynthesis\\s+(occurs|takes place|happens)\\s+in\\s+the\\s+mitochondri"
+          ]
+        },
+        {
+          "claim": "plants take in oxygen and give off carbon dioxide during photosynthesis",
+          "any": [
+            "(absorb|take in|takes in|absorbs)\\s+oxygen\\s+and\\s+(release|give off|releases|gives off)\\s+carbon dioxide"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "topic": "water cycle",
+      "prompt": "Write a short factual essay of about 150 words. Explain the water cycle.",
+      "required": [
+        {
+          "fact": "evaporation",
+          "any": [
+            "evaporat"
+          ]
+        },
+        {
+          "fact": "condensation",
+          "any": [
+            "condens"
+          ]
+        },
+        {
+          "fact": "precipitation (rain or snow)",
+          "any": [
+            "precipitat"
+          ]
+        },
+        {
+          "fact": "collection, runoff or infiltration",
+          "any": [
+            "collection",
+            "run-?off",
+            "infiltrat",
+            "groundwater",
+            "accumulat"
+          ]
+        },
+        {
+          "fact": "driven by the Sun's heat",
+          "any": [
+            "\\bsun\\b",
+            "solar"
+          ]
+        },
+        {
+          "fact": "clouds form",
+          "any": [
+            "clouds?"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "condensation turns liquid water into vapor",
+          "any": [
+            "condensation\\s+(turns|changes|converts)\\s+(liquid\\s+)?water\\s+into\\s+(water\\s+)?vapou?r"
+          ]
+        },
+        {
+          "claim": "evaporation turns vapor into liquid",
+          "any": [
+            "evaporation\\s+(turns|changes|converts)\\s+(water\\s+)?vapou?r\\s+into\\s+(liquid|water)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "topic": "seasons",
+      "prompt": "Write a short factual essay of about 150 words. Explain what causes the seasons on Earth.",
+      "required": [
+        {
+          "fact": "Earth's axis is tilted",
+          "any": [
+            "\\btilt",
+            "\\baxis\\b",
+            "axial"
+          ]
+        },
+        {
+          "fact": "tilt is about 23.5 degrees",
+          "any": [
+            "23\\.?[0-9]?\\s*(degrees|°)"
+          ]
+        },
+        {
+          "fact": "Earth orbits the Sun",
+          "any": [
+            "orbit",
+            "revolv",
+            "around the sun"
+          ]
+        },
+        {
+          "fact": "sunlight angle or directness changes",
+          "any": [
+            "\\bangle\\b",
+            "direct(ly)?\\s+(sun)?light",
+            "more direct",
+            "less direct",
+            "daylight hours",
+            "longer days"
+          ]
+        },
+        {
+          "fact": "hemispheres have opposite seasons",
+          "any": [
+            "hemispheres?"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "seasons are caused by distance from the Sun",
+          "any": [
+            "(seasons|summer|winter)\\s+(are|is)\\s+caused\\s+by\\s+(the\\s+)?(changing\\s+)?distance",
+            "closer\\s+to\\s+the\\s+sun\\s+(in|during)\\s+(the\\s+)?summer",
+            "farther\\s+from\\s+the\\s+sun\\s+(in|during)\\s+(the\\s+)?winter"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "topic": "human heart",
+      "prompt": "Write a short factual essay of about 150 words. Explain how the human heart works.",
+      "required": [
+        {
+          "fact": "four chambers",
+          "any": [
+            "four\\s+chambers?",
+            "4\\s+chambers?",
+            "four-chambered"
+          ]
+        },
+        {
+          "fact": "atria",
+          "any": [
+            "atri(a|um)"
+          ]
+        },
+        {
+          "fact": "ventricles",
+          "any": [
+            "ventricles?"
+          ]
+        },
+        {
+          "fact": "pumps blood to the lungs for oxygen",
+          "any": [
+            "\\blungs?\\b"
+          ]
+        },
+        {
+          "fact": "oxygen",
+          "any": [
+            "oxygen"
+          ]
+        },
+        {
+          "fact": "valves",
+          "any": [
+            "valves?"
+          ]
+        },
+        {
+          "fact": "arteries or veins or aorta",
+          "any": [
+            "arter(y|ies)",
+            "\\bveins?\\b",
+            "aorta"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "the heart has three chambers",
+          "any": [
+            "(three|3)\\s+chambers"
+          ]
+        },
+        {
+          "claim": "blood is blue",
+          "any": [
+            "blood\\s+is\\s+blue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "topic": "world war ii",
+      "prompt": "Write a short factual essay of about 150 words. Summarize the main facts about World War II.",
+      "required": [
+        {
+          "fact": "began in 1939",
+          "any": [
+            "1939"
+          ]
+        },
+        {
+          "fact": "ended in 1945",
+          "any": [
+            "1945"
+          ]
+        },
+        {
+          "fact": "Germany invaded Poland",
+          "any": [
+            "poland"
+          ]
+        },
+        {
+          "fact": "Pearl Harbor attack",
+          "any": [
+            "pearl\\s+harbou?r"
+          ]
+        },
+        {
+          "fact": "Allies",
+          "any": [
+            "\\ballie[sd]\\b"
+          ]
+        },
+        {
+          "fact": "Axis",
+          "any": [
+            "\\baxis\\b"
+          ]
+        },
+        {
+          "fact": "Hitler or Nazi Germany",
+          "any": [
+            "hitler",
+            "\\bnazi"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "ended in 1918",
+          "any": [
+            "(war\\s+ii|second world war|wwii)[^.]*ended\\s+in\\s+1918"
+          ]
+        },
+        {
+          "claim": "began in 1914",
+          "any": [
+            "(war\\s+ii|second world war|wwii)[^.]*(began|started)\\s+in\\s+1914"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "topic": "declaration of independence",
+      "prompt": "Write a short factual essay of about 150 words. Explain the history of the United States Declaration of Independence.",
+      "required": [
+        {
+          "fact": "1776",
+          "any": [
+            "1776"
+          ]
+        },
+        {
+          "fact": "July 4",
+          "any": [
+            "july\\s+4",
+            "4th of july",
+            "fourth of july"
+          ]
+        },
+        {
+          "fact": "Thomas Jefferson drafted it",
+          "any": [
+            "jefferson"
+          ]
+        },
+        {
+          "fact": "Continental Congress",
+          "any": [
+            "continental\\s+congress"
+          ]
+        },
+        {
+          "fact": "independence from Great Britain",
+          "any": [
+            "britain",
+            "british",
+            "england",
+            "king george"
+          ]
+        },
+        {
+          "fact": "Philadelphia",
+          "any": [
+            "philadelphia"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "George Washington wrote it",
+          "any": [
+            "(george\\s+)?washington\\s+(wrote|drafted|authored)"
+          ]
+        },
+        {
+          "claim": "adopted in 1789 or 1787",
+          "any": [
+            "(adopted|signed)\\s+in\\s+(1787|1789)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "topic": "dna",
+      "prompt": "Write a short factual essay of about 150 words. Explain the structure of DNA.",
+      "required": [
+        {
+          "fact": "double helix",
+          "any": [
+            "double\\s+helix"
+          ]
+        },
+        {
+          "fact": "nucleotides",
+          "any": [
+            "nucleotides?"
+          ]
+        },
+        {
+          "fact": "adenine",
+          "any": [
+            "adenine"
+          ]
+        },
+        {
+          "fact": "thymine",
+          "any": [
+            "thymine"
+          ]
+        },
+        {
+          "fact": "guanine",
+          "any": [
+            "guanine"
+          ]
+        },
+        {
+          "fact": "cytosine",
+          "any": [
+            "cytosine"
+          ]
+        },
+        {
+          "fact": "A pairs with T and G with C",
+          "any": [
+            "adenine\\s*\\(?a?\\)?\\s*(pairs|bonds)\\s+with\\s+thymine",
+            "\\bA\\s*(-|–|with|and)\\s*T\\b",
+            "\\bA-T\\b",
+            "thymine\\s*\\(?t?\\)?\\s*(pairs|bonds)\\s+with\\s+adenine"
+          ]
+        },
+        {
+          "fact": "sugar-phosphate backbone",
+          "any": [
+            "phosphate",
+            "deoxyribose",
+            "backbone"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "adenine pairs with cytosine or guanine",
+          "any": [
+            "adenine\\s*(\\([A-Z]\\))?\\s*(pairs|bonds)\\s+with\\s+(cytosine|guanine)"
+          ]
+        },
+        {
+          "claim": "triple helix",
+          "any": [
+            "triple\\s+helix"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "topic": "solar system",
+      "prompt": "Write a short factual essay of about 150 words. Describe our solar system.",
+      "required": [
+        {
+          "fact": "eight planets",
+          "any": [
+            "eight\\s+planets",
+            "8\\s+planets"
+          ]
+        },
+        {
+          "fact": "the Sun is a star",
+          "any": [
+            "sun\\s+is\\s+a\\s+star",
+            "star\\s+(called|known as)\\s+the\\s+sun",
+            "\\bstar\\b"
+          ]
+        },
+        {
+          "fact": "Mercury is closest to the Sun",
+          "any": [
+            "mercury"
+          ]
+        },
+        {
+          "fact": "Jupiter is the largest planet",
+          "any": [
+            "jupiter"
+          ]
+        },
+        {
+          "fact": "gravity holds it together",
+          "any": [
+            "gravit"
+          ]
+        },
+        {
+          "fact": "Earth is one of the planets",
+          "any": [
+            "earth"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "nine planets",
+          "any": [
+            "(nine|9)\\s+planets"
+          ]
+        },
+        {
+          "claim": "largest planet is not Jupiter",
+          "any": [
+            "largest\\s+planet\\s+is\\s+(earth|saturn|neptune|uranus|mars)"
+          ]
+        },
+        {
+          "claim": "Pluto is a planet (not dwarf)",
+          "any": [
+            "pluto\\s+is\\s+(the\\s+ninth\\s+|a\\s+)planet"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "topic": "vaccines",
+      "prompt": "Write a short factual essay of about 150 words. Explain how vaccines work.",
+      "required": [
+        {
+          "fact": "immune system",
+          "any": [
+            "immune\\s+system",
+            "immunity"
+          ]
+        },
+        {
+          "fact": "antigen or weakened, inactivated or piece of a pathogen",
+          "any": [
+            "antigens?",
+            "weakened",
+            "inactivated",
+            "killed",
+            "harmless\\s+(piece|part|version|form)",
+            "mrna"
+          ]
+        },
+        {
+          "fact": "antibodies",
+          "any": [
+            "antibod(y|ies)"
+          ]
+        },
+        {
+          "fact": "memory cells",
+          "any": [
+            "memory\\s+(b\\s+|t\\s+)?cells?",
+            "remember"
+          ]
+        },
+        {
+          "fact": "prevents disease",
+          "any": [
+            "prevent",
+            "protect"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "vaccines cause autism",
+          "any": [
+            "vaccines?\\s+(cause|causes)\\s+autism"
+          ]
+        },
+        {
+          "claim": "vaccines are antibiotics",
+          "any": [
+            "vaccines?\\s+(are|is)\\s+(an\\s+)?antibiotics?"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "topic": "newton's laws",
+      "prompt": "Write a short factual essay of about 150 words. Explain Isaac Newton's three laws of motion.",
+      "required": [
+        {
+          "fact": "first law: inertia",
+          "any": [
+            "inertia",
+            "at rest\\s+stays\\s+at rest",
+            "remains\\s+at\\s+rest",
+            "stay\\s+at\\s+rest"
+          ]
+        },
+        {
+          "fact": "second law: F = ma",
+          "any": [
+            "f\\s*=\\s*m\\s*\\*?\\s*a",
+            "force\\s+equals\\s+mass\\s+times\\s+acceleration",
+            "mass\\s+(times|multiplied by)\\s+(its\\s+)?acceleration"
+          ]
+        },
+        {
+          "fact": "third law: equal and opposite reaction",
+          "any": [
+            "equal\\s+and\\s+opposite"
+          ]
+        },
+        {
+          "fact": "Isaac Newton",
+          "any": [
+            "newton"
+          ]
+        },
+        {
+          "fact": "acceleration",
+          "any": [
+            "accelerat"
+          ]
+        }
+      ],
+      "forbidden": [
+        {
+          "claim": "force equals mass times velocity",
+          "any": [
+            "force\\s+equals\\s+mass\\s+times\\s+velocity",
+            "f\\s*=\\s*m\\s*\\*?\\s*v\\b"
+          ]
+        },
+        {
+          "claim": "Einstein formulated the laws of motion",
+          "any": [
+            "einstein\\s+(formulated|proposed|discovered|wrote)\\s+(the\\s+)?(three\\s+)?laws\\s+of\\s+motion"
+          ]
+        }
+      ]
+    }
+  ]
+}
