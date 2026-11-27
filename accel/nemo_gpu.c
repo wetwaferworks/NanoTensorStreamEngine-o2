@@ -23,7 +23,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
-static void *dl_open(const char *n) { return (void *)LoadLibraryA(n); }
+static void *dl_open(const char *n) {
+    /* Full paths load with their own directory on the search path
+     * (NVRTC needs its builtins DLL beside it). Match ntse_dl_open(). */
+    if (strchr(n, '\\') || strchr(n, '/'))
+        return (void *)LoadLibraryExA(n, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    return (void *)LoadLibraryA(n);
+}
 static void *dl_sym(void *l, const char *s) { return l ? (void *)GetProcAddress((HMODULE)l, s) : NULL; }
 static void dl_close(void *l) { if (l) FreeLibrary((HMODULE)l); }
 #else
