@@ -1,0 +1,21 @@
+# Build products
+bin/
+obj/
+*.exe
+*.dll
+*.o
+__pycache__/
+*.pyc
+
+# Written at build time by accel/mk_engine_gui_cuda.py from littlenemo/src/engine_gui.c
+accel/engine_gui_cuda.c
+
+# Screenshots the GUI tests write
+parakeet/shots/
+
+# Run logs, packs, weights and fixtures made from private checkpoints stay out of the repository
+*.log
+*.nq2
+*.nq2book
+*.nq2manifest
+*.safetensors
