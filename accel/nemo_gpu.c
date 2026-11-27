@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -486,7 +487,8 @@ static double now_s(void) {
     LARGE_INTEGER f, c; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&c);
     return (double)c.QuadPart / (double)f.QuadPart;
 #else
-    return 0.0;
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 #endif
 }
 /* NEMO_GPU_PROFILE=1: synchronize around every launch and add its wall
@@ -1109,6 +1111,7 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
             for (int i = 0; i < reps; i++) if (pq_gemv(g, &T->w, dx, dy)) { snprintf(why, wl, "%s", g->err); goto out; }
             if (ck(g, g->cu.CtxSynchronize(), "bench")) { snprintf(why, wl, "%s", g->err); goto out; }
             double dt = (now_s() - t0) / reps;
+            if (!(dt > 0.0) || !isfinite(dt)) { snprintf(why, wl, "selftest timer produced a non-positive interval"); goto out; }
             if (mode) r->full_gwps = wts / dt / 1e9; else r->dtc_gwps = wts / dt / 1e9;
         }
         g->exact = 0;
@@ -1118,7 +1121,11 @@ int nemo_gpu_selftest(nemo_gpu_probe *r, char *why, size_t wl) {
         double t0 = now_s();
         for (int i = 0; i < 10; i++) if (launch(g, K_BW, 160, 1, 256, a)) { snprintf(why, wl, "%s", g->err); goto out; }
         if (ck(g, g->cu.CtxSynchronize(), "bw")) { snprintf(why, wl, "%s", g->err); goto out; }
-        r->read_gbs = n16 * 16.0 * 10 / (now_s() - t0) / 1e9;
+        {
+            double bdt = now_s() - t0;
+            if (!(bdt > 0.0) || !isfinite(bdt)) { snprintf(why, wl, "selftest timer produced a non-positive interval"); goto out; }
+            r->read_gbs = n16 * 16.0 * 10 / bdt / 1e9;
+        }
     }
     {
         /* weights per token in the 9B stack's projections */
