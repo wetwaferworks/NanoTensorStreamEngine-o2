@@ -53,14 +53,6 @@ static char *slurp(const char *path, size_t *n)
     b[sz] = 0; fclose(f); if (n) *n = (size_t)sz; return b;
 }
 
-static int write_all(const char *path, const char *s, size_t n)
-{
-    FILE *f = fopen(path, "wb"); if (!f) return -1;
-    int rc = fwrite(s, 1, n, f) == n ? 0 : -1;
-    if (fclose(f)) rc = -1;
-    return rc;
-}
-
 /* Mutate a copy of the manifest. kind_from/kind_to rewrite a kind token;
  * blk_from/blk_to rewrite a block-size field (0 = leave);
  * end_mode: 0 = keep end, 1 = drop end, 2 = gate lines before end,
