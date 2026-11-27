@@ -11,13 +11,19 @@
 #endif
 #include <windows.h>
 typedef HMODULE dl_t;
-static dl_t dl_open(const char *n) { return LoadLibraryA(n); }
+static dl_t dl_open(const char *n) {
+    if (strchr(n, '\\') || strchr(n, '/'))
+        return LoadLibraryExA(n, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+    return LoadLibraryA(n);
+}
 static void *dl_sym(dl_t h, const char *n) { return (void *)GetProcAddress(h, n); }
+static void dl_close(dl_t h) { if (h) FreeLibrary(h); }
 #else
 #include <dlfcn.h>
 typedef void *dl_t;
 static dl_t dl_open(const char *n) { return dlopen(n, RTLD_NOW); }
 static void *dl_sym(dl_t h, const char *n) { return dlsym(h, n); }
+static void dl_close(dl_t h) { if (h) dlclose(h); }
 #endif
 
 typedef int CUresult;
@@ -185,6 +191,9 @@ void sn_cuda_close(sn_cuda *c)
     if (c->dy && c->cuMemFree) c->cuMemFree(c->dy);
     if (c->dT && c->cuMemFree) c->cuMemFree(c->dT);
     if (c->dP && c->cuMemFree) c->cuMemFree(c->dP);
+    if (c->cuDevicePrimaryCtxRelease && c->ctx) c->cuDevicePrimaryCtxRelease(c->dev);
+    dl_close(c->rtc);
+    dl_close(c->drv);
     free(c->res); free(c);
 }
 
