@@ -1,4 +1,5 @@
 # fidelity queue 1: calibration, method 1 and baselines, sensitivity sweep
+raw.e	build\fidelity\fid-sigma.exe --dir sigma-3b --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --threads {T} --write-ref data\fidelity\ref\eval-raw.f32 --out data\fidelity\runs\raw.tsv
 calib	build\fidelity\fid-sigma.exe --dir sigma-3b --teacher data\fidelity\text\calib-all.ids --gammas 6,3,0,-3 --threads {T} --hess-out data\fidelity\hess --write-ref data\fidelity\ref\calib-raw.f32
 w4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\w4 --report data\fidelity\runs\w4.quant.tsv --hess data\fidelity\hess --fit weight --d 4 --K 256 --threads {T}
 w4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\w4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\w4.tsv

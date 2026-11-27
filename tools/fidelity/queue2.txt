@@ -1,0 +1,13 @@
+# fidelity queue 2: method 3 (residual books) and method 4 (shared books), matched to the d4 K256 rate
+m3-8x2.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m3-8x2 --report data\fidelity\runs\m3-8x2.quant.tsv --hess data\fidelity\hess --fit act --gptq --refit 20 --scale-refit --d 8 --K 256 --K2 256 --threads {T}
+m3-8x2.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m3-8x2 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m3-8x2.tsv
+m3-8x2.rm	remove-dir data\fidelity\variants\m3-8x2
+m3-4x16.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m3-4x16 --report data\fidelity\runs\m3-4x16.quant.tsv --hess data\fidelity\hess --fit act --gptq --refit 20 --scale-refit --d 4 --K 16 --K2 16 --threads {T}
+m3-4x16.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m3-4x16 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m3-4x16.tsv
+m3-4x16.rm	remove-dir data\fidelity\variants\m3-4x16
+m4-4.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m4-4 --report data\fidelity\runs\m4-4.quant.tsv --hess data\fidelity\hess --fit act --gptq --d 4 --K 256 --share-books --threads {T}
+m4-4.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m4-4 --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m4-4.tsv
+m4-4.rm	remove-dir data\fidelity\variants\m4-4
+m4-4d.q	build\fidelity\fid-quant.exe --model sigma-3b --out data\fidelity\variants\m4-4d --report data\fidelity\runs\m4-4d.quant.tsv --hess data\fidelity\hess --fit act --gptq --d 4 --K 256 --share-books --refit 20 --delta-max 2048 --threads {T}
+m4-4d.e	build\fidelity\fid-sigma.exe --dir data\fidelity\variants\m4-4d --teacher data\fidelity\text\eval-all.ids --gammas 6,1.5,-1.5 --ref data\fidelity\ref\eval-raw.f32 --threads {T} --out data\fidelity\runs\m4-4d.tsv
+m4-4d.rm	remove-dir data\fidelity\variants\m4-4d

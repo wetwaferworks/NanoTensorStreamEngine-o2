@@ -81,6 +81,36 @@ static double pq_bits(int64_t r, int64_t c, int d, int K, int K2, int books_owne
     return idx + frame + books;
 }
 
+
+/* ---------- nearest entry: float distances, fixed scan order ----------
+ * Squared (optionally diagonally weighted) distance from x to each of
+ * the K entries of C (K x d, row-major), lowest index wins ties. The
+ * dimension is a compile-time constant in the common cases so the
+ * compiler can unroll and vectorize the distance. */
+#define PQ_NEAR_BODY(D)                                                      \
+    for (int e = 0; e < K; e++) {                                            \
+        const float *ce = C + (int64_t)e * (D);                              \
+        float dd = 0.0f;                                                     \
+        for (int j = 0; j < (D); j++) {                                      \
+            float t = x[j] - ce[j];                                          \
+            dd += (w ? w[j] : 1.0f) * t * t;                                 \
+        }                                                                    \
+        if (dd < best) { best = dd; bk = e; }                                \
+    }
+static int pq_nearest(const float *x, const float *w, const float *C, int K, int d, float *best_out)
+{
+    float best = INFINITY;
+    int bk = 0;
+    switch (d) {
+    case 4: PQ_NEAR_BODY(4) break;
+    case 8: PQ_NEAR_BODY(8) break;
+    case 16: PQ_NEAR_BODY(16) break;
+    default: PQ_NEAR_BODY(d) break;
+    }
+    if (best_out) *best_out = best;
+    return bk;
+}
+
 /* ---------- weighted k-means over subvectors, one book per position ---------- */
 
 typedef struct {
@@ -137,14 +167,9 @@ static void km_item(void *vc, int64_t sub)
     double *wsum = (double *)fid_alloc(sizeof(double) * K * d);
     for (int it = 0; it <= k->iters; it++) {
         for (int64_t i = 0; i < ns; i++) {
-            const float *p = pts + i * d, *w = wts + i * d;
-            double best = 1e300; int bk = 0;
-            for (int e = 0; e < K; e++) {
-                const float *ce = cent + e * d;
-                double dd = 0;
-                for (int j = 0; j < d; j++) { double t = p[j] - ce[j]; dd += w[j] * t * t; }
-                if (dd < best) { best = dd; bk = e; }
-            }
+            float bf;
+            int bk = pq_nearest(pts + i * d, wts + i * d, cent, K, d, &bf);
+            double best = bf;
             as[i] = bk; err[i] = best;
         }
         if (it == k->iters) break;
@@ -207,24 +232,13 @@ static void as_row(void *vc, int64_t row)
                 w[j] = a->act ? a->hdiag[col0 + j] : 1.0f;
             }
             const float *B1 = st->b1 + sub * (int64_t)st->K * d;
-            double best = 1e300; int bk = 0;
-            for (int e = 0; e < st->K; e++) {
-                double dd = 0;
-                for (int j = 0; j < d; j++) { double t = u[j] - B1[e * d + j]; dd += w[j] * t * t; }
-                if (dd < best) { best = dd; bk = e; }
-            }
+            int bk = pq_nearest(u, a->act ? w : NULL, B1, st->K, d, NULL);
             st->k1[row * st->ng + g] = (uint16_t)bk;
             if (st->K2) {
                 const float *B2 = st->b2 + sub * (int64_t)st->K2 * d;
-                double b2 = 1e300; int k2 = 0;
-                for (int e = 0; e < st->K2; e++) {
-                    double dd = 0;
-                    for (int j = 0; j < d; j++) {
-                        double t = u[j] - B1[bk * d + j] - B2[e * d + j];
-                        dd += w[j] * t * t;
-                    }
-                    if (dd < b2) { b2 = dd; k2 = e; }
-                }
+                float rres[16];
+                for (int j = 0; j < d; j++) rres[j] = u[j] - B1[bk * d + j];
+                int k2 = pq_nearest(rres, a->act ? w : NULL, B2, st->K2, d, NULL);
                 st->k2[row * st->ng + g] = (uint16_t)k2;
             }
         }
@@ -266,22 +280,12 @@ static void gq_row(void *vc, int64_t row)
             uA[j] = (float)t;
         }
         const float *C1 = q->cA1 + sub * (int64_t)st->K * d;
-        double best = 1e300; int bk = 0;
-        for (int e = 0; e < st->K; e++) {
-            double dd = 0;
-            for (int j = 0; j < d; j++) { double t = uA[j] - C1[e * d + j]; dd += t * t; }
-            if (dd < best) { best = dd; bk = e; }
-        }
+        int bk = pq_nearest(uA, NULL, C1, st->K, d, NULL);
         st->k1[row * st->ng + g] = (uint16_t)bk;
         for (int j = 0; j < d; j++) ea[j] = uA[j] - C1[bk * d + j];
         if (st->K2) {
             const float *C2 = q->cA2 + sub * (int64_t)st->K2 * d;
-            double b2 = 1e300; int k2 = 0;
-            for (int e = 0; e < st->K2; e++) {
-                double dd = 0;
-                for (int j = 0; j < d; j++) { double t = ea[j] - C2[e * d + j]; dd += t * t; }
-                if (dd < b2) { b2 = dd; k2 = e; }
-            }
+            int k2 = pq_nearest(ea, NULL, C2, st->K2, d, NULL);
             st->k2[row * st->ng + g] = (uint16_t)k2;
             for (int j = 0; j < d; j++) ea[j] -= C2[k2 * d + j];
         }
