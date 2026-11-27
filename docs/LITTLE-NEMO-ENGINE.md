@@ -105,6 +105,8 @@ engine_gui  <checkpoint_dir> <tokenizer.json> [options]
 | `--chat` (`engine_gui`) | wrap each PROMPT in the checkpoint's own chat template (`tokenizer_config.json`, Nemotron-H: `<SPECIAL_10>System`, `<SPECIAL_11>User` / `Assistant`, `<SPECIAL_12>`) and keep the conversation in the model state across turns |
 | `--think` (`engine_gui`) | reasoning on by default; per turn `/think` and `/no_think` in the user text override it; the default is no-think (answers only) |
 
+The CUDA build of the same adapter (`nemo-engine-cuda`, [ACCEL-CUDA.md](ACCEL-CUDA.md)) accepts every flag above plus `--cuda-pack`, `--accel`, `--expand`, `--full-path`, `--host-threads`, `--tok-overlap`, `--lm-head`, `--prefill-chunk` and the `--dtc-*` options, which the CPU engines reject as unknown arguments (the chat window passes them only to an engine whose file name contains `cuda`).
+
 `engine_gui` computes on the CPU (no GPU lane is linked), reports `accel=cpu` in
 READY, measures `PREFILL` and the added `STATS` keys with the same monotonic clock,
 reports `MEM` as peak working set, and splits `<think>`/`</think>` into `THINK`
@@ -140,8 +142,8 @@ bit-identical to the single-lane path ([ZERO-MUTEX.md](ZERO-MUTEX.md)).
   agreement, hash-chained per PCHIE discipline. See [ROADMAP.md](ROADMAP.md).
 - A Little Nemo accel adapter exists (`accel/littlenemo/`); it is PCIe-bound
   ([ACCEL.md](ACCEL.md)).
-- A CUDA lane runs the compressed pack resident on the GPU at 15.5 to 15.8 tokens/s
-  (DTC) and scored **7 of 10** on the same quiz the raw CPU engine scored 10 of 10 on;
+- A CUDA lane runs the compressed pack resident on the GPU at about 20 to 22 tokens/s
+  (DTC; 16 to 17 expanded) and scored **7 of 10** on the same quiz the raw CPU engine scored 10 of 10 on;
   the loss comes from the pack, not the GPU. See [ACCEL-CUDA.md](ACCEL-CUDA.md).
 - Little Nemo is text-only; image and video attachments are refused by the GUI before
   anything is sent.

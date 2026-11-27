@@ -2,16 +2,16 @@
 
 Little Nemo can run its projections on the NVIDIA GPU from an NTSE `.nq2` v3 product-quantized pack, with the host side in pure C. This guide covers the lane, the startup calibration, the DTC and EXPAND rules, every flag, the windowless engine, and the measured speed and quiz results. Source: `accel/` (`nemo_gpu.c`/`.h`, `nemo_gpu_kernels.h`, `nemo_calib.c`/`.h`, `nemo_predict.c`/`.h`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`). Implementation: Cortana.
 
-**Status:** this lane landed on 2026-11-26. Source is in `accel/` (`nemo_gpu`, `nemo_calib`, `nemo_predict`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`). The numbers below are from one bench session on one machine (RTX 3050 Ti Laptop, 4 GB). They are measurements, not guarantees, and the quiz is a ten-question smoke test, not a benchmark.
+**Status:** this lane landed on 2026-11-26, and the same day a throughput pass roughly doubled its speed without changing any output (see [Speed](#speed-after-the-throughput-pass)). Source is in `accel/` (`nemo_gpu`, `nemo_calib`, `nemo_predict`, `nemo_tokpipe`, `mk_engine_gui_cuda.py`, `build-nemo-gpu.ps1`, `test_nemo_gpu_layers.c`). The numbers below are from bench sessions on one machine (RTX 3050 Ti Laptop, 4 GB). They are measurements, not guarantees, and the quiz is a ten-question smoke test, not a benchmark.
 
 ## The honest result first
 
 | Path | Speed | Quiz (10 short questions, greedy, thinking off) |
 |---|---|---|
 | Raw bf16 weights on CPU | about 0.07 tokens/s | **10/10**, clean stops |
-| Compressed pack on CUDA, DTC only (`--expand never`) | 15.50 to 15.81 tokens/s | 7 right, 2 hedged, 1 wrong |
-| Compressed pack on CUDA, auto (the default) | 5.17 to 11.24 tokens/s per question (about 12.8 tokens/s in a GUI chat) | **7/10**: 7 pass, 2 hedges, 1 fail |
-| Compressed pack on CUDA, full expansion (`--expand always`) | 7.86 to 7.94 tokens/s | the same answers as DTC only, apart from small differences after the answer |
+| Compressed pack on CUDA, DTC only (`--expand never`) | about 20 to 22 tokens/s (15.5 to 15.8 when the lane first landed) | 7 right, 2 hedged, 1 wrong |
+| Compressed pack on CUDA, auto (the default) | 9 to 17 tokens/s per question, depending on how many steps expand (5 to 11 when the lane first landed) | **7/10**: 7 pass, 2 hedges, 1 fail |
+| Compressed pack on CUDA, full expansion (`--expand always`) | about 16 to 17 tokens/s on the default fast path, about 8 on `--full-path exact` (7.9 when the lane first landed) | the same answers as DTC only, apart from small differences after the answer |
 
 So the compressed pack is about 200 times faster than the raw CPU path, and it is **less accurate**: 7 of 10 against 10 of 10. The loss comes from the compression, not from the GPU. The pack is a 4-dimensional product quantization at 2.2169 bits per weight on the projections, and its projection relative L2 error against the bf16 weights is about 0.32. The CPU reference run on the decoded pack gives the same wrong answer ("Earth" for the largest planet), the same hedges, and the same rambling. Full expansion recovers the pack's exact decode, not the original weights, so it cannot fix what compression removed. This is the fidelity problem [ROADMAP.md](ROADMAP.md) is about, and the Lane 4 results in [ACCEL.md](ACCEL.md) say the same thing.
 
@@ -65,8 +65,8 @@ CUDA is rejected outright if no `.nq2` pack is given (`--cuda-pack`), because th
 
 ## DTC by default, predict decides EXPAND
 
-- **DTC** is the fast fp16-book PQ kernel, about 15.7 tokens/s. It is bit-exact against its own C emulation.
-- **EXPAND** (the FULL kernel) is the exact fp32-book, bf16-faithful decode of the same pack, about 7.9 tokens/s. A step is redone from a snapshot of the SSM, convolution and KV state.
+- **DTC** is the fast fp16-book PQ kernel, about 20 to 22 tokens/s. It is bit-exact against its own C emulation.
+- **EXPAND** (the FULL kernel) is the fp32-book, bf16-faithful decode of the same pack, about 16 to 17 tokens/s on the default fast path (the summation order of the DTC tiling, within 1e-3 of the CPU reference) and about 8 tokens/s on `--full-path exact` (the reference summation order). A step is redone from a snapshot of the SSM, convolution and KV state.
 
 The predict rules (`nemo_predict.c`) make two decisions, and every decision goes out as a `DTC ...` or `EXPAND ... reason=...` protocol line and on stderr:
 
@@ -97,9 +97,33 @@ The CUDA engines accept every `engine_gui` flag ([LITTLE-NEMO-ENGINE.md](LITTLE-
 | `--dtc-complexity N` | turn: a complexity score at or above this expands | 6 |
 | `--dtc-longform 0\|1` | turn: long-form keywords and `/think` expand | 1 |
 | `--dtc-trace` | print every step's confidence on stderr | off |
+| `--full-path fast\|exact` | summation order of the FULL (EXPAND) kernels. `fast` stages the book in shared memory and tiles rows like DTC: about 1.9 times faster, within 1e-3 of the CPU reference per layer, and batched prefill stays bit-identical to stepped decode. `exact` keeps the reference order (about 8 tokens/s, 3.0e-4 per layer). Sets `NEMO_GPU_GEMV_FULL` | `fast` |
+| `--host-threads N` | lanes (1 to 8) for the per-step host work (the confidence pass), on the zero-mutex pool. The result is bit-identical at any N; end to end it changes decode by about 1% because the lane is GPU-bound | 1 |
+| `--tok-overlap 0\|1` | tokenize the rest of a prompt on the prep thread while the GPU prefills the first part. Cuts are made only where the ids equal the one-shot ids | 1 |
+| `--lm-head auto\|int8\|bf16` | storage of the output layer on the GPU: `int8` per row (560 MiB, logits within 2e-2), `bf16` (1.1 GiB, exact). `auto` takes `bf16` only when the card has room for it, so on a 4 GB card it is `int8`. Sets `NEMO_GPU_HEAD` | `auto` |
+| `--prefill-chunk N` | tokens per batched prefill pass (0 to 512; 0 or 1 turns batching off and prefills token by token). Sets `NEMO_GPU_PREFILL_CHUNK` | 64 |
 | `--log FILE` | append stderr to FILE (the windowless engine has no console) | off |
 
-Developer aids, read from the environment: `NEMO_CALIB_FILE` (cache path), `NEMO_GPU_NO_EXPAND=1` (do not build the EXPAND resources, saving VRAM), `NEMO_GPU_EXACT=1` and `NEMO_GPU_BOOK` (book precision for the kernels), `NEMO_GPU_HEAD`, `NEMO_GPU_PROFILE=1` (synchronize around every launch and time it), `NEMO_GPU_DBG`, `NEMO_GPU_DUMP` (write the compiled kernel image).
+Every option's default is its fastest setting; the slower and more exact choices (`--full-path exact`, `--lm-head bf16`, `--prefill-chunk 0`, `--expand always`) are opt-in. The chat window passes none of these unless you change them in **Settings...** ([GUI.md](GUI.md#settings-dialog)).
+
+Developer aids, read from the environment: `NEMO_CALIB_FILE` (cache path), `NEMO_GPU_NO_EXPAND=1` (do not build the EXPAND resources, saving VRAM), `NEMO_GPU_EXACT=1` and `NEMO_GPU_BOOK` (book precision for the kernels), `NEMO_GPU_PROFILE=1` (synchronize around every launch and time it), `NEMO_GPU_DBG`, `NEMO_GPU_DUMP` (write the compiled kernel image). The flags above set `NEMO_GPU_GEMV_FULL`, `NEMO_GPU_HEAD` and `NEMO_GPU_PREFILL_CHUNK`; setting the variable yourself does the same. Two more select kernel variants for experiments and are not needed in normal use: `NEMO_GPU_GEMV` (`t` picks the other DTC GEMV; the default is the 1024-thread kernel) and `NEMO_GPU_GEMM` (the prefill GEMM tile: `t8`, `r8t8`, `r8t4`, `r2t32` or `t8k`; the default is the 4-row by 16-token tile). `NEMO_GPU_GEMV_FULL` also takes `x1` (the reference order, one subvector at a time) and `x4` (same as `exact`).
+
+## Speed after the throughput pass
+
+Measured on the RTX 3050 Ti Laptop (4 GB), i5-12450H, 32 new tokens per prompt, greedy. The baseline is the lane as first landed (commit 44cf2fc, Round 6). Prompt lengths are in tokens.
+
+| | first landing | now |
+|---|---|---|
+| DTC prefill, 8 / 52 / 211 tokens | 11.2 / 18.3 / 18.1 tokens/s | 21.3 / 76.1 / 80.7 tokens/s (about 4.4 times) |
+| DTC decode | 15.9 to 15.0 tokens/s | 21.7 to 20.2 tokens/s |
+| FULL prefill, 211 tokens | 8.4 tokens/s | 72.1 tokens/s on the fast path (43.4 on `exact`) |
+| FULL decode | 7.7 tokens/s | 16.0 to 16.6 tokens/s fast (8.25 to 8.5 `exact`) |
+| time to first token, 8 / 211 tokens (DTC) | 712 ms / 11.6 s | 376 ms / 2.62 s |
+| VRAM, whole card peak | 3625 MiB | 3651 MiB |
+
+What changed: batched layer-major prefill (the GEMM decodes each weight once per chunk of tokens), a transposed and coalesced SSM state, a pipelined int8 `lm_head`, launch shapes tuned to the card (a 1024-thread DTC GEMV, four subvectors in flight in FULL), one 4-byte load per block frame, the FULL fast path, host lanes, and the overlapped tokenizer. None of it changes the pack or the DTC arithmetic: batched logits equal stepped logits bit for bit (0 of 131072 differ) on both paths, and the engine's tokens equal the pre-pass tokens in `never`, `always` and `auto`.
+
+These are best-case numbers from a quiet machine. The lane is GPU-bound (the PQ GEMV reads memory at about 180 GB/s), so anything else using the GPU slows it: with a busy desktop (a browser and a camera effect running) the same binary measured about 10 percent lower, and the before-and-after comparison on that same busy session came out equal or better for every row. A 4 GB card is also tight. The lane keeps the pack, the EXPAND resources and the `lm_head` resident (about 2.9 GiB) and wants 64 MiB of headroom for the `lm_head`, while Windows and other programs commonly hold 0.4 to 0.8 GiB of the card. When the free memory falls short, even by a few MiB, the engine prints `CUDA lane unavailable: VRAM: lm_head needs ...` and the GPU lane does not start (with `--accel cuda` the engine stops with that error). This was seen during the polish pass, when a browser and a camera effect were open, and it is why a bench run can fail one minute and pass the next. Close other GPU programs and start again.
 
 ## The binaries and building
 
@@ -126,13 +150,17 @@ Point the GUI at it with `--engine` ([GUI.md](GUI.md)). Run logs are private and
 | Check | Result |
 |---|---|
 | DTC and FULL kernels vs the C emulation (calibration self-test) | bit-exact |
-| Per-layer, 56 layers, 2 tokens, vs the bf16-rounded CPU reference, FULL | residual relative L2 up to 3.0e-4, pass |
-| Per-layer, same, DTC | up to 1.3e-2, so it fails the 1e-3 tolerance **by design**: DTC skips the reference's bf16 rounding of the weights; argmax agrees on 2 of 2 |
-| int8 `lm_head` | logits relative L2 about 2e-2 |
+| Per-layer, 56 layers, 4 tokens, vs the bf16-rounded CPU reference, FULL fast and FULL exact | residual relative L2 up to 3.2e-4 (fast) and 3.0e-4 (exact), against a tolerance of 1e-3: pass; argmax agrees on 4 of 4 |
+| Per-layer, same, DTC | residual relative L2 up to 1.3e-2, against its own tolerance of 3e-2 (about twice the measurement): pass; argmax agrees on 4 of 4. DTC does not reproduce the reference's bf16 rounding of the weights (it decodes through fp16 books), so it is held to a looser bound than FULL, which stays at 1e-3 |
+| Logits after the int8 `lm_head` | relative L2 up to 2.2e-2 on every lane, against a bound of 5e-2 |
+| `test_nemo_prefill`, `test_nemo_hostsplit` | batched prefill equals stepped decode bit for bit; host lanes bit-identical at 1 to 8 |
+| Fast FULL vs exact FULL, bench prompts and the quiz | identical tokens (160 of 160 on the bench prompts; 1028 of 1028 over the ten quiz prompts at 128 new tokens) |
+
+`test_nemo_gpu_layers <ckpt> <pack.nq2> [tokens] [layers] [dtc|full|all]` runs each lane from a fresh model and prints the worst per-layer residual, the logits error and the argmax agreement; `NEMO_GPU_GEMV_FULL=exact` selects the exact FULL path for the `full` lane. The tolerances are named constants at the top of the test, with the reasoning beside them. The `ckpt` is an unpacked checkpoint of the pack (the decoded weights written as safetensors), not the raw model.
 
 ## Limits
 
-- The accuracy gap above is real: on this pack the CUDA lane is fast and wrong more often than the raw model. Do not read 15.7 tokens/s as "Little Nemo at that speed with the original quality".
+- The accuracy gap above is real: on this pack the CUDA lane is fast and wrong more often than the raw model. Do not read 20 tokens/s as "Little Nemo at that speed with the original quality".
 - One machine, one pack, ten short questions, greedy decoding, 16 new tokens. No essay or reasoning evaluation was run.
 - The OpenCL lanes have no Nemotron forward in this build and are rejected by calibration.
 - The GPU needs a pack of about 2 GB plus the `lm_head` and EXPAND resources in VRAM; on a smaller card calibration rejects CUDA and the engine falls back to the CPU lane.

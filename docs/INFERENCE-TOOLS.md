@@ -161,6 +161,30 @@ opens a pack, shows its vital signs, stream-verifies the full expansion with
 `nq2-run` (sizes, peak resident memory, throughput, the FNV-1a checksum) and
 peeks at any block. It does not chat; chat is [GUI.md](GUI.md).
 
+`nq2-gui.pyw` starts it without a console window. The runner and the converter are
+started without one too, unless **Show console windows** is ticked.
+
+### Quantize dialog
+
+**Quantize...** turns local `.safetensors` weights into a pack by running Elfie's C
+converter, `nq2-quantize`; the dialog only builds the command line and follows the
+run. Nothing is downloaded.
+
+| Field | What it does |
+|---|---|
+| Source (.safetensors) | one file or a folder of shards (every `.safetensors` in it, by name) |
+| Output folder, Output name | the pack prefix; the converter writes `NAME.nq2`, `NAME.nq2book`, `NAME.nq2manifest` and `NAME.report.txt` |
+| Preset | Default (one global book), Per-tensor books (rms), or the CUDA pack (per-tensor, rms, fp16 embeddings, PQ4; see [ACCEL-CUDA.md](ACCEL-CUDA.md)) |
+| Threads | 1 to 12, default all logical CPUs up to 12; the output is byte-identical at any count |
+| Options | block, entries, budget, filter, sample blocks, iterations, books, norm, format, product quantization, per-tensor budgets, fp16 embeddings, residual; an option left at the converter's default is not passed (**Show command** prints the line) |
+| Converter | the path given here, then `NQ2_QUANTIZE`, then `tools/`, the repository root and `PATH` |
+
+Options are checked the way the converter checks them before the run starts. The
+dialog shows the converter's lines with a progress bar and phase; **Stop** ends the
+run, and the converter publishes its pack only when it finishes. On success the
+dialog lists the output files with their SHA-256. Choices are kept in
+`~/.nanoquattwo/nq2-gui.json`.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |

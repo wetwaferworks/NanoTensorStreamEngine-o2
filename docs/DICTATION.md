@@ -59,7 +59,7 @@ In the chat window: click the mic, or press **Ctrl+Shift+Space**; click again (o
 | `PARAKEET_PAUSE_MS` | pause length that ends a segment (default 700 ms) |
 | `PARAKEET_EXE` | (GUI) full path to `parakeet-c.exe` |
 
-The GUI looks for the executable in this order: `PARAKEET_EXE`, `parakeet/bin/parakeet-c.exe` beside the `littlenemo` folder, `littlenemo/bin/parakeet-c.exe`, then `parakeet/parakeet-c.exe` beside the GUI sources.
+The GUI looks for the executable in this order: the `parakeet_exe` setting (**Settings... > Voice input**, `[dictation] parakeet_exe`), `PARAKEET_EXE`, `parakeet/bin/parakeet-c.exe` beside the `littlenemo` folder, `littlenemo/bin/parakeet-c.exe`, `parakeet/parakeet-c.exe` beside the GUI sources, `%LOCALAPPDATA%\NemoChat\parakeet\parakeet-c.exe`, then `PATH`. A GUI run from a tree that has no `parakeet` folder (a copy of `littlenemo` on its own) finds the executable through the setting, the variable, or the app-data folder. The model is the `parakeet_model` setting, then `PARAKEET_MODEL`.
 
 ## Microphone selection
 
@@ -93,7 +93,7 @@ One line per message.
 
 ## In the chat window
 
-A big mic button and a "Click to dictate" label sit in the composer tool row. Click to start and click to stop; you can also hold the button and let go (push-to-talk), or press Ctrl+Shift+Space. While recording there is a red stop button with a level ring, "Listening... m:ss" and a level meter. Partial text streams into the composer in a dim color and firms up as each phrase is finalized. **Nothing is sent**: the text stays in the composer for review, and Enter sends as usual. `parakeet-c` is pre-warmed 1.5 s after the window opens so the first click is instant, and it exits when the GUI's pipe closes. If `parakeet-c.exe` is not found the label says "mic: parakeet-c.exe not found".
+A big mic button and a "Click to dictate" label sit in the composer tool row. Click to start and click to stop; you can also hold the button and let go (push-to-talk), or press Ctrl+Shift+Space. While recording there is a red stop button with a level ring, "Listening... m:ss" and a level meter. Partial text streams into the composer in a dim color and firms up as each phrase is finalized. **Nothing is sent**: the text stays in the composer for review, and Enter sends as usual. `parakeet-c` is pre-warmed 1.5 s after the window opens so the first click is instant, and it exits when the GUI's pipe closes. If `parakeet-c.exe` is not found the label says "mic: parakeet-c not found (Settings, parakeet_exe)"; set the path in **Settings... > Voice input** and the label clears without a restart.
 
 ## How it works
 
@@ -129,7 +129,7 @@ On a 12th-gen Core i5-12450H, 8 threads, CPU only:
 
 | Symptom | Cause and fix |
 |---|---|
-| "mic: parakeet-c.exe not found" | build it (`parakeet\build.bat`) or set `PARAKEET_EXE` |
+| "mic: parakeet-c not found (Settings, parakeet_exe)" | build it (`parakeet\build.bat`), then either set `parakeet_exe` in **Settings...**, set `PARAKEET_EXE`, or copy it to `%LOCALAPPDATA%\NemoChat\parakeet\`; the label clears as soon as the setting is applied |
 | error about the model or weights | set `PARAKEET_MODEL` to the folder holding `model_weights.safetensors`, or pass `--model` |
 | the mic button does nothing right after `setx` | environment changes reach new processes only; restart the chat window (the GUI also reads the Windows user environment) |
 | recording starts but no words | `--mic-test 5` to see the level; `--mic-list`, then `PARAKEET_MIC`; try `PARAKEET_MIC_ROLE=communications` |

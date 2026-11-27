@@ -43,6 +43,11 @@ The INI-built engine command is `engine <checkpoint> <tokenizer>` plus `--max-ne
 `--mode`, `--threads`, `--simd`, `--max-pos`, so `--chat` and `--think` can only be
 supplied through `--engine`.
 
+For a desktop launch with no console window, run `pythonw gui/nemo_chat.pyw` (a one-line launcher
+that writes anything that would have gone to the console to `%LOCALAPPDATA%\NemoChat\gui.log`).
+The engine, the converter and every helper program the GUI starts are also spawned without a
+console window unless **Show console windows** is on ([Settings dialog](#settings-dialog)).
+
 With no engine and no INI the window opens with every model shown as unavailable and
 sends nothing. To see every GUI path without a model, use the test fixture (below).
 
@@ -57,7 +62,8 @@ sends nothing. To see every GUI path without a model, use the test fixture (belo
 | `--supernemo-engine CMD` | the SuperNemo engine command line (overrides `[supernemo] engine`) |
 | `--supernemo-host H` and `--supernemo-port P` | a remote SuperNemo engine |
 | `--theme ID` | theme for this session only (not saved): `pixel`, `lattice`, `stream`, `handshake`, `owl` |
-| `--demo NAME` | scripted walk-through: `tour` (with screenshots), `smoke` (the same checks, no shots), `unavailable` (SuperNemo with no engine configured) |
+| `--show-console` | start the engine and helpers in a visible console window for this session (default hidden; see **Show console windows**) |
+| `--demo NAME` | scripted walk-through: `tour` (with screenshots), `smoke` (the same checks, no shots), `unavailable` (SuperNemo with no engine configured), `composer` (the input bar and dialogs, with screenshots) |
 | `--shots DIR` | where `--demo tour` writes screenshots |
 
 Engine options (`--mode`, `--threads`, `--simd`, `--max-new`, `--max-pos`) are not GUI flags: set them in `[engine]` in the INI, or put them in your own `--engine` command line.
@@ -90,7 +96,10 @@ back to the same file and preserves its comments.
 
 | Section | Keys | Notes |
 |---|---|---|
-| `[paths]` | `engine`, `checkpoint`, `tokenizer` | all three are needed for the GUI to build the engine command |
+| `[paths]` | `engine`, `checkpoint`, `tokenizer`, `cuda_pack` | the first three are needed for the GUI to build the engine command; `cuda_pack` is the `.nq2` pack for a CUDA engine (`--cuda-pack`) |
+| `[cuda]` | `accel`, `expand`, `full_path`, `host_threads`, `tok_overlap`, `lm_head`, `prefill_chunk`, `dtc_margin`, `dtc_entropy`, `dtc_prompt_tokens`, `dtc_complexity`, `dtc_longform` | options of the CUDA engine, one per engine flag ([ACCEL-CUDA.md](ACCEL-CUDA.md#flags)); blank or `default` passes nothing, so the engine's own (fastest) default applies; sent only to an engine whose file name contains `cuda` |
+| `[gui]` | `show_console` | `true` shows the engine and helper console windows; default `false` (hidden) |
+| `[dictation]` | `parakeet_exe`, `parakeet_model` | where to find `parakeet-c.exe` and the Parakeet model; blank searches ([DICTATION.md](DICTATION.md#environment-variables)) |
 | `[engine]` | `mode` (default `max`), `threads` (0 = let the mode decide), `simd` (true/false), `max_new` (256), `max_pos` (4096) | see [LITTLE-NEMO-ENGINE.md](LITTLE-NEMO-ENGINE.md#engine-flags) |
 | `[remote]` | `host`, `port` | to talk to an engine on another machine; leave `[paths]` empty |
 | `[supernemo]` | `engine`, `host`, `port` | empty until a SuperNemo engine exists |
@@ -117,15 +126,19 @@ for it.
 | Key | Action |
 |---|---|
 | Enter | send the message |
-| Shift+Enter | newline in the message |
+| Shift+Enter | newline in the message (the bar wraps at words, grows to six lines, then scrolls) |
 | Ctrl+V | paste; if the clipboard holds an image it is attached |
 | Ctrl+Shift+Space | start or stop dictation (needs [Parakeet](DICTATION.md)) |
 | mouse wheel | scrolls the transcript, the theme list and the stats panel under the pointer |
 
+The message box is a multi-line text field. Its placeholder reads `Message <model name>...`, sits on
+the first line where the cursor starts, and follows the selected model. Pasting with Ctrl+V resizes
+the bar like typing does.
+
 Buttons: send, stop (ends generation early with `STOP`), attach image, attach video,
 attach file, new chat (`RESET`), copy and clear on messages, settings and model
 switch. Every button has a plated and a glyph form per theme. Sidebar: **Stats
-panel**, **Appearance...**, **Settings...**, **Restart engine**.
+panel**, **Appearance...**, **Settings...**, **Restart engine**, **About and credits...**.
 
 ### Attachments
 
@@ -168,7 +181,12 @@ stops when the window is hidden or after the turn settles, so an idle chat costs
 
 ## Stats panel
 
-A live panel on the right (toggle with the **Stats panel** button). Every value comes
+A live panel on the right (toggle with the **Stats panel** button). When the window
+is narrower than its minimum size allows (Windows Snap, a small or rescaled display),
+the panel steps aside so the chat column keeps its room, and it comes back when the
+window is wide enough again; the **Stats panel** choice is not changed. In the chat
+bar the send button always keeps its place: on a narrow bar the key hint goes first,
+then the "Click to dictate" text (the mic icon stays), and mic messages wrap. Every value comes
 from the engine's messages; when the engine does not send one, the panel shows a dash,
 or a value the GUI measured itself and labels `gui`. Sections:
 
@@ -292,9 +310,37 @@ built-in personality. The result is saved in `[model.<key>]`.
 ## Settings dialog
 
 **Settings...** edits `littlenemo.ini`: the engine, checkpoint and tokenizer paths, mode,
-threads, SIMD, `max_new`, `max_pos` and the remote host and port. The dialog validates the
-values and then **restarts the engine** so they take effect; **Restart engine** does the
-same without changing anything.
+threads, SIMD, `max_new`, `max_pos`, the CUDA options, the console toggle, the voice-input
+paths and the remote host and port. The dialog scrolls (the Apply and Cancel bar stays in view),
+validates the values and then **restarts the engine** so they take effect; **Restart engine** does
+the same without changing anything.
+
+**CUDA engine** (used only when the engine is a `nemo-engine-cuda` build). Blank or `default`
+sends no flag, so the engine's own default applies; every default is the fastest setting.
+`exact`, `bf16` and a prefill chunk of 0 are the slower, more reference-faithful opt-ins.
+
+| Setting | Engine flag | Values | Default (blank) |
+|---|---|---|---|
+| `accel` | `--accel` | auto, cuda, cpu | auto (calibration picks the fastest correct lane) |
+| `expand` | `--expand` | auto, never, always | auto (DTC, with EXPAND where predict asks) |
+| `full_path` | `--full-path` | fast, exact | fast |
+| `host_threads` | `--host-threads` | 1 to 8 | 1 (end to end the same within 1%: the lane is GPU-bound) |
+| `tok_overlap` | `--tok-overlap` | on, off | on |
+| `lm_head` | `--lm-head` | auto, int8, bf16 | auto (int8 on a 4 GB card) |
+| `prefill_chunk` | `--prefill-chunk` | 0 to 512 | 64 (batched prefill) |
+| `dtc_margin`, `dtc_entropy`, `dtc_prompt_tokens`, `dtc_complexity`, `dtc_longform` | `--dtc-*` | numbers, on/off | 0.5, 4.0, 96, 6, on |
+
+**cuda_pack** (under paths) is the `.nq2` pack the CUDA engine runs from.
+
+**Show console windows** (default off) lets the engine and helper programs open their own console
+window. With it off they run with no window at all (`CREATE_NO_WINDOW`) and their output goes to the
+**Engine log...** viewer in the dialog.
+
+**Voice input (Parakeet)**: `parakeet_exe` and `parakeet_model` override where the mic button looks for
+`parakeet-c.exe` and the model ([DICTATION.md](DICTATION.md#in-the-chat-window)).
+
+**About and credits...** in the sidebar shows who made NTSE (the short form of
+[CREDITS.md](CREDITS.md)).
 
 ## C scaler
 
@@ -384,11 +430,14 @@ and a v2 client ignores the new lines.
 | `nemo_appearance.py` | theme, icon and shape settings in the INI (no Tk) |
 | `nemo_scale.py` | ctypes front end to the C scaler |
 | `nemo_dictation.py` | Parakeet dictation client |
+| `nemo_proc.py` | spawn flags: hidden console windows by default, `engine_kwargs` and `hidden_kwargs` |
+| `nemo_about.py` | the About and credits dialog |
+| `nemo_chat.pyw` | windowless launcher for `nemo_chat.py` (`pythonw`) |
 | `nemo_demo.py` | scripted demos for the smoke test and screenshots |
 
 ## Testing
 
-Eight Python suites cover the GUI; they run from `littlenemo/tests` and use the fixture
+Nine Python suites cover the GUI; they run from `littlenemo/tests` and use the fixture
 engine ([TESTING.md](TESTING.md)). The icons suite needs the C scaler built first.
 
 ## Troubleshooting
@@ -399,6 +448,8 @@ engine ([TESTING.md](TESTING.md)). The icons suite needs the C scaler built firs
 | "SuperNemo engine not available yet" | expected: there is no SuperNemo engine yet |
 | attachments refused | the selected model's READY has no `media` key (Little Nemo is text only), or a limit above was exceeded |
 | video attachment fails | install `ffmpeg` and put it on PATH, or use an animated GIF or WebP |
+| the engine seems to do nothing and no console shows | consoles are hidden by default: open **Settings... > Engine log...**, or tick **Show console windows** |
+| "mic: parakeet-c not found (Settings, parakeet_exe)" | set `parakeet_exe` in Settings, or see [DICTATION.md](DICTATION.md#troubleshooting) |
 | icons look blurry or are missing sizes | the C scaler is not built; run `build.bat` in `gui/native` |
 | `--chat` is not applied | the INI-built command cannot carry it; use `--engine` with the full command |
 | engine exits before READY | the checkpoint failed validation; the engine names the tensor on stderr |
