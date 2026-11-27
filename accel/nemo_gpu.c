@@ -122,7 +122,11 @@ static const char *const kname[K_N] = {
 static const char LAYER_PATTERN[NLAYERS + 1] =
     "M-M-M-MM-M-M-M*-M-M-M*-M-M-M-M*-M-M-M-M*-M-MM-M-M-M-M-M-";
 
-typedef struct { CUdeviceptr idx, mn, sc, book, bookh; int rows, cols, pidx; } gpq;
+/* mc: the block frame as one 32-bit word {mn fp16 | sc fp16 << 16}, so a
+ * block costs one 4-byte load instead of two 2-byte loads (the t/t1k/GEMM
+ * and FULL kernels); same bytes as the separate arrays, which are kept
+ * only for the legacy kernels. */
+typedef struct { CUdeviceptr idx, mn, sc, mc, book, bookh; int rows, cols, pidx; } gpq;
 
 typedef struct {
     char type;
@@ -515,6 +519,22 @@ static int up_scale(nemo_gpu *g, CUdeviceptr *d, const uint8_t *src, uint64_t nb
     return rc;
 }
 
+static int t_tiling_ok(int rows, int cols) {
+    int P = 1;
+    while (P <= 8 && ((uint64_t)P * (uint64_t)cols) % 256u) P *= 2;
+    return P <= 8 && rows % (4 * P) == 0;
+}
+static int up_mc(nemo_gpu *g, CUdeviceptr *d, const uint8_t *mn, const uint8_t *sc, uint64_t nb) {
+    uint32_t *f = (uint32_t *)malloc((size_t)nb * 4);
+    if (!f) return -1;
+    for (uint64_t j = 0; j < nb; j++) {
+        uint16_t a, b; memcpy(&a, mn + 2 * j, 2); memcpy(&b, sc + 2 * j, 2);
+        f[j] = (uint32_t)a | ((uint32_t)b << 16);
+    }
+    int rc = up(g, d, f, (size_t)nb * 4);
+    free(f);
+    return rc;
+}
 static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o) {
     int i = pack_find(k, name);
     const nemo_tensor_info *t = nemo_find(cp, name);
@@ -525,8 +545,9 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     }
     uint64_t nb = k->nb[i];
     size_t isz = (size_t)(nb * k->idxw), fsz = (size_t)(nb * 2);
-    uint8_t *buf = (uint8_t *)malloc(isz);
-    if (!buf) return -1;
+    uint8_t *buf = (uint8_t *)malloc(isz), *mnb = (uint8_t *)malloc(fsz);
+    if (!buf || !mnb) { free(buf); free(mnb); return -1; }
+    int legacy = g->half_book != 6 || !t_tiling_ok(rows, cols);   /* fp16 frames needed too */
     int rc = -1;
     uint64_t h = PACK_FNV_SEED;
     if (seek64(k->s, k->header + k->b0[i] * k->idxw) || fread(buf, 1, isz, k->s) != isz) goto done;
@@ -534,14 +555,16 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     if (up(g, &o->idx, buf, isz)) goto done;
     if (seek64(k->s, k->header + k->nblocks * k->idxw + 2 * k->b0[i]) || fread(buf, 1, fsz, k->s) != fsz) goto done;
     h = pack_fnv(buf, fsz, h);
-    if (up_scale(g, &o->mn, buf, nb)) goto done;
+    memcpy(mnb, buf, fsz);
+    if (legacy && up_scale(g, &o->mn, buf, nb)) goto done;
     if (seek64(k->s, k->header + k->nblocks * (k->idxw + 2) + 2 * k->b0[i]) || fread(buf, 1, fsz, k->s) != fsz) goto done;
     h = pack_fnv(buf, fsz, h);
     if (h != k->seg_digest[i]) {
         snprintf(g->err, sizeof g->err, "tensor %s fails its manifest segment digest", name);
         goto done;
     }
-    if (up_scale(g, &o->sc, buf, nb)) goto done;
+    if (legacy && up_scale(g, &o->sc, buf, nb)) goto done;
+    if (up_mc(g, &o->mc, mnb, buf, nb)) goto done;
     {
         size_t nf = (size_t)k->entries * k->block;
         if (g->half_book) {
@@ -556,13 +579,14 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
     o->rows = rows; o->cols = cols; o->pidx = i;
     {
         size_t bb = (size_t)k->entries * k->block * (g->half_book ? 2 : sizeof(float));
-        g->info.pack_bytes += isz + 2 * fsz + bb;
-        g->info.bytes_per_token += isz + 2 * fsz + bb;
+        size_t fr = (size_t)nb * 4 + (legacy ? 2 * fsz : 0);   /* frames on the device */
+        g->info.pack_bytes += isz + fr + bb;
+        g->info.bytes_per_token += isz + (size_t)nb * 4 + bb;
     }
     rc = 0;
 done:
     if (rc && !g->err[0]) snprintf(g->err, sizeof g->err, "reading %s from the pack failed", name);
-    free(buf);
+    free(buf); free(mnb);
     return rc;
 }
 
@@ -592,7 +616,7 @@ static int launch_sm(nemo_gpu *g, int k, unsigned gx, unsigned gy, unsigned bx, 
     if (g_prof) { g->cu.CtxSynchronize(); t0 = now_s(); }
     int rc = ck(g, g->cu.LaunchKernel(g->fn[k], gx, gy, 1, bx, 1, 1, smem, NULL, args, NULL), kname[k]);
     if (g_prof) { g->cu.CtxSynchronize(); double dt = now_s() - t0; g_prof_t[k] += dt; g_prof_n[k]++;
-        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16) || k == K_PQ) { int ai = (k >= K_PQV || k == K_PQ) ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
+        if ((k >= K_PQF && k <= K_PQT) || (k >= K_GT8 && k <= K_GX16) || k == K_PQ) { int ai = (k == K_PQ || k == K_PQT || (k >= K_GT8 && k <= K_GX16)) ? 5 : k >= K_PQV ? 6 : 7; int rr = *(int *)args[ai], cc = *(int *)args[ai + 1];
             for (int q = 0; q < 32; q++) { if (!g_shape[q][0] || (g_shape[q][0] == rr && g_shape[q][1] == cc && g_shape_k[q] == k)) { g_shape[q][0] = rr; g_shape[q][1] = cc; g_shape_k[q] = k; g_shape_t[q] += dt; g_shape_n[q]++; break; } } } }
     return rc;
 }
@@ -605,7 +629,7 @@ static void kernel_choice(nemo_gpu *g) {
 }
 static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
     if (g->exact && w->book) {
-        void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->book, &x, &y, (void *)&w->rows, (void *)&w->cols};
+        void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &x, &y, (void *)&w->rows, (void *)&w->cols};
         return launch(g, g->gemv_x, (unsigned)((w->rows + 7) / 8), 1, 256, a);
     }
     if (g->half_book == 6) {
@@ -613,7 +637,7 @@ static int pq_gemv(nemo_gpu *g, const gpq *w, CUdeviceptr x, CUdeviceptr y) {
         while (P <= 8 && ((uint64_t)P * (uint64_t)w->cols) % 256u) P *= 2;
         if (P <= 8 && w->rows % (4 * P) == 0) {
             int nwarps = w->rows / 4;
-            void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->bookh, &x, &y, (void *)&w->rows, (void *)&w->cols, &P};
+            void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->bookh, &x, &y, (void *)&w->rows, (void *)&w->cols, &P};
             if (g->gemv_k == K_PQT1K) return launch_sm(g, K_PQT1K, (unsigned)((nwarps + 31) / 32), 1, 1024, 65536u, a);
             return launch_sm(g, K_PQT, (unsigned)((nwarps + 15) / 16), 1, 512, 65536u, a);
         }
@@ -752,7 +776,7 @@ static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int 
     int tb = g->ptb;
     unsigned gy = (unsigned)((n + tb - 1) / tb);
     if (g->exact && w->book) {
-        void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &n};
+        void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->book, &X, &Y, (void *)&w->rows, (void *)&w->cols, &n};
         return launch_sm(g, K_GX16, (unsigned)((w->rows + 7) / 8), (unsigned)((n + 15) / 16), 256, 0, a);
     }
     if (g->half_book == 6) {
@@ -761,7 +785,7 @@ static int pq_gemm(nemo_gpu *g, const gpq *w, CUdeviceptr X, CUdeviceptr Y, int 
         int R = g->gemm_r;
         if (P <= 8 && w->rows % (R * P) == 0) {
             int nwarps = w->rows / R;
-            void *a[] = {(void *)&w->idx, (void *)&w->mn, (void *)&w->sc, (void *)&w->bookh, &X, &Y, (void *)&w->rows, (void *)&w->cols, &P, &n};
+            void *a[] = {(void *)&w->idx, (void *)&w->mc, (void *)&w->bookh, &X, &Y, (void *)&w->rows, (void *)&w->cols, &P, &n};
             if (g->gemm_k == K_GT8K) return launch_sm(g, K_GT8K, (unsigned)((nwarps + 31) / 32), gy, 1024, 65536u, a);
             return launch_sm(g, g->gemm_k, (unsigned)((nwarps + 15) / 16), gy, 512, 65536u, a);
         }
@@ -1272,12 +1296,13 @@ static int synth_make(nemo_gpu *g, synth *t, int rows, int cols, int host_ref) {
     (void)host_ref;
     t->w.rows = rows; t->w.cols = cols;
     if (up(g, &t->w.idx, t->idx, nb * 64) || up(g, &t->w.mn, t->mn, nb * 2) || up(g, &t->w.sc, t->sc, nb * 2)
-        || up(g, &t->w.book, t->book, 256 * 256 * 4) || up(g, &t->w.bookh, t->bookh, 256 * 256 * 2)) return -1;
+        || up(g, &t->w.book, t->book, 256 * 256 * 4) || up(g, &t->w.bookh, t->bookh, 256 * 256 * 2)
+        || up_mc(g, &t->w.mc, (const uint8_t *)t->mn, (const uint8_t *)t->sc, nb)) return -1;
     return 0;
 }
 static void synth_free(nemo_gpu *g, synth *t) {
-    CUdeviceptr d[5] = {t->w.idx, t->w.mn, t->w.sc, t->w.book, t->w.bookh};
-    for (int i = 0; i < 5; i++) if (d[i]) g->cu.MemFree(d[i]);
+    CUdeviceptr d[6] = {t->w.idx, t->w.mn, t->w.sc, t->w.mc, t->w.book, t->w.bookh};
+    for (int i = 0; i < 6; i++) if (d[i]) g->cu.MemFree(d[i]);
     free(t->idx); free(t->mn); free(t->sc); free(t->book); free(t->bookh);
 }
 
