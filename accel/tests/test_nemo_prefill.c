@@ -4,7 +4,7 @@
  * one more token with logits and compare the logits bit for bit; also a
  * second turn on top of the first (prefill at pos > 0) and a prompt that
  * spans more than one chunk. Prints the prefill and stepping rates.
- * Usage: test_nemo_prefill <ckpt> <pack.nq2> [tokens] */
+ * Usage: test_nemo_prefill <ckpt> <pack.nq2> [tokens] [dump-prefix] */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +64,10 @@ int main(int argc, char **argv) {
         if (run(g, ids, n, 0, la, &ts)) { printf("FAIL %s stepped run: device error\n", mn); return 1; }
         nemo_gpu_reset(g);
         if (run(g, ids, n, 1, lb, &tb)) { printf("FAIL %s batched run: device error\n", mn); return 1; }
+        if (argc > 4) { /* dump the stepped logits to compare builds bit for bit */
+            char fn[600]; snprintf(fn, sizeof fn, "%s-%s.f32", argv[4], mn);
+            FILE *f = fopen(fn, "wb"); if (f) { fwrite(la, 4, VOC, f); fclose(f); }
+        }
         char w[80]; snprintf(w, sizeof w, "%s prompt of %d", mn, n);
         compare(w, la, lb);
         printf("  %s: stepped %.1f tok/s, batched %.1f tok/s (%.2fx)\n", mn, n / ts, n / tb, ts / tb);
