@@ -42,6 +42,6 @@ Every result will be published with its negatives, as Lane 4 was.
 ## Documentation
 
 - Keep [CREDITS.md](CREDITS.md) current as people and assistants join.
-- Commit the Little Nemo quiz record so the 10 of 10 raw result and the 0.07 tokens/s figure can be reproduced from the tree.
+- **Little Nemo quiz record:** done. Exact prompts, first-line grading and a path-free runner are in [LITTLE-NEMO-QUIZ.md](LITTLE-NEMO-QUIZ.md) and `littlenemo/tests/quiz/`.
 
 See also [CONTRIBUTING in the README](../README.md#contributing).

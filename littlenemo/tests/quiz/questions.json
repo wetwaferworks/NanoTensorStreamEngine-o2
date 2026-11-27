@@ -1,0 +1,116 @@
+{
+  "name": "Little Nemo 10-question smoke quiz",
+  "recorded": "2026-11-26",
+  "notes": "Exact prompts from the 2026-11-26 bench session documented in docs/ACCEL-CUDA.md. Chat template on, thinking off, greedy decoding, max 16 new tokens, a fresh conversation per question. Graded by the first answer line. Headline scores in that guide: raw bf16 CPU 10/10 at about 0.07 tokens/s with clean stops; compressed CUDA pack 7/10 (7 pass, 2 hedge, 1 fail). This file does not include checkpoint or pack paths.",
+  "conditions": {
+    "decoding": "greedy",
+    "chat_template": true,
+    "thinking": false,
+    "max_new": 16,
+    "fresh_conversation_per_question": true,
+    "grade": "first_answer_line"
+  },
+  "headline": {
+    "raw_bf16_cpu": {
+      "score": "10/10",
+      "passes": 10,
+      "hedges": 0,
+      "fails": 0,
+      "tokens_per_s_about": 0.07,
+      "stops": "clean"
+    },
+    "compressed_pack_cuda": {
+      "score": "7/10",
+      "passes": 7,
+      "hedges": 2,
+      "fails": 1,
+      "fail_id": 10,
+      "fail_note": "first line was Earth; expected Jupiter. The CPU reference on the decoded pack gave the same wrong answer."
+    }
+  },
+  "questions": [
+    {
+      "id": 1,
+      "kind": "true-false",
+      "prompt": "True or false: the Sun is a star. Answer with one word.",
+      "expect": "True",
+      "published_pack_first_line": "True or False",
+      "published_pack_grade": "hedge"
+    },
+    {
+      "id": 2,
+      "kind": "true-false",
+      "prompt": "True or false: spiders have six legs. Answer with one word.",
+      "expect": "False",
+      "published_pack_first_line": "False.",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 3,
+      "kind": "true-false",
+      "prompt": "True or false: whales are mammals. Answer with one word.",
+      "expect": "True",
+      "published_pack_first_line": "True or False",
+      "published_pack_grade": "hedge"
+    },
+    {
+      "id": 4,
+      "kind": "true-false",
+      "prompt": "True or false: the chemical symbol for gold is Ag. Answer with one word.",
+      "expect": "False",
+      "published_pack_first_line": "False.",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 5,
+      "kind": "short-answer",
+      "prompt": "What is the capital of Texas? Answer in one short sentence.",
+      "expect": "Austin",
+      "published_pack_first_line": "Austin",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 6,
+      "kind": "short-answer",
+      "prompt": "What is the capital of New York State? Answer in one short sentence.",
+      "expect": "Albany",
+      "published_pack_first_line": "Albany",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 7,
+      "kind": "short-answer",
+      "prompt": "What is the capital of California? Answer in one short sentence.",
+      "expect": "Sacramento",
+      "published_pack_first_line": "Sacramento",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 8,
+      "kind": "short-answer",
+      "prompt": "What is the capital of Ohio? Answer in one short sentence.",
+      "expect": "Columbus",
+      "published_pack_first_line": "Columbus",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 9,
+      "kind": "short-answer",
+      "prompt": "What is 7 times 8? Answer in one short sentence.",
+      "expect": "56",
+      "published_pack_first_line": "56",
+      "published_pack_grade": "pass"
+    },
+    {
+      "id": 10,
+      "kind": "short-answer",
+      "prompt": "What is the largest planet in our solar system? Answer in one short sentence.",
+      "expect": "Jupiter",
+      "wrong": [
+        "Earth"
+      ],
+      "published_pack_first_line": "Earth",
+      "published_pack_grade": "fail"
+    }
+  ]
+}

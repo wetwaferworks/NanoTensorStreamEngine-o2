@@ -137,6 +137,14 @@ The suites run on tiny random-weight packs written by `sn_mktiny` and `nq2-quant
 | `test_sn_vision PREFIX SHAPES CONFIG` | the RADIO tower against a double-precision reference |
 | `sn_packcheck`, `sn_preflight` | a finished pack: every block readable and in range; geometry and tensor coverage against the checkpoint |
 
+## Little Nemo quiz
+
+The 10-question smoke quiz (raw 10 of 10 at about 0.07 tokens/s; compressed pack 7 of 10) is recorded in [LITTLE-NEMO-QUIZ.md](LITTLE-NEMO-QUIZ.md). The grader unit test needs no checkpoint:
+
+    python littlenemo/tests/quiz/test_quiz_grade.py
+
+A live rerun needs a local Nemotron Nano 9B v2 tree and, for the pack path, a local .nq2. See the guide for the command lines. No model path is stored in the tree.
+
 ## Sanitizers and thread checking
 
 The C suites run silent under ASan and UBSan (a review pass in 2026-11-24). ThreadSanitizer receipts for the self-contained zero-mutex engines and Little Nemo unit suites are in [docs/tsan/](tsan/RECEIPT-2026-11-27.md); rerun with `./docs/tsan/run-tsan.sh` on Linux or WSL. See [ZERO-MUTEX.md](ZERO-MUTEX.md) for what that record covers and what it leaves out.

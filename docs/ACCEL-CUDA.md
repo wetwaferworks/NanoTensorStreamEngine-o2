@@ -17,7 +17,7 @@ So the compressed pack is about 200 times faster than the raw CPU path, and it i
 
 ### The quiz
 
-Chat template on, thinking off, max 16 new tokens, a fresh conversation per question, the same prompts as the raw-CPU quiz. Graded by the first answer line.
+Chat template on, thinking off, max 16 new tokens, a fresh conversation per question, the same prompts as the raw-CPU quiz. Graded by the first answer line. The exact prompts, the first-line grader and a path-free runner are in [LITTLE-NEMO-QUIZ.md](LITTLE-NEMO-QUIZ.md) and littlenemo/tests/quiz/.
 
 | # | Prompt (abridged) | Auto output, first line | Grade |
 |---|---|---|---|
