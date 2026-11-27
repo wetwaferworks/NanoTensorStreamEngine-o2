@@ -36,7 +36,9 @@ every message is in [docs/GUI.md](../docs/GUI.md#protocol-v3-message-reference).
 Line-based UTF-8 text protocol between the GUI (client, Python) and the
 engine (server, pure C). The backend is always C; the Python front end
 only renders and relays. Transport: the engine's stdin/stdout when spawned
-locally, or a TCP socket when the engine runs with --serve PORT.
+locally, or a TCP socket when the engine runs with --serve PORT. The
+socket listens on 127.0.0.1 unless --serve-any is also given; there is
+no authentication, so binding every interface prints a warning.
 
 ## Client to engine
 

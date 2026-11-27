@@ -101,7 +101,8 @@ engine_gui  <checkpoint_dir> <tokenizer.json> [options]
 | `--max-pos N` | cap the context |
 | `--layers N` | truncate the stack (plumbing tests only, not a model output) |
 | `--serve-stdio` | the default transport, named explicitly |
-| `--serve PORT` | accept one TCP client (1 to 65535) and speak the same protocol over the socket; POSIX only for now (the Windows input shims cannot poll a socket) |
+| `--serve PORT` | accept one TCP client (1 to 65535) and speak the same protocol over the socket; listens on 127.0.0.1 only; POSIX only for now (the Windows input shims cannot poll a socket) |
+| `--serve-any` | with `--serve PORT`, listen on every interface instead of loopback. The protocol has no authentication, so the engine prints a warning; use it only on a trusted network |
 | `--chat` (`engine_gui`) | wrap each PROMPT in the checkpoint's own chat template (`tokenizer_config.json`, Nemotron-H: `<SPECIAL_10>System`, `<SPECIAL_11>User` / `Assistant`, `<SPECIAL_12>`) and keep the conversation in the model state across turns |
 | `--think` (`engine_gui`) | reasoning on by default; per turn `/think` and `/no_think` in the user text override it; the default is no-think (answers only) |
 

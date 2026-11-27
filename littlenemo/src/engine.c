@@ -507,7 +507,7 @@ int main(int argc, char **argv) {
                 "usage: nemo-engine <checkpoint_dir> <tokenizer.json> "
                 "[--layers N] [--max-pos N] [--max-new N] "
                 "[--mode minimum|medium|max|ultra] [--threads N] "
-                "[--simd] [--serve PORT | --serve-stdio]\n");
+                "[--simd] [--serve PORT [--serve-any] | --serve-stdio]\n");
         return 2;
     }
     int layers = 0, max_pos = 4096, max_new = 256;
@@ -515,10 +515,12 @@ int main(int argc, char **argv) {
     int threads = 0; /* 0 = take the mode's count */
     int simd = 0;
     int serve_port = 0;
+    int serve_any = 0; /* --serve binds loopback unless asked otherwise */
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--simd")) simd = 1;
         else if (!strcmp(argv[i], "--no-simd")) simd = 0;
         else if (!strcmp(argv[i], "--serve-stdio")) serve_port = -1;
+        else if (!strcmp(argv[i], "--serve-any")) serve_any = 1;
         else if (i + 1 < argc && !strcmp(argv[i], "--serve")) {
             serve_port = atoi(argv[++i]);
             /* Validate at parse time: an out-of-range port would
@@ -547,6 +549,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "nemo-engine: unknown option %s\n", argv[i]);
             return 2;
         }
+    }
+    if (serve_any && serve_port <= 0) {
+        fprintf(stderr, "nemo-engine: --serve-any needs --serve PORT\n");
+        return 2;
     }
     nemo_set_simd(simd);
     /* The machine sets the scale: query the cores, map the mode,
@@ -588,8 +594,20 @@ int main(int argc, char **argv) {
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof addr);
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        /* The protocol has no authentication: anyone who reaches the
+         * port can PROMPT, RESET or QUIT. Loopback is the default;
+         * every interface only on an explicit --serve-any, and then
+         * with a warning (Elfie's review, 2026-11-26 and 2026-11-27). */
+        addr.sin_addr.s_addr = htonl(serve_any ? INADDR_ANY : INADDR_LOOPBACK);
         addr.sin_port = htons((uint16_t)serve_port);
+        if (serve_any)
+            fprintf(stderr,
+                    "nemo-engine: WARNING: --serve-any listens on every "
+                    "network interface with no authentication; anyone "
+                    "who can reach port %d can drive this engine. Use it "
+                    "only on a trusted network or behind a firewall or "
+                    "an SSH tunnel.\n",
+                    serve_port);
         if (bind(ls, (struct sockaddr *)&addr, sizeof addr) != 0 ||
             listen(ls, 1) != 0) {
             fprintf(stderr, "nemo-engine: cannot listen on port %d\n",
@@ -597,8 +615,8 @@ int main(int argc, char **argv) {
             close(ls);
             return 1;
         }
-        fprintf(stderr, "nemo-engine: listening on port %d\n",
-                serve_port);
+        fprintf(stderr, "nemo-engine: listening on %s port %d\n",
+                serve_any ? "all interfaces" : "127.0.0.1", serve_port);
         int conn = accept(ls, NULL, NULL);
         if (conn < 0) {
             fprintf(stderr, "nemo-engine: accept failed\n");

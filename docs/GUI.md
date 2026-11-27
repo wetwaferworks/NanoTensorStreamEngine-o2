@@ -57,7 +57,7 @@ sends nothing. To see every GUI path without a model, use the test fixture (belo
 |---|---|
 | `--config PATH` | the INI to read and write; default search is `./littlenemo.ini`, beside the script, then the script's parent directory |
 | `--engine CMD` | the Little Nemo engine command line (overrides `[paths]`) |
-| `--host H` and `--port P` | connect to an engine already running with `--serve PORT` (overrides `[remote]`) |
+| `--host H` and `--port P` | connect to an engine already running with `--serve PORT` (overrides `[remote]`); see the warning under the configuration table |
 | `--model supernemo\|littlenemo` | which model is selected at startup |
 | `--supernemo-engine CMD` | the SuperNemo engine command line (overrides `[supernemo] engine`) |
 | `--supernemo-host H` and `--supernemo-port P` | a remote SuperNemo engine |
@@ -105,6 +105,8 @@ back to the same file and preserves its comments.
 | `[supernemo]` | `engine`, `host`, `port` | empty until a SuperNemo engine exists |
 | `[appearance]` | `theme` | theme id |
 | `[model.<key>]` | `icon`, `shape`, `fill`, `outline`, `face`, `size`, `motion`, `speed` | per-model look; user-defined models also take `label`, `full`, `engine`, `host`, `port`, `inputs` |
+
+**Remote engines and the network.** The engine protocol has no authentication: whoever reaches the port can send PROMPT, RESET and QUIT. `nemo-engine --serve PORT` therefore listens on 127.0.0.1 only, which is enough for a GUI on the same machine or one that reaches it through an SSH tunnel (`ssh -L PORT:127.0.0.1:PORT host`, then point `[remote]` at 127.0.0.1). To accept a GUI on another machine directly, start the engine with `--serve PORT --serve-any`; it then listens on every interface and prints a warning. Do that only on a network you trust, behind a firewall.
 
 ## Models
 
