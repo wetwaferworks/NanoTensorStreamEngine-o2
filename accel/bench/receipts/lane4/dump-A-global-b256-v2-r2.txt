@@ -1,0 +1,8 @@
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: packed .nq2
+threads: 4 workers + 1 prefetch; derived budget: pipe 216.0 MB, KV cache 7.4 MB, embedding matrix 8.0 MB
+generated token ids: 463 78431 129796 40418 94723 16470 65356 33407 94768 121566 27725 71821 6099 4619 7043 71501 98186 110236 51519 36477 56899 89689 52412 123872 15984 42082 45739 94642 68400 109740 13798 26618
+nfe: 2 (denoiser evaluations), seed 42
+prefetch telemetry: 546 requests, 394 hits (72.2%), 152 misses
+  consumer stall on misses: 781.5 ms total; mean ready slack on hits: 67.7 ms
+  load path (disc + reconstruct): 4449.3 ms for 36.31 GB expanded, 8162 MB/sec

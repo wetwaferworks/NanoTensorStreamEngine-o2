@@ -1,0 +1,9 @@
+pack identity: generation b6a3f3cecad4c511; manifest verified for 243 tensors
+NanoQuatTwo inference engine
+model: 26 layers, hidden 3072, vocab 131072, embed_dim 16, source: packed .nq2
+threads: 4 workers + 1 prefetch; derived budget: pipe 216.0 MB, KV cache 7.4 MB, embedding matrix 8.0 MB
+generated token ids: 67556 18342 89409 89734 8451 69776 49134 33112 9762 27843 50704 96786 129513 10364 101809 122527 18017 84562 107315 15888 128494 37333 82173 9306 40619 54813 77777 102100 95108 27930 14760 25173
+nfe: 2 (denoiser evaluations), seed 42
+prefetch telemetry: 546 requests, 298 hits (54.6%), 248 misses
+  consumer stall on misses: 7442.4 ms total; mean ready slack on hits: 63.1 ms
+  load path (disc + reconstruct): 22415.8 ms for 36.31 GB expanded, 1620 MB/sec

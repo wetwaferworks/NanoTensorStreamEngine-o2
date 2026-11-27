@@ -1,0 +1,22 @@
+2026-11-26 09:10:21 ET  gate: waiting for pid 7644 (Super VL HQ conversion) to exit
+2026-11-26 10:44:22 ET  gate: pid 7644 gone; convert.log tail:
+2026-11-26 10:44:22 ET     | generation digest pass: 55 s
+2026-11-26 10:44:22 ET     | manifest: <results>\super-vl-nq2-hq\super-vl-120b-a12b-bf16-b256-pt.nq2manifest
+2026-11-26 10:44:22 ET     | index stream: 2431074762 bytes; memory file: 11292639260 bytes
+2026-11-26 10:44:22 ET     | rate: 0.1563 bits per weight (stream only); complete 0.8822 (stream + book)
+2026-11-26 10:44:52 ET  rev: ef39281b1496a7b4733aa547468b99c58d6a73db (branch scratch/accel-2026-11-26); tree: ?? accel/ (accel/ untracked, nothing tracked modified)
+2026-11-26 10:44:53 ET  pack-id: sigma-full-b256-v2run.nq2 sha256 b6f94b666a6ab8aed69b203b9c6b22001f02a93ea5c581ef1e1e6e9083fb703e bytes 74883852
+2026-11-26 10:44:53 ET  pack-id: sigma-full-b256-v2run.nq2book sha256 a80604b5993a541c3e299d19f99ce4ecc88d91a058ccac4eadfe54c0d315f595 bytes 262156
+2026-11-26 10:44:53 ET  compiler: gcc.exe (Rev7, Built by MSYS2 project) 16.2.0 flags -O2 -std=c99 -static
+2026-11-26 10:44:53 ET  gpu: NVIDIA GeForce RTX 3050 Ti Laptop GPU, 621.24, 4096 MiB, P0
+2026-11-26 10:44:55 ET  cpu: 12th Gen Intel(R) Core(TM) i5-12450H 8C/12T; RAM 16088 MiB total, 7170 MiB free; other jobs: 
+2026-11-26 10:45:05 ET  run cuda-abcd: args [--lane cuda --cpu --reps 20 --sections abcd] exit 0 wall 10.5s peak_ws_MiB 139 vram_used_MiB before 384 peak 719 (delta 335) min_free_ram_MiB 7039
+2026-11-26 10:45:27 ET  run cuda-s: args [--lane cuda --sections s] exit 0 wall 1.2s peak_ws_MiB 0 vram_used_MiB before 384 peak 384 (delta 0) min_free_ram_MiB 7073
+2026-11-26 10:45:49 ET  run cuda-p: args [--lane cuda --cpu --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 2.3s peak_ws_MiB 276 vram_used_MiB before 384 peak 641 (delta 257) min_free_ram_MiB 6905
+2026-11-26 10:46:16 ET  run gpucl-abcd: args [--lane gpu-cl --reps 20 --sections abcd] exit 0 wall 7.0s peak_ws_MiB 166 vram_used_MiB before 384 peak 719 (delta 335) min_free_ram_MiB 6823
+2026-11-26 10:46:38 ET  run gpucl-s: args [--lane gpu-cl --sections s] exit 0 wall 2.3s peak_ws_MiB 174 vram_used_MiB before 384 peak 463 (delta 79) min_free_ram_MiB 7108
+2026-11-26 10:47:02 ET  run gpucl-p: args [--lane gpu-cl --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 3.5s peak_ws_MiB 320 vram_used_MiB before 384 peak 641 (delta 257) min_free_ram_MiB 6858
+2026-11-26 10:47:47 ET  run igpu-abcd: args [--lane igpu --reps 20 --sections abcd] exit 0 wall 25.4s peak_ws_MiB 681 vram_used_MiB before 384 peak 384 (delta 0) min_free_ram_MiB 6486
+2026-11-26 10:48:10 ET  run igpu-s: args [--lane igpu --sections s] exit 0 wall 2.3s peak_ws_MiB 97 vram_used_MiB before 384 peak 384 (delta 0) min_free_ram_MiB 7044
+2026-11-26 10:48:38 ET  run igpu-p: args [--lane igpu --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 8.0s peak_ws_MiB 362 vram_used_MiB before 384 peak 384 (delta 0) min_free_ram_MiB 6753
+2026-11-26 10:48:58 ET  done: receipts in accel\logs\bench\*.log (TSV lines start with R)

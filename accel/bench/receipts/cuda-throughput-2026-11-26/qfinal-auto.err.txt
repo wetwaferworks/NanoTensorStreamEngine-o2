@@ -1,0 +1,65 @@
+.\accel\bin\nemo-engine-cuda.exe : nemo-engine: calibration cached in 31 ms 
+(<user-home>\AppData\Local\NemoChat\nemo-calib.txt), lane=cuda
+At <user-home>\AppData\Local\Temp\ps-script-1eea3523-1cbb-4677-924c-bc35a719c9ac.ps1:648 char:299
++ ... ontent $Q | .\accel\bin\nemo-engine-cuda.exe "$P\nemo9b-pq4-ckpt" "$P ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (nemo-engine: ca...txt), lane=cuda:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+nemo-engine:   cuda        pass     NVIDIA GeForce RTX 3050 Ti Laptop GPU sm_86 driver 13050 nvrtc 13.4, 3296 MiB 
+free; DTC and FULL kernels bit-exact vs C emulation; DTC 137.4 Gw/s, FULL 64.5 Gw/s, read 176.5 GB/s -> ~15.3 tok/s 
+estimate
+nemo-engine:   opencl-nv   rejected found NVIDIA GeForce RTX 3050 Ti Laptop GPU (NVIDIA Corporation, 4096 MiB); 
+rejected: this build has no OpenCL Nemotron forward (only the CUDA and CPU lanes have kernels to verify)
+nemo-engine:   opencl-igpu rejected found Intel(R) UHD Graphics (Microsoft, 8044 MiB, unified memory); rejected: this 
+build has no OpenCL Nemotron forward (only the CUDA and CPU lanes have kernels to verify)
+nemo-engine:   cpu         pass     reference lane; 19.4 GB/s single-thread read -> ~1.082 tok/s estimate
+nemo-engine: CUDA lane on NVIDIA GeForce RTX 3050 Ti Laptop GPU sm_86, 2935 MiB resident (lm_head int8 per-row), 3296 
+MiB free at open; DTC on, EXPAND turn+step (fp32 books resident)
+predict: turn DTC reason=short-factual(tokens=15,complexity=1)
+predict: EXPAND step tok=3 reason=margin=0.146<0.500; full: top1 same (margin=0.161)
+predict: EXPAND step tok=4 reason=margin=0.156<0.500; full: top1 same (margin=0.162)
+predict: EXPAND step tok=7 reason=margin=0.110<0.500; full: top1 same (margin=0.107)
+predict: EXPAND step tok=13 reason=margin=0.282<0.500; full: top1 same (margin=0.294)
+predict: EXPAND step tok=14 reason=margin=0.119<0.500; full: top1 same (margin=0.120)
+predict: EXPAND step tok=15 reason=margin=0.278<0.500; full: top1 same (margin=0.286)
+predict: turn DTC reason=short-factual(tokens=15,complexity=1)
+predict: EXPAND prompt-last tok=0 reason=margin=0.176<0.500; full: top1 same (margin=0.175)
+predict: EXPAND step tok=1 reason=margin=0.027<0.500; full: top1 same (margin=0.032)
+predict: turn DTC reason=short-factual(tokens=13,complexity=1)
+predict: EXPAND step tok=3 reason=margin=0.459<0.500; full: top1 same (margin=0.458)
+predict: EXPAND step tok=4 reason=margin=0.003<0.500; full: top1 changed (margin=0.004)
+predict: EXPAND step tok=7 reason=margin=0.461<0.500; full: top1 same (margin=0.466)
+predict: EXPAND step tok=8 reason=margin=0.389<0.500; full: top1 same (margin=0.394)
+predict: EXPAND step tok=13 reason=margin=0.365<0.500; full: top1 same (margin=0.369)
+predict: EXPAND step tok=14 reason=margin=0.408<0.500; full: top1 same (margin=0.415)
+predict: EXPAND step tok=15 reason=margin=0.348<0.500; full: top1 same (margin=0.354)
+predict: turn DTC reason=short-factual(tokens=17,complexity=1)
+predict: EXPAND prompt-last tok=0 reason=margin=0.144<0.500; full: top1 same (margin=0.139)
+predict: EXPAND step tok=1 reason=margin=0.459<0.500; full: top1 same (margin=0.457)
+predict: EXPAND step tok=2 reason=margin=0.142<0.500; full: top1 same (margin=0.161)
+predict: turn DTC reason=short-factual(tokens=13,complexity=1)
+predict: EXPAND step tok=8 reason=entropy=4.934>4.000; full: top1 same (margin=0.880)
+predict: EXPAND step tok=13 reason=margin=0.189<0.500; full: top1 same (margin=0.190)
+predict: EXPAND step tok=14 reason=margin=0.182<0.500; full: top1 same (margin=0.196)
+predict: turn DTC reason=short-factual(tokens=15,complexity=1)
+predict: EXPAND step tok=10 reason=margin=0.098<0.500; full: top1 same (margin=0.101)
+predict: EXPAND step tok=11 reason=margin=0.219<0.500; full: top1 same (margin=0.214)
+predict: EXPAND step tok=13 reason=margin=0.107<0.500; full: top1 same (margin=0.094)
+predict: EXPAND step tok=15 reason=margin=0.113<0.500; full: top1 same (margin=0.113)
+predict: turn DTC reason=short-factual(tokens=13,complexity=1)
+predict: EXPAND step tok=8 reason=margin=0.210<0.500; full: top1 same (margin=0.221)
+predict: EXPAND step tok=13 reason=margin=0.145<0.500; full: top1 same (margin=0.146)
+predict: EXPAND step tok=14 reason=margin=0.151<0.500; full: top1 same (margin=0.130)
+predict: turn DTC reason=short-factual(tokens=13,complexity=1)
+predict: EXPAND step tok=8 reason=entropy=5.005>4.000; full: top1 same (margin=0.877)
+predict: EXPAND step tok=13 reason=margin=0.331<0.500; full: top1 same (margin=0.331)
+predict: EXPAND step tok=14 reason=margin=0.198<0.500; full: top1 same (margin=0.193)
+predict: turn DTC reason=short-factual(tokens=14,complexity=1)
+predict: EXPAND step tok=10 reason=margin=0.003<0.500; full: top1 same (margin=0.018)
+predict: EXPAND step tok=14 reason=margin=0.004<0.500; full: top1 same (margin=0.005)
+predict: EXPAND step tok=15 reason=margin=0.293<0.500; full: top1 same (margin=0.293)
+predict: turn DTC reason=short-factual(tokens=16,complexity=1)
+predict: EXPAND step tok=10 reason=margin=0.277<0.500; full: top1 same (margin=0.271)
+predict: EXPAND step tok=14 reason=margin=0.308<0.500; full: top1 same (margin=0.308)
+predict: EXPAND step tok=15 reason=margin=0.476<0.500; full: top1 same (margin=0.483)

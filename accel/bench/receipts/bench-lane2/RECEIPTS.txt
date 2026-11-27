@@ -1,0 +1,11 @@
+2026-11-26 11:18:11 ET  gate: none requested
+2026-11-26 11:18:11 ET  rev: ef39281b1496a7b4733aa547468b99c58d6a73db (branch scratch/accel-2026-11-26); tree: ?? accel/ (accel/ untracked, nothing tracked modified)
+2026-11-26 11:18:11 ET  pack-id: sigma-full-b256-v2run.nq2 sha256 b6f94b666a6ab8aed69b203b9c6b22001f02a93ea5c581ef1e1e6e9083fb703e bytes 74883852
+2026-11-26 11:18:11 ET  pack-id: sigma-full-b256-v2run.nq2book sha256 a80604b5993a541c3e299d19f99ce4ecc88d91a058ccac4eadfe54c0d315f595 bytes 262156
+2026-11-26 11:18:11 ET  compiler: gcc.exe (Rev7, Built by MSYS2 project) 16.2.0 flags -O2 -std=c99 -static
+2026-11-26 11:18:11 ET  gpu: NVIDIA GeForce RTX 3050 Ti Laptop GPU, 621.24, 4096 MiB, P8
+2026-11-26 11:18:13 ET  cpu: 12th Gen Intel(R) Core(TM) i5-12450H 8C/12T; RAM 16088 MiB total, 6129 MiB free; other jobs: 
+2026-11-26 11:18:19 ET  run cuda-p: args [--lane cuda --cpu --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 5.9s peak_ws_MiB 400 vram_used_MiB before 384 peak 641 (delta 257) min_free_ram_MiB 5771 gpu_temp_C start 48.94 max 53.78 sm_clock_min_MHz 210 power_max_W 27.81
+2026-11-26 11:18:36 ET  run gpucl-p: args [--lane gpu-cl --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 7.1s peak_ws_MiB 421 vram_used_MiB before 384 peak 641 (delta 257) min_free_ram_MiB 5608 gpu_temp_C start 49.19 max 53.78 sm_clock_min_MHz 210 power_max_W 30.13
+2026-11-26 11:19:02 ET  run igpu-p: args [--lane igpu --sections p --pack <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors] exit 0 wall 16.3s peak_ws_MiB 617 vram_used_MiB before 384 peak 384 (delta 0) min_free_ram_MiB 5318 gpu_temp_C start 49.78 max 51.28 sm_clock_min_MHz 210 power_max_W 14.21
+2026-11-26 11:19:12 ET  done: receipts in accel\logs\bench\*.log (TSV lines start with R)

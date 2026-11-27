@@ -1,0 +1,11 @@
+nemo-engine: calibration cached in 31 ms (<user-home>\AppData\Local\NemoChat\nemo-calib.txt), lane=cuda
+nemo-engine:   cuda        pass     NVIDIA GeForce RTX 3050 Ti Laptop GPU sm_86 driver 13050 nvrtc 13.4, 3296 MiB free; DTC and FULL kernels bit-exact vs C emulation; DTC 137.4 Gw/s, FULL 64.5 Gw/s, read 176.5 GB/s -> ~15.3 tok/s estimate
+nemo-engine:   opencl-nv   rejected found NVIDIA GeForce RTX 3050 Ti Laptop GPU (NVIDIA Corporation, 4096 MiB); rejected: this build has no OpenCL Nemotron forward (only the CUDA and CPU lanes have kernels to verify)
+nemo-engine:   opencl-igpu rejected found Intel(R) UHD Graphics (Microsoft, 8044 MiB, unified memory); rejected: this build has no OpenCL Nemotron forward (only the CUDA and CPU lanes have kernels to verify)
+nemo-engine:   cpu         pass     reference lane; 19.4 GB/s single-thread read -> ~1.082 tok/s estimate
+nemo-engine: CUDA lane on NVIDIA GeForce RTX 3050 Ti Laptop GPU sm_86, 2935 MiB resident (lm_head int8 per-row), 3296 MiB free at open; DTC on, EXPAND turn+step (fp32 books resident)
+predict: turn DTC reason=mode=dtc-only
+predict: turn DTC reason=mode=dtc-only
+predict: turn DTC reason=mode=dtc-only
+predict: turn DTC reason=mode=dtc-only
+predict: turn DTC reason=mode=dtc-only

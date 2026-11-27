@@ -112,7 +112,7 @@ Developer aids, read from the environment: `NEMO_CALIB_FILE` (cache path), `NEMO
 
 ## Speed after the throughput pass
 
-Measured on the RTX 3050 Ti Laptop (4 GB), i5-12450H, 32 new tokens per prompt, greedy. The baseline is the lane as first landed (commit 44cf2fc, Round 6). Prompt lengths are in tokens.
+Measured on the RTX 3050 Ti Laptop (4 GB), i5-12450H, 32 new tokens per prompt, greedy. The baseline is the lane as first landed (commit 44cf2fc, Round 6). Prompt lengths are in tokens. Receipts: [`accel/bench/receipts/cuda-throughput-2026-11-26/`](../accel/bench/receipts/README.md#which-file-holds-which-accel-cuda-number), one file per row.
 
 | | first landing | now |
 |---|---|---|
@@ -164,6 +164,7 @@ Point the GUI at it with `--engine` ([GUI.md](GUI.md)). Run logs are private and
 
 - The accuracy gap above is real: on this pack the CUDA lane is fast and wrong more often than the raw model. Do not read 20 tokens/s as "Little Nemo at that speed with the original quality".
 - One machine, one pack, ten short questions, greedy decoding, 16 new tokens. No essay or reasoning evaluation was run.
+- Receipts: the throughput table and the post-pass quiz speeds have their raw logs in [`accel/bench/receipts/`](../accel/bench/receipts/README.md). The raw-CPU quiz, the speeds from the day the lane landed, the calibration probe line, the Verification table and the real layer-0 projection logs have no committed receipt yet; that README lists them.
 - The OpenCL lanes have no Nemotron forward in this build and are rejected by calibration.
 - The GPU needs a pack of about 2 GB plus the `lm_head` and EXPAND resources in VRAM; on a smaller card calibration rejects CUDA and the engine falls back to the CPU lane.
 

@@ -1,0 +1,69 @@
+2026-11-26 11:33:13 ET  lane4 start threads=4 host=<host> gcc=gcc.exe (Rev7, Built by MSYS2 project) 16.2.0
+2026-11-26 11:33:13 ET  src tools\nq2-infer-lab.c sha256 3D02DD493E721D8E972DC7B5F4CA5D9130F52498D7D7BDAD4EF31F279518D0B6
+2026-11-26 11:33:13 ET  src tools\nq2-quantize.c sha256 8A9ED4EB1F843110999A3755A2C3611C32A3C91373085EE373E64BE4E2B12E13
+2026-11-26 11:33:13 ET  src tools\nq2-logitcmp.c sha256 7184A26E19CC99451E3D5ECBAA36BC9BF8247E4916BBEEEE052C52D3395C8121
+2026-11-26 11:33:59 ET  step dump-raw-r1: exit 0 wall 45.8s peak_ws_MiB 323 min_free_ram_MiB 5083 args [--dir <results>\model\sigma-3b --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-raw-r1.logits]
+2026-11-26 11:34:42 ET  step dump-raw-r2: exit 0 wall 43.2s peak_ws_MiB 322 min_free_ram_MiB 6193 args [--dir <results>\model\sigma-3b --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-raw-r2.logits]
+2026-11-26 11:34:42 ET  pack A-global-b256-v2: nq2 74883852 B, book 262156 B
+2026-11-26 11:35:18 ET  step dump-A-global-b256-v2-r1: exit 0 wall 35.4s peak_ws_MiB 293 min_free_ram_MiB 6286 args [--dir <results>\model\sigma-3b --packed <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-A-global-b256-v2-r1.logits]
+2026-11-26 11:35:54 ET  step dump-A-global-b256-v2-r2: exit 0 wall 36.5s peak_ws_MiB 293 min_free_ram_MiB 6260 args [--dir <results>\model\sigma-3b --packed <results>\pack\sigma-full-b256-v2run.nq2 <results>\pack\sigma-full-b256-v2run.nq2book --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-A-global-b256-v2-r2.logits]
+2026-11-26 11:35:54 ET  pack B-pt-b256-v3-e16: nq2 872327868 B, book 63438876 B
+2026-11-26 11:36:32 ET  step dump-B-pt-b256-v3-e16-r1: exit 0 wall 37.6s peak_ws_MiB 1121 min_free_ram_MiB 5463 args [--dir <results>\model\sigma-3b --packed <results>\sigma-3b-nq2\sigma-3b-b256-pt.nq2 <results>\sigma-3b-nq2\sigma-3b-b256-pt.nq2book --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-B-pt-b256-v3-e16-r1.logits]
+2026-11-26 11:38:16 ET  ablation dump-B-restore-E: exit 0 wall 39.9s restore [replaid_embedding_matrix.matrix]
+2026-11-26 11:38:16 ET  ablation dump-B-restore-EH: exit 0 wall 0.2s restore [replaid_embedding_matrix.matrix,diffusion_head.weight]
+2026-11-26 11:38:16 ET  ablation dump-B-restore-NL: exit 0 wall 0s restore [replaid_embedding_matrix.matrix,diffusion_head.weight,replaid_gamma_linear.weight,replaid_input_linear.weight,replaid_selfcond_linear.weight]
+2026-11-26 11:42:13 ET  ablation dump-B-restore-EH: exit 0 wall 41.8s restore [replaid_embedding_matrix.matrix,diffusion_head.weight]
+2026-11-26 11:42:54 ET  ablation dump-B-restore-H: exit 0 wall 40.9s restore [diffusion_head.weight]
+2026-11-26 11:43:35 ET  ablation dump-B-restore-NL: exit 0 wall 40.5s restore [replaid_embedding_matrix.matrix,diffusion_head.weight,replaid_gamma_linear.weight,replaid_input_linear.weight,replaid_selfcond_linear.weight]
+2026-11-26 11:44:56 ET  ablation dump-B-restore-L: exit 0 wall 48.2s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (182 tensors)]
+2026-11-26 11:46:06 ET  ablation dump-B-restore-LE: exit 0 wall 48.7s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (183 tensors)]
+2026-11-26 11:46:54 ET  ablation dump-B-restore-LH: exit 0 wall 48.5s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (183 tensors)]
+2026-11-26 11:47:43 ET  ablation dump-B-restore-LEH: exit 0 wall 49.1s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (184 tensors)]
+2026-11-26 11:48:31 ET  ablation dump-B-restore-LR: exit 0 wall 48.1s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (185 tensors)]
+2026-11-26 11:53:54 ET  step quantize-C-pt-pq8-rms-e16: exit 0 wall 1041.6s peak_ws_MiB 1306 min_free_ram_MiB 3733 args [--out accel\lane4\packs\sigma-pt-pq8-rms --books per-tensor --format 3 --block 256 --entries 256 --pq 8 --norm rms --embed-fp16 --budget 1000000000000 <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors]
+2026-11-26 11:53:54 ET  pack C-pt-pq8-rms-e16: nq2 1287848772 B, book 63438880 B
+2026-11-26 11:54:37 ET  step dump-C-pt-pq8-rms-e16-r1: exit 0 wall 43s peak_ws_MiB 1122 min_free_ram_MiB 4970 args [--dir <results>\model\sigma-3b --packed accel\lane4\packs\sigma-pt-pq8-rms.nq2 accel\lane4\packs\sigma-pt-pq8-rms.nq2book --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-C-pt-pq8-rms-e16-r1.logits]
+2026-11-26 12:00:21 ET  ablation dump-C-restore-L: exit 0 wall 48.1s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (182 tensors)]
+2026-11-26 12:01:09 ET  ablation dump-C-restore-LH: exit 0 wall 48.1s restore [encoder.layers.0.mlp.down_proj.weight,encoder.layers.0.mlp.gate_proj.weight,encoder.layers.0.mlp.up_proj.weight,encoder.... (183 tensors)]
+2026-11-26 12:01:55 ET  ablation dump-C-restore-H: exit 0 wall 46.2s restore [diffusion_head.weight]
+2026-11-26 12:14:54 ET  step quantize-D-pt-pq4-rms-e16: exit 0 wall 1217.7s peak_ws_MiB 1715 min_free_ram_MiB 1845 args [--out accel\lane4\packs\sigma-pt-pq4-rms --books per-tensor --format 3 --block 256 --entries 256 --pq 4 --norm rms --embed-fp16 --budget 1000000000000 <results>\model\sigma-3b\model-00001-of-00002.safetensors <results>\model\sigma-3b\model-00002-of-00002.safetensors]
+2026-11-26 12:14:54 ET  pack D-pt-pq4-rms-e16: nq2 1716773572 B, book 63438880 B
+2026-11-26 12:15:56 ET  step dump-D-pt-pq4-rms-e16-r1: exit 0 wall 61.5s peak_ws_MiB 1122 min_free_ram_MiB 4787 args [--dir <results>\model\sigma-3b --packed accel\lane4\packs\sigma-pt-pq4-rms.nq2 accel\lane4\packs\sigma-pt-pq4-rms.nq2book --ids 1 --tokens 32 --steps 1 --guidance 1 --score-temp 1 --seed 42 --threads 4 --logits-dump accel\lane4\dumps\dump-D-pt-pq4-rms-e16-r1.logits]
+2026-11-26 12:15:56 ET  logitcmp dump-A-global-b256-v2-r1 vs raw rc=0
+2026-11-26 12:15:56 ET  logitcmp dump-A-global-b256-v2-r2 vs raw rc=0
+2026-11-26 12:15:56 ET  logitcmp dump-B-pt-b256-v3-e16-r1 vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-E vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-EH vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-H vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-L vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-LE vs raw rc=0
+2026-11-26 12:15:57 ET  logitcmp dump-B-restore-LEH vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-B-restore-LH vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-B-restore-LR vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-B-restore-NL vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-C-pt-pq8-rms-e16-r1 vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-C-restore-H vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-C-restore-L vs raw rc=0
+2026-11-26 12:15:58 ET  logitcmp dump-C-restore-LH vs raw rc=0
+2026-11-26 12:15:59 ET  logitcmp dump-D-pt-pq4-rms-e16-r1 vs raw rc=0
+2026-11-26 12:15:59 ET  logitcmp dump-raw-r2 vs raw rc=0
+2026-11-26 12:15:59 ET  dump sha256 dump-A-global-b256-v2-r1.logits E397E2EAF6BA11D439D0AAC936836DD3A4C1FC69FAA052208AD8F168748FE727
+2026-11-26 12:15:59 ET  dump sha256 dump-A-global-b256-v2-r2.logits E397E2EAF6BA11D439D0AAC936836DD3A4C1FC69FAA052208AD8F168748FE727
+2026-11-26 12:15:59 ET  dump sha256 dump-B-pt-b256-v3-e16-r1.logits 2F22D8D714C667CA5E6DB46995FBB6A92CF6047D4D4E8D906308FFEF7B5EBE9F
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-E.logits A3FE97634AC7246BFF31B08896D48F5821BF42A455F4516D54AA14DB0B1B4A9E
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-EH.logits 702E414D3514730BDE70C7834F55AB72142B1497BE9ABCEBF5E2DA77598A2D13
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-H.logits 41367E065A910808D55057D34B06BC4F6E275BAFBD50E98DA68B22A7DE325933
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-L.logits 966B19372F6522D66D1372CF062BE39B1F6E8E26B7DD59FE1E21057266257E8E
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-LE.logits 8D6085CFEBDED450CFF06389283D91393BC01F21A078A638C4BDA4665A31B580
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-LEH.logits 16112C445D047DCB565AFC05BC04BE2796C8728160AF39983B03112C55F66BD5
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-LH.logits 689C7AA7B06C21D9A51FE76D4AB874C7267BC3B6E45BF6466489962181011A3A
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-LR.logits F2849BF125706349E071DE7F81E4F9932791B8DBF6DEBC3235F2B7A164EF6EF1
+2026-11-26 12:15:59 ET  dump sha256 dump-B-restore-NL.logits E7039EC36FBBB81AAE559B12282F71DDA6CC741ABA5A8AE9BE2B50B7094C2B61
+2026-11-26 12:15:59 ET  dump sha256 dump-C-pt-pq8-rms-e16-r1.logits 1D91548ED1D70DE8831F0782FB274FB08BE101F483A3F2EFFE3EE8E116A66010
+2026-11-26 12:15:59 ET  dump sha256 dump-C-restore-H.logits CB07A2EFBFDCC1BCF9771C5A518160DDFD732358A4D252E5943EBE341E1BFFA7
+2026-11-26 12:15:59 ET  dump sha256 dump-C-restore-L.logits 07EB0EA9D2C97B565AD73A94A602AB4D5EDBA6ADF05EDC098CD7DD5A0625F6DC
+2026-11-26 12:15:59 ET  dump sha256 dump-C-restore-LH.logits 823B09FE4B80A31BA87AC58A10F8AD861E9ED5CD47849A7EED7CF98B040CF797
+2026-11-26 12:15:59 ET  dump sha256 dump-D-pt-pq4-rms-e16-r1.logits 2509D47F4FF09F11CB9819D41A296CEC7F539ED1F7EED0263DEB1B0B9575CB45
+2026-11-26 12:15:59 ET  dump sha256 dump-raw-r1.logits BDF47F7F78F8DD3A36464523589162EAF1284285879E578D5027D0B392C5A8BE
+2026-11-26 12:15:59 ET  dump sha256 dump-raw-r2.logits BDF47F7F78F8DD3A36464523589162EAF1284285879E578D5027D0B392C5A8BE
+2026-11-26 12:15:59 ET  lane4 done

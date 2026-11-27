@@ -1,0 +1,1 @@
+notice: legacy pack (format v1): no generation identity; the stream and the book are bound by position, as before

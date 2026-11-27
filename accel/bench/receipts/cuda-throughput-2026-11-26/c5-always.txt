@@ -1,0 +1,543 @@
+READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=0 think=0
+HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=cached dtc=on expand=always host_threads=1 prefill_chunk=64
+STAT calib=cached calib_ms=32 lane=cuda lane_cuda=pass lane_opencl_nv=rejected lane_opencl_igpu=rejected lane_cpu=pass est_cuda_tps=15.32 est_cpu_tps=1.082 open_note=-
+STAT cuda_reason=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20sm_86%20driver%2013050%20nvrtc%2013.4,%203296%20MiB%20free;%20DTC%20and%20FULL%20kernels%20bit-exact%20vs%20C%20emulation;%20DTC%20137.4%20Gw/s,%20FULL%2064.5%20Gw/s,%20read%20176.5%20GB/s%20->%20~15.3%20tok/s%20estimate opencl_nv_reason=found%20NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20(NVIDIA%20Corporation,%204096%20MiB);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) opencl_igpu_reason=found%20Intel(R)%20UHD%20Graphics%20(Microsoft,%208044%20MiB,%20unified%20memory);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) cpu_reason=reference%20lane;%2019.4%20GB/s%20single-thread%20read%20->%20~1.082%20tok/s%20estimate
+STAT dtc_margin=0.500 dtc_entropy=4.000 dtc_prompt_tokens=96 dtc_complexity=6
+STAT turn_lane=expand turn_reason=mode%3Dalways
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D7
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=turn-expanded
+PREFILL tokens=8 ms=566 tps=14.143
+TOK  the
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=119.4 gbs=22.218
+TOK  old
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=121.2 gbs=21.882
+TOK  man
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=119.9 gbs=22.115
+TOK  lived
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=121.0 gbs=21.921
+TOK .\n
+EXPAND tensor=step tok=5 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=116.7 gbs=22.732
+TOK  he
+EXPAND tensor=step tok=6 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=120.4 gbs=22.028
+TOK  was
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=117.4 gbs=22.596
+TOK  a
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=117.4 gbs=22.585
+TOK  good
+EXPAND tensor=step tok=9 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=120.2 gbs=22.069
+TOK \n
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=119.7 gbs=22.154
+TOK  old
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=116.5 gbs=22.772
+TOK  man
+EXPAND tensor=step tok=12 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=117.4 gbs=22.590
+TOK  and
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=119.7 gbs=22.162
+TOK  he
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=119.2 gbs=22.245
+TOK  lived
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=116.8 gbs=22.711
+TOK  in
+EXPAND tensor=step tok=16 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=122.2 gbs=21.700
+TOK  a
+EXPAND tensor=step tok=17 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=121.0 gbs=21.908
+TOK  nice
+EXPAND tensor=step tok=18 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=116.9 gbs=22.691
+TOK  house
+EXPAND tensor=step tok=19 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=119.3 gbs=22.227
+TOK .
+EXPAND tensor=step tok=20 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=123.4 gbs=21.497
+TOK  the
+EXPAND tensor=step tok=21 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=122.4 gbs=21.659
+TOK  old
+EXPAND tensor=step tok=22 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=118.9 gbs=22.308
+TOK  man
+EXPAND tensor=step tok=23 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=117.9 gbs=22.499
+TOK  and
+EXPAND tensor=step tok=24 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=117.3 gbs=22.605
+TOK  his
+EXPAND tensor=step tok=25 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=119.7 gbs=22.146
+TOK  wife
+EXPAND tensor=step tok=26 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=117.0 gbs=22.672
+TOK  lived
+EXPAND tensor=step tok=27 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=118.5 gbs=22.382
+TOK  in
+EXPAND tensor=step tok=28 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=117.9 gbs=22.499
+TOK  a
+EXPAND tensor=step tok=29 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=122.0 gbs=21.735
+TOK  nice
+EXPAND tensor=step tok=30 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=120.8 gbs=21.955
+TOK  house
+EXPAND tensor=step tok=31 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=116.7 gbs=22.714
+TOK  together
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=110.7 gbs=18.646
+STATS tokens=32 ms=4375 tps=8.410 ms_per_tok=118.9 gbs_avg=22.147 peak_mb=274.9 prompt_tokens=8 prompt_ms=566 prompt_tps=14.143 stopped=0 lane=cuda dtc_steps=0 expand_steps=33 ttft_ms=566 gen_tps=8.410
+MEM peak_mb=274.9
+STAT dtc_steps=0 expand_steps=33 dtc_session=0 expand_session=33
+DONE
+STAT turn_lane=expand turn_reason=mode%3Dalways
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D19
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=turn-expanded
+PREFILL tokens=52 ms=1331 tps=39.067
+TOK .\n\n
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=121.0 gbs=21.909
+TOK The
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=121.6 gbs=21.816
+TOK  mill
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=122.3 gbs=21.690
+TOK er
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=119.2 gbs=22.244
+TOK  kept
+EXPAND tensor=step tok=5 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=121.5 gbs=21.824
+TOK  a
+EXPAND tensor=step tok=6 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=118.8 gbs=22.315
+TOK  led
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=117.7 gbs=22.529
+TOK ger
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=118.1 gbs=22.464
+TOK  of
+EXPAND tensor=step tok=9 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=118.3 gbs=22.411
+TOK  every
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=121.6 gbs=21.800
+TOK  sack
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=117.2 gbs=22.630
+TOK ,
+EXPAND tensor=step tok=12 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=118.3 gbs=22.417
+TOK  every
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=122.0 gbs=21.735
+TOK  price
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=118.9 gbs=22.300
+TOK  and
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=122.7 gbs=21.606
+TOK  every
+EXPAND tensor=step tok=16 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=118.1 gbs=22.460
+TOK  promise
+EXPAND tensor=step tok=17 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=118.2 gbs=22.431
+TOK  made
+EXPAND tensor=step tok=18 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=121.0 gbs=21.923
+TOK  over
+EXPAND tensor=step tok=19 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=118.0 gbs=22.474
+TOK  the
+EXPAND tensor=step tok=20 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=121.4 gbs=21.847
+TOK  long
+EXPAND tensor=step tok=21 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=122.0 gbs=21.742
+TOK  winter
+EXPAND tensor=step tok=22 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=118.3 gbs=22.407
+TOK  months
+EXPAND tensor=step tok=23 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=118.7 gbs=22.333
+TOK  while
+EXPAND tensor=step tok=24 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=121.5 gbs=21.817
+TOK  the
+EXPAND tensor=step tok=25 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=117.7 gbs=22.537
+TOK  children
+EXPAND tensor=step tok=26 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=122.5 gbs=21.648
+TOK  played
+EXPAND tensor=step tok=27 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=120.2 gbs=22.069
+TOK  along
+EXPAND tensor=step tok=28 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=119.8 gbs=22.144
+TOK  the
+EXPAND tensor=step tok=29 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=122.3 gbs=21.689
+TOK  frozen
+EXPAND tensor=step tok=30 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=121.1 gbs=21.898
+TOK  river
+EXPAND tensor=step tok=31 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=120.4 gbs=22.031
+TOK  and
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=111.3 gbs=18.538
+STATS tokens=32 ms=5167 tps=8.351 ms_per_tok=119.7 gbs_avg=21.993 peak_mb=306.0 prompt_tokens=52 prompt_ms=1331 prompt_tps=39.067 stopped=0 lane=cuda dtc_steps=0 expand_steps=34 ttft_ms=1331 gen_tps=8.351
+MEM peak_mb=306.0
+STAT dtc_steps=0 expand_steps=34 dtc_session=0 expand_session=67
+DONE
+STAT turn_lane=expand turn_reason=mode%3Dalways
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D8
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=turn-expanded
+PREFILL tokens=105 ms=2442 tps=43.005
+TOK  and
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=118.2 gbs=22.436
+TOK  the
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=119.2 gbs=22.254
+TOK  wheel
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=125.6 gbs=21.111
+TOK  stood
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=119.5 gbs=22.194
+TOK  still
+EXPAND tensor=step tok=5 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=122.1 gbs=21.718
+TOK  under
+EXPAND tensor=step tok=6 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=120.1 gbs=22.074
+TOK  a
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=119.1 gbs=22.270
+TOK  coat
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=122.5 gbs=21.655
+TOK  of
+EXPAND tensor=step tok=9 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=116.8 gbs=22.699
+TOK  ice
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=122.6 gbs=21.627
+TOK .
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=118.1 gbs=22.452
+TOK  The
+EXPAND tensor=step tok=12 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=119.6 gbs=22.176
+TOK  river
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=122.3 gbs=21.675
+TOK  ran
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=118.4 gbs=22.399
+TOK  past
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=119.1 gbs=22.258
+TOK  the
+EXPAND tensor=step tok=16 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=121.1 gbs=21.894
+TOK  old
+EXPAND tensor=step tok=17 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=121.9 gbs=21.749
+TOK  mill
+EXPAND tensor=step tok=18 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=121.3 gbs=21.856
+TOK  where
+EXPAND tensor=step tok=19 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=119.8 gbs=22.143
+TOK  the
+EXPAND tensor=step tok=20 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=121.1 gbs=21.897
+TOK  farmers
+EXPAND tensor=step tok=21 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=123.3 gbs=21.507
+TOK  brought
+EXPAND tensor=step tok=22 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=121.3 gbs=21.863
+TOK  their
+EXPAND tensor=step tok=23 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=119.8 gbs=22.140
+TOK  grain
+EXPAND tensor=step tok=24 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=120.7 gbs=21.967
+TOK  each
+EXPAND tensor=step tok=25 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=122.1 gbs=21.724
+TOK  autumn
+EXPAND tensor=step tok=26 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=118.6 gbs=22.369
+TOK ,
+EXPAND tensor=step tok=27 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=118.0 gbs=22.479
+TOK  and
+EXPAND tensor=step tok=28 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=119.8 gbs=22.135
+TOK  the
+EXPAND tensor=step tok=29 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=123.9 gbs=21.398
+TOK  mill
+EXPAND tensor=step tok=30 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=118.0 gbs=22.471
+TOK ers
+EXPAND tensor=step tok=31 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=122.4 gbs=21.665
+TOK  kept
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=111.7 gbs=18.472
+STATS tokens=32 ms=6294 tps=8.316 ms_per_tok=120.3 gbs_avg=21.900 peak_mb=306.0 prompt_tokens=105 prompt_ms=2442 prompt_tps=43.005 stopped=0 lane=cuda dtc_steps=0 expand_steps=36 ttft_ms=2442 gen_tps=8.316
+MEM peak_mb=306.0
+STAT dtc_steps=0 expand_steps=36 dtc_session=0 expand_session=103
+DONE
+STAT turn_lane=expand turn_reason=mode%3Dalways
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D18
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=turn-expanded
+PREFILL tokens=211 ms=4860 tps=43.420
+TOK  winter
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=122.9 gbs=21.572
+TOK  months
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=118.0 gbs=22.476
+TOK  while
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=122.9 gbs=21.584
+TOK  the
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=119.0 gbs=22.291
+TOK  children
+EXPAND tensor=step tok=5 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=120.4 gbs=22.032
+TOK  played
+EXPAND tensor=step tok=6 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=123.3 gbs=21.508
+TOK  along
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=122.2 gbs=21.694
+TOK  the
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=118.4 gbs=22.402
+TOK  frozen
+EXPAND tensor=step tok=9 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=121.7 gbs=21.784
+TOK  banks
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=119.7 gbs=22.160
+TOK  and
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=122.1 gbs=21.721
+TOK  the
+EXPAND tensor=step tok=12 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=119.4 gbs=22.207
+TOK  wheel
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=120.4 gbs=22.017
+TOK  stood
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=123.6 gbs=21.449
+TOK  still
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=118.3 gbs=22.408
+TOK  under
+EXPAND tensor=step tok=16 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=122.8 gbs=21.592
+TOK  a
+EXPAND tensor=step tok=17 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=124.4 gbs=21.314
+TOK  coat
+EXPAND tensor=step tok=18 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=119.4 gbs=22.211
+TOK  of
+EXPAND tensor=step tok=19 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=124.0 gbs=21.388
+TOK  ice
+EXPAND tensor=step tok=20 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=121.3 gbs=21.867
+TOK .\n
+EXPAND tensor=step tok=21 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=120.6 gbs=21.984
+TOK  The
+EXPAND tensor=step tok=22 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=121.4 gbs=21.849
+TOK  river
+EXPAND tensor=step tok=23 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=120.4 gbs=22.020
+TOK  ran
+EXPAND tensor=step tok=24 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=122.9 gbs=21.570
+TOK  past
+EXPAND tensor=step tok=25 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=125.4 gbs=21.152
+TOK  the
+EXPAND tensor=step tok=26 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=123.0 gbs=21.563
+TOK  old
+EXPAND tensor=step tok=27 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=117.9 gbs=22.493
+TOK  mill
+EXPAND tensor=step tok=28 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=122.6 gbs=21.638
+TOK  where
+EXPAND tensor=step tok=29 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=123.7 gbs=21.436
+TOK  the
+EXPAND tensor=step tok=30 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=124.9 gbs=21.235
+TOK  farmers
+EXPAND tensor=step tok=31 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=119.7 gbs=22.155
+TOK  brought
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=112.5 gbs=18.344
+STATS tokens=32 ms=8743 tps=8.249 ms_per_tok=121.2 gbs_avg=21.724 peak_mb=306.0 prompt_tokens=211 prompt_ms=4860 prompt_tps=43.420 stopped=0 lane=cuda dtc_steps=0 expand_steps=39 ttft_ms=4860 gen_tps=8.249
+MEM peak_mb=306.0
+STAT dtc_steps=0 expand_steps=39 dtc_session=0 expand_session=142
+DONE
+STAT turn_lane=expand turn_reason=mode%3Dalways
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D31
+EXPAND tensor=prefill tok=0 lane=cuda mode=full reason=prompt%20tokens%3D2
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=turn-expanded
+PREFILL tokens=419 ms=9872 tps=42.441
+TOK  each
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=123.2 gbs=21.516
+TOK  autumn
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=126.9 gbs=20.899
+TOK ,
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=121.4 gbs=21.840
+TOK  and
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=125.2 gbs=21.174
+TOK  the
+EXPAND tensor=step tok=5 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=122.2 gbs=21.706
+TOK  mill
+EXPAND tensor=step tok=6 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=124.5 gbs=21.301
+TOK er
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=121.8 gbs=21.770
+TOK  kept
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=121.1 gbs=21.894
+TOK  a
+EXPAND tensor=step tok=9 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=122.4 gbs=21.665
+TOK  led
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=121.3 gbs=21.866
+TOK ger
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=121.7 gbs=21.783
+TOK  of
+EXPAND tensor=step tok=12 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=128.1 gbs=20.709
+TOK  every
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=122.6 gbs=21.626
+TOK  sack
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=126.3 gbs=20.993
+TOK ,
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=121.1 gbs=21.893
+TOK  every
+EXPAND tensor=step tok=16 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=122.3 gbs=21.689
+TOK  price
+EXPAND tensor=step tok=17 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=125.3 gbs=21.169
+TOK  and
+EXPAND tensor=step tok=18 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=122.0 gbs=21.737
+TOK  every
+EXPAND tensor=step tok=19 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=126.7 gbs=20.928
+TOK  promise
+EXPAND tensor=step tok=20 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=121.3 gbs=21.869
+TOK  made
+EXPAND tensor=step tok=21 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=121.6 gbs=21.806
+TOK  over
+EXPAND tensor=step tok=22 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=124.7 gbs=21.262
+TOK  the
+EXPAND tensor=step tok=23 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=120.6 gbs=21.983
+TOK  long
+EXPAND tensor=step tok=24 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=126.3 gbs=20.990
+TOK  winter
+EXPAND tensor=step tok=25 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=120.7 gbs=21.965
+TOK  months
+EXPAND tensor=step tok=26 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=122.6 gbs=21.631
+TOK  while
+EXPAND tensor=step tok=27 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=125.8 gbs=21.080
+TOK  the
+EXPAND tensor=step tok=28 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=121.8 gbs=21.772
+TOK  children
+EXPAND tensor=step tok=29 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=124.9 gbs=21.230
+TOK  played
+EXPAND tensor=step tok=30 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=124.9 gbs=21.239
+TOK  along
+EXPAND tensor=step tok=31 lane=cuda mode=full reason=turn-expanded
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=126.5 gbs=20.960
+TOK  the
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=113.4 gbs=18.195
+STATS tokens=32 ms=13818 tps=8.119 ms_per_tok=123.2 gbs_avg=21.381 peak_mb=306.0 prompt_tokens=419 prompt_ms=9872 prompt_tps=42.441 stopped=0 lane=cuda dtc_steps=0 expand_steps=46 ttft_ms=9872 gen_tps=8.119
+MEM peak_mb=306.0
+STAT dtc_steps=0 expand_steps=46 dtc_session=0 expand_session=188
+DONE

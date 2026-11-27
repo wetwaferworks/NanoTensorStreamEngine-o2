@@ -212,7 +212,7 @@ expanded rel L2 ≤ 1e-5, cosine ≥ 0.999999, Nemo GPU-vs-CPU rel L2 ≤
 
 ## Benchmarks (gated run 10:44–10:48 AM ET, 2026-11-26, after the Super VL HQ conversion finished at 10:43:48 ET)
 
-Receipts: `logs/bench/RECEIPTS.txt`, per-run TSV in `logs/bench/*.log`.
+Receipts: [`bench/receipts/lane-bench-2026-11-26/RECEIPTS.txt`](bench/receipts/lane-bench-2026-11-26/RECEIPTS.txt). The per-run TSV logs stay private (`*.log` is gitignored).
 All 9 runs exited 0, sticky_fault = 0, ownership violations = 0.
 
 * rev `ef39281b1496a7b4733aa547468b99c58d6a73db` plus untracked `accel/`
@@ -319,11 +319,11 @@ scheduling and is not portable to OpenCL. The mark pass uses
 idempotent stores (every writer stores 1), so it is race-free without
 atomics. All four DTC ops are **bit-identical to the CPU kernel** on
 all three lanes: synthetic suites and all 7 real Sigma layer-0
-projections (`real-*-3.log`), and every full-pack pass
+projections (`real-*-3.log`; those layer logs are not in the committed receipt set), and every full-pack pass
 (`differ_vs_cpu = 0`).
 
-Receipts (`logs/bench-lane1/`, 11:24–11:26 AM ET, and
-`logs/bench-lane1-warm/` 11:28 ET with the warm-up pass), full Sigma
+Receipts (`bench/receipts/bench-lane1/`, 11:24–11:26 AM ET, and
+`bench/receipts/bench-lane1-warm/` 11:28 ET with the warm-up pass), full Sigma
 pack:
 
 | lane | eager | active | lazy | direct | lazy vs best |
@@ -376,7 +376,7 @@ Streaming was the bottleneck: 7.97 tok/s streamed vs 80.67 resident
 * The device path uses the create-time snapshot (tested: mutating the
   caller's index after create does not change GPU output).
 
-Receipts (`logs/bench-lane2/`, 11:18–11:19 AM ET, same rev, pack,
+Receipts (`bench/receipts/bench-lane2/`, 11:18–11:19 AM ET, same rev, pack,
 hardware and driver as above; GPU 48.9–53.8 °C, max 27.8 W CUDA /
 30.1 W OpenCL-NVIDIA / 14.2 W iGPU run; peak host working set
 400–617 MiB). PCIe probe, 64 MiB: H2D pinned 12.99 GB/s, pageable
@@ -436,7 +436,7 @@ only in tensor rel L2? Previous logit comparisons in this project
 two engines on the same pack. Lane 4 compares packs **against the raw
 bf16 model**.
 
-Setup (receipts `accel/lane4/logs/RECEIPTS.txt`, `progress.txt`,
+Setup (receipts `bench/receipts/lane4/RECEIPTS.txt`, `progress.txt`,
 `cmp-*-vs-raw.txt`):
 
 * Engine `tools/nq2-infer-lab.c` (Elfie), comparator

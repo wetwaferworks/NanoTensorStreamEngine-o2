@@ -1,0 +1,473 @@
+READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=1 think=0
+HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=cached dtc=on expand=auto host_threads=1 prefill_chunk=64 full_path=fast tok_overlap=1
+STAT calib=cached calib_ms=31 lane=cuda lane_cuda=pass lane_opencl_nv=rejected lane_opencl_igpu=rejected lane_cpu=pass est_cuda_tps=15.32 est_cpu_tps=1.082 open_note=-
+STAT cuda_reason=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20sm_86%20driver%2013050%20nvrtc%2013.4,%203296%20MiB%20free;%20DTC%20and%20FULL%20kernels%20bit-exact%20vs%20C%20emulation;%20DTC%20137.4%20Gw/s,%20FULL%2064.5%20Gw/s,%20read%20176.5%20GB/s%20->%20~15.3%20tok/s%20estimate opencl_nv_reason=found%20NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20(NVIDIA%20Corporation,%204096%20MiB);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) opencl_igpu_reason=found%20Intel(R)%20UHD%20Graphics%20(Microsoft,%208044%20MiB,%20unified%20memory);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) cpu_reason=reference%20lane;%2019.4%20GB/s%20single-thread%20read%20->%20~1.082%20tok/s%20estimate
+STAT dtc_margin=0.500 dtc_entropy=4.000 dtc_prompt_tokens=96 dtc_complexity=6
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D15,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D28
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D1.309,entropy%3D1.627)
+PREFILL tokens=29 ms=527 tps=55.060
+TOK True
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D1.454,entropy%3D0.627)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=47.9 gbs=55.330
+TOK \n
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D0.743,entropy%3D1.614)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=47.9 gbs=55.414
+TOK \n\n
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=margin%3D0.146<0.500;%20full:%20top1%20same%20(margin%3D0.161)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=108.5 gbs=24.438
+TOK  or
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=margin%3D0.156<0.500;%20full:%20top1%20same%20(margin%3D0.162)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=108.3 gbs=24.492
+TOK \n
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D1.502,entropy%3D3.591)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.3 gbs=54.875
+TOK  False
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D2.735,entropy%3D1.056)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.1 gbs=55.164
+TOK \n
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=margin%3D0.110<0.500;%20full:%20top1%20same%20(margin%3D0.107)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=108.4 gbs=24.463
+TOK  (
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=confident(margin%3D1.522,entropy%3D2.974)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=48.5 gbs=54.682
+TOK choose
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D2.442,entropy%3D0.707)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.1 gbs=55.177
+TOK  one
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=confident(margin%3D1.924,entropy%3D1.380)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=47.8 gbs=55.453
+TOK )\n
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D0.697,entropy%3D3.430)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=47.8 gbs=55.480
+TOK  
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D0.543,entropy%3D1.377)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=49.1 gbs=54.060
+TOK \n
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.282<0.500;%20full:%20top1%20same%20(margin%3D0.294)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=110.6 gbs=23.988
+TOK  (
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.119<0.500;%20full:%20top1%20same%20(margin%3D0.120)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=109.5 gbs=24.225
+TOK Answer
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=margin%3D0.278<0.500;%20full:%20top1%20same%20(margin%3D0.286)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=108.4 gbs=24.475
+TOK  with
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.4 gbs=48.665
+STATS tokens=16 ms=1657 tps=14.167 ms_per_tok=70.6 gbs_avg=37.048 peak_mb=275.4 prompt_tokens=29 prompt_ms=527 prompt_tps=55.060 stopped=0 lane=cuda dtc_steps=11 expand_steps=6 ttft_ms=527 gen_tps=14.167
+MEM peak_mb=275.4
+STAT dtc_steps=11 expand_steps=6 dtc_session=11 expand_session=6
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D15,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D28
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=margin%3D0.176<0.500;%20full:%20top1%20same%20(margin%3D0.175)
+PREFILL tokens=29 ms=413 tps=70.228
+TOK False
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=margin%3D0.027<0.500;%20full:%20top1%20same%20(margin%3D0.032)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=108.3 gbs=24.484
+TOK .\n
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D1.624,entropy%3D0.942)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=47.9 gbs=55.345
+STATS tokens=2 ms=569 tps=12.802 ms_per_tok=78.1 gbs_avg=33.949 peak_mb=306.5 prompt_tokens=29 prompt_ms=413 prompt_tps=70.228 stopped=0 lane=cuda dtc_steps=2 expand_steps=2 ttft_ms=413 gen_tps=12.802
+MEM peak_mb=306.5
+STAT dtc_steps=2 expand_steps=2 dtc_session=13 expand_session=8
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D13,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D26
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D3.021,entropy%3D0.817)
+PREFILL tokens=27 ms=349 tps=77.320
+TOK True
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D1.210,entropy%3D0.685)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=49.5 gbs=53.569
+TOK \n
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D0.864,entropy%3D1.795)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=48.7 gbs=54.477
+TOK \n\n
+EXPAND tensor=step tok=3 lane=cuda mode=full reason=margin%3D0.459<0.500;%20full:%20top1%20same%20(margin%3D0.458)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=109.3 gbs=24.265
+TOK  or
+EXPAND tensor=step tok=4 lane=cuda mode=full reason=margin%3D0.003<0.500;%20full:%20top1%20changed%20(margin%3D0.004)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=109.2 gbs=24.295
+TOK \n
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D2.375,entropy%3D2.861)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.1 gbs=55.131
+TOK  False
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D3.102,entropy%3D0.945)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=47.7 gbs=55.637
+TOK \n
+EXPAND tensor=step tok=7 lane=cuda mode=full reason=margin%3D0.461<0.500;%20full:%20top1%20same%20(margin%3D0.466)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=108.2 gbs=24.511
+TOK  
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=margin%3D0.389<0.500;%20full:%20top1%20same%20(margin%3D0.394)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=109.7 gbs=24.163
+TOK \n
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D1.093,entropy%3D3.207)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.2 gbs=54.966
+TOK  (
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=confident(margin%3D1.186,entropy%3D2.629)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=48.0 gbs=55.254
+TOK choose
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D2.961,entropy%3D0.534)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=47.8 gbs=55.519
+TOK  one
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D0.988,entropy%3D1.755)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=47.7 gbs=55.631
+TOK )\n
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.365<0.500;%20full:%20top1%20same%20(margin%3D0.369)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=108.7 gbs=24.393
+TOK  
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.408<0.500;%20full:%20top1%20same%20(margin%3D0.415)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=109.2 gbs=24.295
+TOK \n
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=margin%3D0.348<0.500;%20full:%20top1%20same%20(margin%3D0.354)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=110.2 gbs=24.061
+TOK  
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.8 gbs=48.195
+STATS tokens=16 ms=1543 tps=13.413 ms_per_tok=74.6 gbs_avg=35.076 peak_mb=306.5 prompt_tokens=27 prompt_ms=349 prompt_tps=77.320 stopped=0 lane=cuda dtc_steps=10 expand_steps=7 ttft_ms=349 gen_tps=13.413
+MEM peak_mb=306.5
+STAT dtc_steps=10 expand_steps=7 dtc_session=23 expand_session=15
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D17,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D30
+EXPAND tensor=prompt-last tok=0 lane=cuda mode=full reason=margin%3D0.144<0.500;%20full:%20top1%20same%20(margin%3D0.139)
+PREFILL tokens=31 ms=421 tps=73.642
+TOK False
+EXPAND tensor=step tok=1 lane=cuda mode=full reason=margin%3D0.459<0.500;%20full:%20top1%20same%20(margin%3D0.457)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=109.8 gbs=24.162
+TOK .\n
+EXPAND tensor=step tok=2 lane=cuda mode=full reason=margin%3D0.142<0.500;%20full:%20top1%20same%20(margin%3D0.161)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=109.6 gbs=24.198
+STATS tokens=2 ms=641 tps=9.118 ms_per_tok=109.7 gbs_avg=24.180 peak_mb=306.6 prompt_tokens=31 prompt_ms=421 prompt_tps=73.642 stopped=0 lane=cuda dtc_steps=1 expand_steps=3 ttft_ms=421 gen_tps=9.118
+MEM peak_mb=306.6
+STAT dtc_steps=1 expand_steps=3 dtc_session=24 expand_session=18
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D13,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D26
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D5.022,entropy%3D0.226)
+PREFILL tokens=27 ms=350 tps=77.045
+TOK The
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D6.278,entropy%3D0.027)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=48.9 gbs=54.261
+TOK  capital
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D6.247,entropy%3D0.030)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=48.4 gbs=54.767
+TOK  of
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D3.864,entropy%3D0.136)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=48.5 gbs=54.694
+TOK  Texas
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D8.768,entropy%3D0.004)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.4 gbs=54.806
+TOK  is
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D5.961,entropy%3D0.054)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.2 gbs=55.056
+TOK  Austin
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D3.340,entropy%3D0.178)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.2 gbs=54.976
+TOK .\n
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D0.862,entropy%3D2.653)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=48.3 gbs=54.940
+TOK  (
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=entropy%3D4.934>4.000;%20full:%20top1%20same%20(margin%3D0.880)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=108.8 gbs=24.382
+TOK This
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D0.568,entropy%3D2.176)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.6 gbs=54.609
+TOK  is
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=confident(margin%3D2.647,entropy%3D0.684)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=48.3 gbs=54.855
+TOK  a
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D1.190,entropy%3D3.051)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=48.6 gbs=54.556
+TOK  short
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D0.920,entropy%3D1.505)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.5 gbs=54.697
+TOK  sentence
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.189<0.500;%20full:%20top1%20same%20(margin%3D0.190)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=109.3 gbs=24.266
+TOK .)\n
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.182<0.500;%20full:%20top1%20same%20(margin%3D0.196)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=109.7 gbs=24.170
+TOK </
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=confident(margin%3D2.454,entropy%3D1.021)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=48.4 gbs=54.796
+TOK think
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.4 gbs=48.643
+STATS tokens=16 ms=1303 tps=16.817 ms_per_tok=59.5 gbs_avg=43.978 peak_mb=306.6 prompt_tokens=27 prompt_ms=350 prompt_tps=77.045 stopped=0 lane=cuda dtc_steps=14 expand_steps=3 ttft_ms=350 gen_tps=16.817
+MEM peak_mb=306.6
+STAT dtc_steps=14 expand_steps=3 dtc_session=38 expand_session=21
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D15,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D28
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D5.185,entropy%3D0.185)
+PREFILL tokens=29 ms=354 tps=81.880
+TOK The
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D7.786,entropy%3D0.012)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=48.6 gbs=54.537
+TOK  capital
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D5.636,entropy%3D0.044)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=48.4 gbs=54.771
+TOK  of
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D7.497,entropy%3D0.011)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=48.4 gbs=54.771
+TOK  New
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D8.257,entropy%3D0.010)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.5 gbs=54.722
+TOK  York
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D3.454,entropy%3D0.181)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=49.0 gbs=54.173
+TOK  State
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D8.322,entropy%3D0.004)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.2 gbs=54.973
+TOK  is
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D6.615,entropy%3D0.024)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=47.7 gbs=55.538
+TOK  Albany
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=confident(margin%3D2.390,entropy%3D0.343)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=47.8 gbs=55.474
+TOK .\n
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D0.618,entropy%3D2.386)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.0 gbs=55.302
+TOK  (
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=margin%3D0.098<0.500;%20full:%20top1%20same%20(margin%3D0.101)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=109.8 gbs=24.146
+TOK This
+EXPAND tensor=step tok=11 lane=cuda mode=full reason=margin%3D0.219<0.500;%20full:%20top1%20same%20(margin%3D0.214)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=110.8 gbs=23.943
+TOK  is
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D2.661,entropy%3D0.929)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.8 gbs=54.326
+TOK  a
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.107<0.500;%20full:%20top1%20same%20(margin%3D0.094)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=109.2 gbs=24.293
+TOK  short
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=confident(margin%3D0.677,entropy%3D1.568)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=48.4 gbs=54.739
+TOK  sentence
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=margin%3D0.113<0.500;%20full:%20top1%20same%20(margin%3D0.113)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=109.1 gbs=24.296
+TOK ,
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.6 gbs=48.441
+STATS tokens=16 ms=1368 tps=15.789 ms_per_tok=63.3 gbs_avg=41.290 peak_mb=306.6 prompt_tokens=29 prompt_ms=354 prompt_tps=81.880 stopped=0 lane=cuda dtc_steps=13 expand_steps=4 ttft_ms=354 gen_tps=15.789
+MEM peak_mb=306.6
+STAT dtc_steps=13 expand_steps=4 dtc_session=51 expand_session=25
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D13,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D26
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D4.684,entropy%3D0.255)
+PREFILL tokens=27 ms=349 tps=77.372
+TOK The
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D6.325,entropy%3D0.031)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=48.0 gbs=55.263
+TOK  capital
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D6.033,entropy%3D0.036)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=48.2 gbs=55.001
+TOK  of
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D4.351,entropy%3D0.127)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=49.1 gbs=54.048
+TOK  California
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D8.329,entropy%3D0.005)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.6 gbs=54.603
+TOK  is
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D5.535,entropy%3D0.066)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.6 gbs=54.596
+TOK  Sacramento
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D4.134,entropy%3D0.129)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.4 gbs=54.824
+TOK .\n
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D0.925,entropy%3D2.579)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=48.4 gbs=54.816
+TOK  (
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=margin%3D0.210<0.500;%20full:%20top1%20same%20(margin%3D0.221)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=109.1 gbs=24.300
+TOK This
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D1.031,entropy%3D2.240)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.7 gbs=54.473
+TOK  is
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=confident(margin%3D2.130,entropy%3D0.786)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=48.6 gbs=54.556
+TOK  a
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D0.957,entropy%3D2.956)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=48.7 gbs=54.430
+TOK  short
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D1.010,entropy%3D1.516)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.5 gbs=54.640
+TOK  sentence
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.145<0.500;%20full:%20top1%20same%20(margin%3D0.146)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=109.4 gbs=24.244
+TOK .)\n
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.151<0.500;%20full:%20top1%20same%20(margin%3D0.130)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=110.2 gbs=24.067
+TOK )\n
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=confident(margin%3D3.174,entropy%3D0.808)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=48.1 gbs=55.090
+TOK \n
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.1 gbs=49.034
+STATS tokens=16 ms=1302 tps=16.796 ms_per_tok=59.5 gbs_avg=43.923 peak_mb=306.6 prompt_tokens=27 prompt_ms=349 prompt_tps=77.372 stopped=0 lane=cuda dtc_steps=14 expand_steps=3 ttft_ms=349 gen_tps=16.796
+MEM peak_mb=306.6
+STAT dtc_steps=14 expand_steps=3 dtc_session=65 expand_session=28
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D13,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D26
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D5.642,entropy%3D0.140)
+PREFILL tokens=27 ms=350 tps=77.187
+TOK The
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D5.683,entropy%3D0.038)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=48.4 gbs=54.782
+TOK  capital
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D5.985,entropy%3D0.033)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=47.6 gbs=55.720
+TOK  of
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D5.382,entropy%3D0.071)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=48.0 gbs=55.279
+TOK  Ohio
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D9.056,entropy%3D0.004)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.0 gbs=55.227
+TOK  is
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D5.573,entropy%3D0.180)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.6 gbs=54.585
+TOK  Columbus
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D4.230,entropy%3D0.103)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.0 gbs=55.285
+TOK .\n
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D0.919,entropy%3D2.560)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=47.8 gbs=55.466
+TOK  (
+EXPAND tensor=step tok=8 lane=cuda mode=full reason=entropy%3D5.005>4.000;%20full:%20top1%20same%20(margin%3D0.877)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=109.3 gbs=24.258
+TOK This
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D0.556,entropy%3D2.322)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.9 gbs=54.239
+TOK  is
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=confident(margin%3D2.683,entropy%3D0.680)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=48.5 gbs=54.732
+TOK  a
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D1.130,entropy%3D2.983)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=49.3 gbs=53.774
+TOK  short
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D1.221,entropy%3D1.393)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.6 gbs=54.515
+TOK  sentence
+EXPAND tensor=step tok=13 lane=cuda mode=full reason=margin%3D0.331<0.500;%20full:%20top1%20same%20(margin%3D0.331)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=109.8 gbs=24.144
+TOK .)\n
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.198<0.500;%20full:%20top1%20same%20(margin%3D0.193)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=108.9 gbs=24.361
+TOK  
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=confident(margin%3D1.636,entropy%3D1.244)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=48.2 gbs=54.961
+TOK \n
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.1 gbs=48.998
+STATS tokens=16 ms=1301 tps=16.842 ms_per_tok=59.4 gbs_avg=44.043 peak_mb=306.6 prompt_tokens=27 prompt_ms=350 prompt_tps=77.187 stopped=0 lane=cuda dtc_steps=14 expand_steps=3 ttft_ms=350 gen_tps=16.842
+MEM peak_mb=306.6
+STAT dtc_steps=14 expand_steps=3 dtc_session=79 expand_session=31
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D14,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D27
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D3.703,entropy%3D0.571)
+PREFILL tokens=28 ms=352 tps=79.491
+TOK 7
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D3.116,entropy%3D0.397)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=47.9 gbs=55.355
+TOK  times
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D9.422,entropy%3D0.007)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=47.9 gbs=55.390
+TOK  
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D7.060,entropy%3D0.015)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=47.9 gbs=55.417
+TOK 8
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D2.162,entropy%3D0.340)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.8 gbs=54.353
+TOK  is
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D4.608,entropy%3D0.070)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=48.0 gbs=55.252
+TOK  
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D7.526,entropy%3D0.017)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.8 gbs=54.310
+TOK 5
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D7.400,entropy%3D0.014)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=48.5 gbs=54.640
+TOK 6
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=confident(margin%3D4.573,entropy%3D0.100)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=47.8 gbs=55.426
+TOK .\n
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D0.950,entropy%3D2.348)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.7 gbs=54.500
+TOK  (
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=margin%3D0.003<0.500;%20full:%20top1%20same%20(margin%3D0.018)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=109.6 gbs=24.205
+TOK This
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D0.691,entropy%3D2.827)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=49.3 gbs=53.745
+TOK  is
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D3.541,entropy%3D0.544)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.9 gbs=54.281
+TOK  a
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=confident(margin%3D0.942,entropy%3D3.277)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=48.5 gbs=54.691
+TOK  short
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.004<0.500;%20full:%20top1%20same%20(margin%3D0.005)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=108.3 gbs=24.476
+TOK  sentence
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=margin%3D0.293<0.500;%20full:%20top1%20same%20(margin%3D0.293)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=109.9 gbs=24.131
+TOK ,
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.5 gbs=48.616
+STATS tokens=16 ms=1304 tps=16.820 ms_per_tok=59.5 gbs_avg=43.988 peak_mb=306.6 prompt_tokens=28 prompt_ms=352 prompt_tps=79.491 stopped=0 lane=cuda dtc_steps=14 expand_steps=3 ttft_ms=352 gen_tps=16.820
+MEM peak_mb=306.6
+STAT dtc_steps=14 expand_steps=3 dtc_session=93 expand_session=34
+DONE
+STAT turn_lane=dtc turn_reason=short-factual(tokens%3D16,complexity%3D1)
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D29
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=confident(margin%3D2.423,entropy%3D0.831)
+PREFILL tokens=30 ms=357 tps=83.984
+TOK The
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=confident(margin%3D3.216,entropy%3D0.280)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=48.4 gbs=54.823
+TOK  largest
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=confident(margin%3D4.335,entropy%3D0.162)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=48.4 gbs=54.830
+TOK  planet
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=confident(margin%3D3.866,entropy%3D0.113)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=48.7 gbs=54.474
+TOK  in
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=confident(margin%3D3.995,entropy%3D0.094)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=48.5 gbs=54.624
+TOK  our
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=confident(margin%3D8.571,entropy%3D0.008)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=47.8 gbs=55.456
+TOK  solar
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=confident(margin%3D7.714,entropy%3D0.008)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=48.2 gbs=55.031
+TOK  system
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=confident(margin%3D6.823,entropy%3D0.014)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=48.4 gbs=54.785
+TOK  is
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=confident(margin%3D1.215,entropy%3D1.169)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=48.5 gbs=54.624
+TOK  Earth
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=confident(margin%3D2.298,entropy%3D0.427)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=48.5 gbs=54.718
+TOK .\n
+EXPAND tensor=step tok=10 lane=cuda mode=full reason=margin%3D0.277<0.500;%20full:%20top1%20same%20(margin%3D0.271)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=110.0 gbs=24.100
+TOK  However
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=confident(margin%3D9.324,entropy%3D0.008)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=49.5 gbs=53.564
+TOK ,
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=confident(margin%3D1.223,entropy%3D2.339)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=48.4 gbs=54.740
+TOK  this
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=confident(margin%3D1.119,entropy%3D1.348)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=48.7 gbs=54.469
+TOK  is
+EXPAND tensor=step tok=14 lane=cuda mode=full reason=margin%3D0.308<0.500;%20full:%20top1%20same%20(margin%3D0.308)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=109.7 gbs=24.164
+TOK  incorrect
+EXPAND tensor=step tok=15 lane=cuda mode=full reason=margin%3D0.476<0.500;%20full:%20top1%20same%20(margin%3D0.483)
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=109.4 gbs=24.250
+TOK  as
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=42.4 gbs=48.681
+STATS tokens=16 ms=1312 tps=16.779 ms_per_tok=59.6 gbs_avg=43.880 peak_mb=306.6 prompt_tokens=30 prompt_ms=357 prompt_tps=83.984 stopped=0 lane=cuda dtc_steps=14 expand_steps=3 ttft_ms=357 gen_tps=16.779
+MEM peak_mb=306.6
+STAT dtc_steps=14 expand_steps=3 dtc_session=107 expand_session=37
+DONE

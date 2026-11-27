@@ -1,0 +1,543 @@
+READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=0 think=0
+HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=cached dtc=on expand=never
+STAT calib=cached calib_ms=47 lane=cuda lane_cuda=pass lane_opencl_nv=rejected lane_opencl_igpu=rejected lane_cpu=pass est_cuda_tps=15.32 est_cpu_tps=1.082 open_note=-
+STAT cuda_reason=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20sm_86%20driver%2013050%20nvrtc%2013.4,%203296%20MiB%20free;%20DTC%20and%20FULL%20kernels%20bit-exact%20vs%20C%20emulation;%20DTC%20137.4%20Gw/s,%20FULL%2064.5%20Gw/s,%20read%20176.5%20GB/s%20->%20~15.3%20tok/s%20estimate opencl_nv_reason=found%20NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU%20(NVIDIA%20Corporation,%204096%20MiB);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) opencl_igpu_reason=found%20Intel(R)%20UHD%20Graphics%20(Microsoft,%208044%20MiB,%20unified%20memory);%20rejected:%20this%20build%20has%20no%20OpenCL%20Nemotron%20forward%20(only%20the%20CUDA%20and%20CPU%20lanes%20have%20kernels%20to%20verify) cpu_reason=reference%20lane;%2019.4%20GB/s%20single-thread%20read%20->%20~1.082%20tok/s%20estimate
+STAT dtc_margin=0.500 dtc_entropy=4.000 dtc_prompt_tokens=96 dtc_complexity=6
+STAT turn_lane=dtc turn_reason=mode%3Ddtc-only
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D7
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=mode%3Ddtc-only
+PREFILL tokens=8 ms=712 tps=11.231
+TOK  the
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=62.3 gbs=42.552
+TOK  old
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=62.1 gbs=42.698
+TOK  man
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=63.2 gbs=41.930
+TOK  lived
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=63.3 gbs=41.865
+TOK .\n
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=64.3 gbs=41.241
+TOK  he
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=63.9 gbs=41.494
+TOK  was
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=63.2 gbs=41.952
+TOK  a
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=63.4 gbs=41.852
+TOK  good
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=63.6 gbs=41.695
+TOK \n
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=64.7 gbs=40.982
+TOK  old
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=63.3 gbs=41.876
+TOK  man
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=62.2 gbs=42.635
+TOK  and
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=63.4 gbs=41.799
+TOK  he
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=62.9 gbs=42.164
+TOK  lived
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=62.5 gbs=42.412
+TOK  in
+DTC tensor=step tok=16 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=62.9 gbs=42.165
+TOK  a
+DTC tensor=step tok=17 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=62.9 gbs=42.139
+TOK  nice
+DTC tensor=step tok=18 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=63.5 gbs=41.730
+TOK  house
+DTC tensor=step tok=19 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=64.2 gbs=41.310
+TOK .
+DTC tensor=step tok=20 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=63.5 gbs=41.792
+TOK  the
+DTC tensor=step tok=21 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=63.0 gbs=42.126
+TOK  old
+DTC tensor=step tok=22 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=62.7 gbs=42.303
+TOK  man
+DTC tensor=step tok=23 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=63.2 gbs=41.957
+TOK  and
+DTC tensor=step tok=24 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=62.8 gbs=42.240
+TOK  his
+DTC tensor=step tok=25 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=63.0 gbs=42.102
+TOK  wife
+DTC tensor=step tok=26 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=63.4 gbs=41.832
+TOK  lived
+DTC tensor=step tok=27 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=62.5 gbs=42.452
+TOK  in
+DTC tensor=step tok=28 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=63.4 gbs=41.827
+TOK  a
+DTC tensor=step tok=29 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=62.9 gbs=42.148
+TOK  nice
+DTC tensor=step tok=30 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=62.8 gbs=42.208
+TOK  house
+DTC tensor=step tok=31 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=63.0 gbs=42.088
+TOK  together
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=53.7 gbs=38.470
+STATS tokens=32 ms=2768 tps=15.906 ms_per_tok=62.9 gbs_avg=41.889 peak_mb=292.0 prompt_tokens=8 prompt_ms=712 prompt_tps=11.231 stopped=0 lane=cuda dtc_steps=33 expand_steps=0 ttft_ms=712 gen_tps=15.906
+MEM peak_mb=292.0
+STAT dtc_steps=33 expand_steps=0 dtc_session=33 expand_session=0
+DONE
+STAT turn_lane=dtc turn_reason=mode%3Ddtc-only
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D19
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=mode%3Ddtc-only
+PREFILL tokens=52 ms=2847 tps=18.267
+TOK .\n\n
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=64.4 gbs=41.155
+TOK The
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=63.4 gbs=41.845
+TOK  mill
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=63.8 gbs=41.546
+TOK er
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=64.0 gbs=41.404
+TOK  kept
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=63.5 gbs=41.767
+TOK  a
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=63.5 gbs=41.765
+TOK  led
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=63.9 gbs=41.524
+TOK ger
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=62.9 gbs=42.135
+TOK  of
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=62.9 gbs=42.136
+TOK  every
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=63.5 gbs=41.792
+TOK  sack
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=63.5 gbs=41.775
+TOK ,
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=63.2 gbs=41.966
+TOK  every
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=63.0 gbs=42.072
+TOK  price
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=62.9 gbs=42.172
+TOK  and
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=63.4 gbs=41.801
+TOK  every
+DTC tensor=step tok=16 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=63.9 gbs=41.516
+TOK  promise
+DTC tensor=step tok=17 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=63.1 gbs=42.042
+TOK  made
+DTC tensor=step tok=18 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=62.9 gbs=42.140
+TOK  over
+DTC tensor=step tok=19 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=63.1 gbs=42.024
+TOK  the
+DTC tensor=step tok=20 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=63.6 gbs=41.666
+TOK  long
+DTC tensor=step tok=21 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=63.4 gbs=41.853
+TOK  winter
+DTC tensor=step tok=22 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=63.9 gbs=41.499
+TOK  months
+DTC tensor=step tok=23 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=63.9 gbs=41.510
+TOK  while
+DTC tensor=step tok=24 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=64.2 gbs=41.336
+TOK  the
+DTC tensor=step tok=25 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=63.9 gbs=41.528
+TOK  children
+DTC tensor=step tok=26 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=63.0 gbs=42.108
+TOK  played
+DTC tensor=step tok=27 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=63.8 gbs=41.561
+TOK  along
+DTC tensor=step tok=28 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=63.1 gbs=42.055
+TOK  the
+DTC tensor=step tok=29 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=63.7 gbs=41.641
+TOK  frozen
+DTC tensor=step tok=30 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=63.6 gbs=41.701
+TOK  river
+DTC tensor=step tok=31 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=64.0 gbs=41.454
+TOK  and
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=54.6 gbs=37.827
+STATS tokens=32 ms=4911 tps=15.816 ms_per_tok=63.2 gbs_avg=41.650 peak_mb=322.6 prompt_tokens=52 prompt_ms=2847 prompt_tps=18.267 stopped=0 lane=cuda dtc_steps=34 expand_steps=0 ttft_ms=2847 gen_tps=15.816
+MEM peak_mb=322.6
+STAT dtc_steps=34 expand_steps=0 dtc_session=67 expand_session=0
+DONE
+STAT turn_lane=dtc turn_reason=mode%3Ddtc-only
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D8
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=mode%3Ddtc-only
+PREFILL tokens=105 ms=5735 tps=18.309
+TOK  and
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=64.2 gbs=41.318
+TOK  the
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=64.0 gbs=41.450
+TOK  wheel
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=64.4 gbs=41.198
+TOK  stood
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=63.8 gbs=41.549
+TOK  still
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=63.4 gbs=41.828
+TOK  under
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=63.8 gbs=41.539
+TOK  a
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=63.8 gbs=41.551
+TOK  coat
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=64.1 gbs=41.339
+TOK  of
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=63.9 gbs=41.523
+TOK  ice
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=63.2 gbs=41.957
+TOK .
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=64.1 gbs=41.385
+TOK  The
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=64.1 gbs=41.396
+TOK  river
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=63.7 gbs=41.642
+TOK  ran
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=63.9 gbs=41.476
+TOK  past
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=63.6 gbs=41.710
+TOK  the
+DTC tensor=step tok=16 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=64.1 gbs=41.402
+TOK  old
+DTC tensor=step tok=17 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=64.4 gbs=41.206
+TOK  mill
+DTC tensor=step tok=18 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=64.4 gbs=41.167
+TOK  where
+DTC tensor=step tok=19 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=64.0 gbs=41.434
+TOK  the
+DTC tensor=step tok=20 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=64.1 gbs=41.389
+TOK  farmers
+DTC tensor=step tok=21 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=64.3 gbs=41.236
+TOK  brought
+DTC tensor=step tok=22 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=63.8 gbs=41.548
+TOK  their
+DTC tensor=step tok=23 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=63.5 gbs=41.740
+TOK  grain
+DTC tensor=step tok=24 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=63.7 gbs=41.621
+TOK  each
+DTC tensor=step tok=25 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=63.7 gbs=41.643
+TOK  autumn
+DTC tensor=step tok=26 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=63.7 gbs=41.662
+TOK ,
+DTC tensor=step tok=27 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=64.5 gbs=41.118
+TOK  and
+DTC tensor=step tok=28 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=64.5 gbs=41.084
+TOK  the
+DTC tensor=step tok=29 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=64.6 gbs=41.049
+TOK  mill
+DTC tensor=step tok=30 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=64.3 gbs=41.219
+TOK ers
+DTC tensor=step tok=31 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=64.7 gbs=41.000
+TOK  kept
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=55.1 gbs=37.448
+STATS tokens=32 ms=7817 tps=15.691 ms_per_tok=63.7 gbs_avg=41.323 peak_mb=322.6 prompt_tokens=105 prompt_ms=5735 prompt_tps=18.309 stopped=0 lane=cuda dtc_steps=36 expand_steps=0 ttft_ms=5735 gen_tps=15.691
+MEM peak_mb=322.6
+STAT dtc_steps=36 expand_steps=0 dtc_session=103 expand_session=0
+DONE
+STAT turn_lane=dtc turn_reason=mode%3Ddtc-only
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D18
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=mode%3Ddtc-only
+PREFILL tokens=211 ms=11648 tps=18.114
+TOK  winter
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=64.0 gbs=41.456
+TOK  months
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=65.4 gbs=40.526
+TOK  while
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=65.0 gbs=40.825
+TOK  the
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=64.4 gbs=41.150
+TOK  children
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=64.5 gbs=41.106
+TOK  played
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=65.1 gbs=40.717
+TOK  along
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=64.7 gbs=40.970
+TOK  the
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=65.3 gbs=40.613
+TOK  frozen
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=64.6 gbs=41.069
+TOK  banks
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=64.5 gbs=41.139
+TOK  and
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=64.8 gbs=40.951
+TOK  the
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=65.1 gbs=40.738
+TOK  wheel
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=65.1 gbs=40.736
+TOK  stood
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=64.8 gbs=40.952
+TOK  still
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=65.5 gbs=40.508
+TOK  under
+DTC tensor=step tok=16 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=65.0 gbs=40.778
+TOK  a
+DTC tensor=step tok=17 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=64.7 gbs=41.012
+TOK  coat
+DTC tensor=step tok=18 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=65.4 gbs=40.548
+TOK  of
+DTC tensor=step tok=19 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=64.7 gbs=41.003
+TOK  ice
+DTC tensor=step tok=20 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=64.6 gbs=41.062
+TOK .\n
+DTC tensor=step tok=21 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=64.8 gbs=40.897
+TOK  The
+DTC tensor=step tok=22 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=65.3 gbs=40.590
+TOK  river
+DTC tensor=step tok=23 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=65.5 gbs=40.517
+TOK  ran
+DTC tensor=step tok=24 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=65.4 gbs=40.544
+TOK  past
+DTC tensor=step tok=25 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=65.6 gbs=40.413
+TOK  the
+DTC tensor=step tok=26 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=64.7 gbs=40.962
+TOK  old
+DTC tensor=step tok=27 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=65.4 gbs=40.565
+TOK  mill
+DTC tensor=step tok=28 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=64.8 gbs=40.920
+TOK  where
+DTC tensor=step tok=29 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=64.7 gbs=41.003
+TOK  the
+DTC tensor=step tok=30 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=65.1 gbs=40.718
+TOK  farmers
+DTC tensor=step tok=31 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=65.5 gbs=40.458
+TOK  brought
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=55.7 gbs=37.054
+STATS tokens=32 ms=13797 tps=15.462 ms_per_tok=64.7 gbs_avg=40.718 peak_mb=322.6 prompt_tokens=211 prompt_ms=11648 prompt_tps=18.114 stopped=0 lane=cuda dtc_steps=39 expand_steps=0 ttft_ms=11648 gen_tps=15.462
+MEM peak_mb=322.6
+STAT dtc_steps=39 expand_steps=0 dtc_session=142 expand_session=0
+DONE
+STAT turn_lane=dtc turn_reason=mode%3Ddtc-only
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D31
+DTC tensor=prefill tok=0 lane=cuda mode=dtc reason=prompt%20tokens%3D2
+DTC tensor=prompt-last tok=0 lane=cuda mode=dtc reason=mode%3Ddtc-only
+PREFILL tokens=419 ms=23549 tps=17.793
+TOK  each
+DTC tensor=step tok=1 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=1 ms_tok=66.2 gbs=40.054
+TOK  autumn
+DTC tensor=step tok=2 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=2 ms_tok=66.6 gbs=39.844
+TOK ,
+DTC tensor=step tok=3 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=3 ms_tok=66.6 gbs=39.845
+TOK  and
+DTC tensor=step tok=4 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=4 ms_tok=67.0 gbs=39.606
+TOK  the
+DTC tensor=step tok=5 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=5 ms_tok=67.0 gbs=39.592
+TOK  mill
+DTC tensor=step tok=6 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=6 ms_tok=67.5 gbs=39.259
+TOK er
+DTC tensor=step tok=7 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=7 ms_tok=67.5 gbs=39.303
+TOK  kept
+DTC tensor=step tok=8 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=8 ms_tok=67.7 gbs=39.156
+TOK  a
+DTC tensor=step tok=9 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=9 ms_tok=67.2 gbs=39.446
+TOK  led
+DTC tensor=step tok=10 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=10 ms_tok=67.0 gbs=39.572
+TOK ger
+DTC tensor=step tok=11 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=11 ms_tok=66.8 gbs=39.671
+TOK  of
+DTC tensor=step tok=12 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=12 ms_tok=66.8 gbs=39.717
+TOK  every
+DTC tensor=step tok=13 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=13 ms_tok=67.3 gbs=39.377
+TOK  sack
+DTC tensor=step tok=14 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=14 ms_tok=66.8 gbs=39.709
+TOK ,
+DTC tensor=step tok=15 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=15 ms_tok=67.2 gbs=39.488
+TOK  every
+DTC tensor=step tok=16 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=16 ms_tok=67.5 gbs=39.311
+TOK  price
+DTC tensor=step tok=17 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=17 ms_tok=67.2 gbs=39.486
+TOK  and
+DTC tensor=step tok=18 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=18 ms_tok=67.2 gbs=39.487
+TOK  every
+DTC tensor=step tok=19 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=19 ms_tok=67.2 gbs=39.489
+TOK  promise
+DTC tensor=step tok=20 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=20 ms_tok=66.7 gbs=39.729
+TOK  made
+DTC tensor=step tok=21 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=21 ms_tok=67.2 gbs=39.470
+TOK  over
+DTC tensor=step tok=22 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=22 ms_tok=66.8 gbs=39.703
+TOK  the
+DTC tensor=step tok=23 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=23 ms_tok=66.6 gbs=39.832
+TOK  long
+DTC tensor=step tok=24 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=24 ms_tok=67.3 gbs=39.389
+TOK  winter
+DTC tensor=step tok=25 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=25 ms_tok=67.6 gbs=39.213
+TOK  months
+DTC tensor=step tok=26 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=26 ms_tok=67.2 gbs=39.475
+TOK  while
+DTC tensor=step tok=27 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=27 ms_tok=67.0 gbs=39.562
+TOK  the
+DTC tensor=step tok=28 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=28 ms_tok=66.5 gbs=39.895
+TOK  children
+DTC tensor=step tok=29 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=29 ms_tok=67.7 gbs=39.174
+TOK  played
+DTC tensor=step tok=30 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=30 ms_tok=67.8 gbs=39.093
+TOK  along
+DTC tensor=step tok=31 lane=cuda mode=dtc reason=mode%3Ddtc-only
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=31 ms_tok=67.3 gbs=39.402
+TOK  the
+TICK mode=answering layer=55 next=-1 active=1 staged=0 tok=32 ms_tok=57.6 gbs=35.850
+STATS tokens=32 ms=25767 tps=14.971 ms_per_tok=66.8 gbs_avg=39.427 peak_mb=322.6 prompt_tokens=419 prompt_ms=23549 prompt_tps=17.793 stopped=0 lane=cuda dtc_steps=46 expand_steps=0 ttft_ms=23549 gen_tps=14.971
+MEM peak_mb=322.6
+STAT dtc_steps=46 expand_steps=0 dtc_session=188 expand_session=0
+DONE
