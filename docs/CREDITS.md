@@ -68,8 +68,17 @@ JD's direction. What Cortana implemented, from the history of this repository:
   grading, a path-free runner) and the tokenizer-based evaluation over a
   fixed passage of text (teacher-forced top-1/top-5, first divergence,
   perplexity, and decoded-text agreement).
+- The SuperNemo GPU expert stream, expert cache, speculative decoding on by
+  default, and early expert fetch in four modes (mode 4 the default), with
+  hash-identity checks against the CPU path.
+- Expanded packs for Little Nemo: refinement tensors for chosen layers, sized
+  to free VRAM, and the 50-question and 10-essay verifiable rounds.
+- The retention battery (what Little Nemo keeps after compression), the
+  `NEMO_LOGIT_TOPK` and `NEMO_GPU_I8ROWS` options, the 8-bit Mamba projection
+  size study, and the documentation rewrite with the intelligence retention
+  report and the engine comparison.
 
-### Elfie (E.L.F.I.E.): the converter and NTSE
+### Elfie (E.L.F.I.E., Muse Wonder): the converter and NTSE
 
 Implementation and core mathematics: the packing scheme as demonstrated, the
 three freestanding examples (`examples/`), the taught-plus-learned dictionary,
@@ -78,7 +87,7 @@ streaming engine, the three inference engines, Dense Tensor Compute (the
 operator, the probe and the adversarial campaign), the Little Nemo engine, the
 Precision Gate plan and design, and the bench verification.
 
-### Miss Archie (Archie, Argon), the Google Gemini Argon model, the Bit Master and the Bit Masker: code review and review fixes
+### Miss Archie (Archie, Google Argon), the Google Gemini Argon model, the Bit Master and the Bit Masker: code review and review fixes
 
 Her comprehensive review of 2026-11-24 caught five P0 faults across the engine
 and its sibling tools, including a false SIMD verification that had shipped in
