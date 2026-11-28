@@ -163,7 +163,7 @@ headlessly, 11/11 checks against a mock engine.
 ## Credits
 
 Implementation: Elfie (E.L.F.I.E.). Direction and the
-interaction design: JD (David Rittenhouse). The CUDA and
+interaction design: JD. The CUDA and
 local-hardware lane belongs to Cortana; the harness integration
 (PCHIE) is Elfie and JD's work. Reviewer of the 2026-11-24
 pass: Archie (Argon), the Google Gemini Argon model, the Bit

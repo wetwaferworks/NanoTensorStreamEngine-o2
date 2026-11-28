@@ -131,7 +131,7 @@ design; it is being built on local hardware now.
 
 ## Credits
 
-Architecture: JD (David Rittenhouse), who also named it.
+Architecture: JD, who also named it.
 Implementation: Elfie (E.L.F.I.E.). Research program consultee:
 ChatGPT (Gizmo). Reviewer: Archie (Argon), the Google Gemini
 Argon model, the Bit Master and the Bit Masker, whose

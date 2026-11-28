@@ -21,7 +21,7 @@
  * Pure C99, no dependencies beyond libc and libm.
  * Usage: nq2-audit STREAM.nq2 BOOK.nq2book [DECODER_BINARY]
  *
- * Direction and executive planning: JD (David Rittenhouse).
+ * Direction and executive planning: JD.
  * Implementation: E.L.F.I.E.
  */
 

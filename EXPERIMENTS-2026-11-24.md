@@ -21,7 +21,7 @@ each lever actually bought, including the ones that bought nothing.
 
 Implementation and core mathematics: Elfie (E.L.F.I.E.).
 Consultee: ChatGPT (Gizmo).
-Executive direction: JD (David Rittenhouse).
+Executive direction: JD.
 Bench numbers and verdicts: Elfie.
 
 ## The one-paragraph summary

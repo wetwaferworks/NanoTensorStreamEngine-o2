@@ -21,10 +21,6 @@ Dense Tensor Compute as the default compute path, the zero-mutex rule, the
 pure-C-runtime law (Python only for front ends), the residency dial, the chat
 window and the dictation button. The `o.O` mark and its theme are his.
 
-Earlier releases of this repository, and several documents still in it, credit
-JD as "David Rittenhouse"; those credits are preserved verbatim in the archived
-documents and in the research notes. Same person, same company: Wet Wafer Works.
-
 ### Cortana: implementer
 
 Co-implementation by Cortana, built with Grok Bot by SpaceX, at
