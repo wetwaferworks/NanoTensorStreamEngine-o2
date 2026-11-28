@@ -187,8 +187,9 @@ struct sn_model {
     int xs_on;
     int *xs_oidx, *xs_list, *xs_slot; unsigned char *xs_done;
     int xs_nopf, xs_nopin, xs_nocap;    /* the three speed-ups below are on unless switched off (sn_model_stream_options, SN_XS_*=0) */
-    int *xs_next; float *xs_ph, *xs_ptw; int *xs_ptop, *xs_pfx, *xs_pfl_keys; int xs_pfn, xs_pfli;   /* early fetch for the next MoE layer */
-    uint64_t xs_direct, xs_pf_sent, xs_pf_right;
+    int *xs_next; float *xs_ph, *xs_ptw; int *xs_ptop, *xs_pfx, *xs_pfl_keys, *xs_pfpb, *xs_pfok, *xs_pfl_src; sn_pq_res *xs_pfres; int xs_pfn, xs_pfli, xs_pfmode;
+    sn_rd prd; int prd_ok; int apf_n, apf_pend, *apf_ex, *apf_pb, *apf_ok; sn_pq_res *apf_res; double xs_apf_wait; uint64_t xs_apf_ok, xs_apf_fail;   /* mode 4: guesses read on the prep thread */   /* early fetch for the next MoE layer */
+    uint64_t xs_direct, xs_pf_sent, xs_pf_right, xs_pf_pack, xs_pf_pack_bad, xs_pf_adm, xs_pf_dma, xs_pf_dma_bad;
     struct sn_prof *prof; int prof_state;   /* optional profile (env SN_PROF=1); measurement only */
 };
 
@@ -429,6 +430,7 @@ void sn_model_close(sn_model *m)
 {
     if (!m) return;
     prof_free(m->prof); m->prof = NULL;
+    nemo_pool_prep_wait(&m->pool);
     nemo_pool_shutdown(&m->pool);
     if (m->L) for (int i = 0; i < m->n_all; i++) {
         layer_t *l = &m->L[i];
@@ -452,7 +454,7 @@ void sn_model_close(sn_model *m)
     if (m->ec) { for (size_t k = 0; k < (size_t)m->n_all * (size_t)m->g.moe_experts; k++) if (!m->ec[k].pb) { sn_res_free(&m->ec[k].up); sn_res_free(&m->ec[k].dn); } }
     free(m->ec); free(m->rlist); free(m->gmid); free(m->gpmid);
     free(m->xs_oidx); free(m->xs_list); free(m->xs_slot); free(m->xs_done);
-    free(m->xs_next); free(m->xs_ph); free(m->xs_ptw); free(m->xs_ptop); free(m->xs_pfx); free(m->xs_pfl_keys);
+    free(m->xs_next); free(m->xs_ph); free(m->xs_ptw); free(m->xs_ptop); free(m->xs_pfx); free(m->xs_pfl_keys); free(m->apf_ex); free(m->apf_pb); free(m->apf_ok); free(m->apf_res); if (m->prd_ok) sn_rd_close(&m->prd); free(m->xs_pfpb); free(m->xs_pfok); free(m->xs_pfl_src); free(m->xs_pfres);
     sn_pack_close(&m->pack);
     free(m);
 }
@@ -734,12 +736,71 @@ static void cache_count(sn_model *m, int li, fws *w, int nu)
     for (int i = 0; i < nu; i++) m->ec[ekey(m, li, w->used[i])].uses += (uint32_t)(w->start[i + 1] - w->start[i]);
 }
 
+/* Mode 4 (early fetch, background reads): the guesses for the next MoE layer are read from the pack on the prep thread into
+ * pinned blocks while the main thread carries on. This runs at the next cache_plan (a fixed point in the token loop), waits
+ * for the job if it is still running, and makes the finished blocks ordinary RAM cache entries, so which entries exist never
+ * depends on how fast the disk was. A failed read just gives the block and the reserved room back. */
+static void apf_finish(sn_model *m)
+{
+    if (!m->apf_pend) return;
+    sn_prof *pf = m->prof; double t0 = pf ? pnow() : 0.0;
+    nemo_pool_prep_wait(&m->pool);
+    if (pf) m->xs_apf_wait += pnow() - t0;
+    int nx = m->apf_pend - 1;
+    for (int k = 0; k < m->apf_n; k++) {
+        size_t key = ekey(m, nx, m->apf_ex[k]);
+        ecent *e = &m->ec[key];
+        uint64_t sz = m->apf_res[2 * k].bytes + m->apf_res[2 * k + 1].bytes;
+        m->ec_reserved -= sz;
+        if (m->apf_ok[k] && !e->ram) {
+            e->up = m->apf_res[2 * k]; e->dn = m->apf_res[2 * k + 1]; e->ram = 1; e->pb = m->apf_pb[k];
+            m->ec_used += sz; m->admits++; rlist_add(m, key); m->xs_apf_ok++;
+        } else { sn_cuda_xs_pool_put(m->cuda, m->apf_pb[k] - 1); m->xs_apf_fail++; }
+    }
+    m->apf_n = 0; m->apf_pend = 0;
+}
+
+static void apf_job(void *vm)
+{
+    sn_model *m = (sn_model *)vm;
+    const layer_t *l = &m->L[m->apf_pend - 1];
+    for (int k = 0; k < m->apf_n; k++) {
+        const sn_tensor *tt[2] = { l->eup[m->apf_ex[k]], l->edn[m->apf_ex[k]] }; int ok = 1;
+        for (int q = 0; q < 2 && ok; q++) {
+            sn_pq_res *r = &m->apf_res[2 * k + q];
+            ok = sn_res_read_into(&m->pack, &m->prd, tt[q], r->idx, r->mn, r->sc, r->book) == 0;
+        }
+        m->apf_ok[k] = ok;
+    }
+}
+
+/* Room for one more RAM cache entry of sz bytes (reserved on success): free space, or displace the coldest resident expert
+ * that is colder than this one (never one the current step protects). Main thread only, from counts alone. */
+static int cache_admit(sn_model *m, size_t key, uint64_t sz)
+{
+    ecent *e = &m->ec[key];
+    int fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
+    while (!fits && e->uses >= 3) {      /* full: displace the coldest resident expert that is colder than this one */
+        int vi = -1; uint32_t vu = e->uses;
+        for (int r = 0; r < m->nrlist; r++) {
+            const ecent *c = &m->ec[m->rlist[r]];
+            if (c->epoch != m->epoch && c->uses < vu) { vu = c->uses; vi = r; }
+        }
+        if (vi < 0) break;
+        cache_evict(m, (size_t)m->rlist[vi]);
+        fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
+    }
+    if (fits) m->ec_reserved += sz;
+    return fits;
+}
+
 /* Decide, before the parallel job, how each used expert is served; admission and eviction happen here, on the main thread,
  * from counts alone, so the cache state never depends on thread timing. */
 static void cache_plan(sn_model *m, int li, fws *w, int nu)
 {
     const sn_geom *g = &m->g;
     int gpu_ok = m->gpu_tier && dtc_wanted(m, g->moe_inter, g->moe_latent, 1, 1) && dtc_wanted(m, g->moe_latent, g->moe_inter, 1, 1);
+    apf_finish(m);
     m->epoch++;
     for (int i = 0; i < nu; i++) m->ec[ekey(m, li, w->used[i])].epoch = m->epoch;     /* protected from eviction this step */
     for (int i = 0; i < nu; i++) {
@@ -751,18 +812,7 @@ static void cache_plan(sn_model *m, int li, fws *w, int nu)
         if (e->ram) { w->emode[i] = 1; m->hits_ram++; continue; }
         m->misses++;
         uint64_t sz = sn_res_bytes(&m->pack, l->eup[w->used[i]]) + sn_res_bytes(&m->pack, l->edn[w->used[i]]);
-        int fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
-        while (!fits && e->uses >= 3) {      /* full: displace the coldest resident expert that is colder than this one */
-            int vi = -1; uint32_t vu = e->uses;
-            for (int r = 0; r < m->nrlist; r++) {
-                const ecent *c = &m->ec[m->rlist[r]];
-                if (c->epoch != m->epoch && c->uses < vu) { vu = c->uses; vi = r; }
-            }
-            if (vi < 0) break;
-            cache_evict(m, (size_t)m->rlist[vi]);
-            fits = m->ec_used + m->ec_reserved + sz <= m->ec_budget;
-        }
-        if (fits) { m->ec_reserved += sz; w->emode[i] = 3; }
+        if (cache_admit(m, key, sz)) w->emode[i] = 3;
     }
 }
 
@@ -909,7 +959,12 @@ static int xs_compute(sn_model *m, fws *w, int i, int slot, int fused)
 
 /* Early fetch (on by default): while the card works on this MoE layer, run the NEXT MoE layer's router on this layer's input
  * (right about two times in three on the real pack) and send the experts it picks ahead, so most of the next layer's experts
- * are already in their slots. It only decides what sits in which slot, never what is computed, so results are unchanged. */
+ * are already in their slots. It only decides what sits in which slot, never what is computed, so results are unchanged.
+ * Guesses already in the pinned RAM cache go up at once (one DMA, no CPU work). Guesses that are not cached used to be read
+ * from the pack on the main thread, which made early fetch slower than none (the disk is the bottleneck and nothing overlapped
+ * with it, and the guessed experts never reached the cache). SN_XS_PFMODE picks the variant: 1 old behaviour, 2 read on the
+ * main thread and keep in the cache, 3 cached guesses only, 4 (default) cached guesses at once and the rest read on the prep
+ * thread into the cache while the main thread computes. */
 typedef struct { sn_model *m; int nx, n, b0, j0; int fail; } xpf_ctx;
 
 static void xpf_job(void *vc, int b, int e)
@@ -919,12 +974,27 @@ static void xpf_job(void *vc, int b, int e)
     const layer_t *l = &m->L[c->nx];
     lane_t *ln = &m->lanes[lane_of(c->n, m->nthreads, b)];
     for (int k = b; k < e; k++) {
-        int ex = m->xs_pfx[c->b0 + k], j = c->j0 + k;
+        int ex = m->xs_pfx[c->b0 + k], j = c->j0 + k, pb = m->xs_pfpb[c->b0 + k];
         const ecent *ce = m->ec ? &m->ec[(size_t)c->nx * m->g.moe_experts + (size_t)ex] : NULL;
         if (ce && ce->ram) { xs_copy_res(m->cuda, &m->pack, j, 0, &ce->up); xs_copy_res(m->cuda, &m->pack, j, 1, &ce->dn); continue; }
+        if (pb) {      /* admitted into the RAM cache: read the pack straight into a pinned block, DMA from it */
+            sn_pq_res *rr[2] = { &m->xs_pfres[2 * (c->b0 + k)], &m->xs_pfres[2 * (c->b0 + k) + 1] };
+            const sn_tensor *tt[2] = { l->eup[ex], l->edn[ex] }; int ok = 1;
+            for (int q = 0; q < 2 && ok; q++) {
+                sn_cuda_xs_pool_ptrs(m->cuda, pb - 1, q, &rr[q]->idx, &rr[q]->mn, &rr[q]->sc, &rr[q]->book);
+                rr[q]->nblocks = tt[q]->nblocks; rr[q]->bytes = sn_res_bytes(&m->pack, tt[q]);
+                ok = sn_res_read_into(&m->pack, &ln->rd, tt[q], rr[q]->idx, rr[q]->mn, rr[q]->sc, rr[q]->book) == 0;
+            }
+            m->xs_pfok[c->b0 + k] = ok;
+            if (!ok) c->fail = 1;
+            continue;
+        }
         if (xs_read(m->cuda, &m->pack, &ln->rd, j, 0, l->eup[ex]) != 0 || xs_read(m->cuda, &m->pack, &ln->rd, j, 1, l->edn[ex]) != 0) c->fail = 1;
     }
 }
+
+/* Early-fetch sources, for the profile: how each early expert got to its slot. */
+enum { PFS_DMA = 0, PFS_COPY = 1, PFS_PACK = 2, PFS_ADMIT = 3 };
 
 static int xs_prefetch(sn_model *m, int li, fws *w, int n, int *half)
 {
@@ -932,10 +1002,12 @@ static int xs_prefetch(sn_model *m, int li, fws *w, int n, int *half)
     const sn_geom *g = &m->g;
     int nx = m->xs_next[li], K = g->moe_topk, H = g->hidden, rc = 0;
     if (nx < 0) return 0;
+    apf_finish(m);
     nemo_rmsnorm(w->X + (size_t)(n - 1) * H, m->L[nx].norm_w, m->xs_ph, H, g->eps);
     if (route_token(m, nx, m->xs_ph, m->xs_ptop, m->xs_ptw) != 0) return 0;
     m->xs_pfli = nx; m->xs_pfn = 0;
     int ns = 0;
+    if (m->ec) for (int k = 0; k < K; k++) m->ec[ekey(m, nx, m->xs_ptop[k])].epoch = m->epoch;   /* the guesses stay put while they are sent */
     for (int k = 0; k < K && !rc; k++) {
         int ex = m->xs_ptop[k], key = (int)ekey(m, nx, ex);
         if (sn_cuda_xs_peek(c, key) >= 0) continue;            /* already on the card */
@@ -944,8 +1016,37 @@ static int xs_prefetch(sn_model *m, int li, fws *w, int n, int *half)
             sn_cuda_xs_chunk_begin(c);
             int s = sn_cuda_xs_claim(c, key);
             if (s < 0 || sn_cuda_xs_upload_pool(c, ce->pb - 1, s, key) != 0) rc = -1;
-            else { m->xs_pf_sent++; m->xs_direct++; m->xs_pfl_keys[m->xs_pfn++] = ex; }
-        } else m->xs_pfx[ns++] = ex;
+            else { m->xs_pf_sent++; m->xs_direct++; m->xs_pfl_src[m->xs_pfn] = PFS_DMA; m->xs_pfl_keys[m->xs_pfn++] = ex; }
+        } else {
+            int pb = 0;
+            if (!(ce && ce->ram) && (m->xs_pfmode == 3 || m->xs_pfmode == 4)) {   /* modes 3, 4: never read the pack on the main thread for a guess */
+                if (m->xs_pfmode == 4 && ce && m->prd_ok && !m->xs_nopin && m->apf_n < K) {   /* mode 4: queue it for the prep thread if the cache would keep it */
+                    uint64_t sz = sn_res_bytes(&m->pack, m->L[nx].eup[ex]) + sn_res_bytes(&m->pack, m->L[nx].edn[ex]);
+                    if (cache_admit(m, (size_t)key, sz)) {
+                        int pbk = sn_cuda_xs_pool_get(c);
+                        if (pbk < 0) m->ec_reserved -= sz;
+                        else {
+                            int a = m->apf_n++; const sn_tensor *tt[2] = { m->L[nx].eup[ex], m->L[nx].edn[ex] };
+                            m->apf_ex[a] = ex; m->apf_pb[a] = pbk + 1; m->apf_ok[a] = 0;
+                            for (int q = 0; q < 2; q++) {
+                                sn_pq_res *r = &m->apf_res[2 * a + q];
+                                sn_cuda_xs_pool_ptrs(c, pbk, q, &r->idx, &r->mn, &r->sc, &r->book);
+                                r->nblocks = tt[q]->nblocks; r->bytes = sn_res_bytes(&m->pack, tt[q]);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if (ce && !ce->ram && m->xs_pfmode == 2 && !m->xs_nopin) {  /* a guess the cache would admit: keep it, so a right guess costs one read, not two */
+                uint64_t sz = sn_res_bytes(&m->pack, m->L[nx].eup[ex]) + sn_res_bytes(&m->pack, m->L[nx].edn[ex]);
+                if (cache_admit(m, (size_t)key, sz)) {
+                    int pbk = sn_cuda_xs_pool_get(c);
+                    if (pbk >= 0) pb = pbk + 1; else m->ec_reserved -= sz;
+                }
+            }
+            m->xs_pfpb[ns] = pb; m->xs_pfok[ns] = 0; m->xs_pfx[ns++] = ex;
+        }
     }
     int C = sn_cuda_xs_chunk(c);
     for (int b = 0; b < ns && !rc; b += C, *half ^= 1) {
@@ -961,9 +1062,31 @@ static int xs_prefetch(sn_model *m, int li, fws *w, int n, int *half)
         nemo_pool_for(&m->pool, cnt, xpf_job, &pc);
         if (pc.fail) { rc = -1; break; }
         for (int k = 0; k < cnt && !rc; k++) {
-            rc = sn_cuda_xs_upload(c, j0 + k, m->xs_slot[k], (int)ekey(m, nx, m->xs_pfx[b + k]));
-            if (!rc) { m->xs_pf_sent++; m->xs_pfl_keys[m->xs_pfn++] = m->xs_pfx[b + k]; }
+            int ex = m->xs_pfx[b + k], key = (int)ekey(m, nx, ex), pb = m->xs_pfpb[b + k];
+            const ecent *ce = m->ec ? &m->ec[(size_t)key] : NULL;
+            int src = (ce && ce->ram) ? PFS_COPY : PFS_PACK;
+            if (pb) {
+                rc = sn_cuda_xs_upload_pool(c, pb - 1, m->xs_slot[k], key);
+                if (!rc) {                                   /* the entry is now a RAM cache hit for every later token */
+                    ecent *e = &m->ec[(size_t)key];
+                    e->up = m->xs_pfres[2 * (b + k)]; e->dn = m->xs_pfres[2 * (b + k) + 1]; e->ram = 1; e->pb = pb;
+                    m->ec_reserved -= e->up.bytes + e->dn.bytes; m->ec_used += e->up.bytes + e->dn.bytes; m->admits++;
+                    rlist_add(m, (size_t)key); m->xs_pfpb[b + k] = 0; m->xs_pf_adm++; src = PFS_ADMIT;
+                }
+            } else rc = sn_cuda_xs_upload(c, j0 + k, m->xs_slot[k], key);
+            if (!rc) { m->xs_pf_sent++; m->xs_pfl_src[m->xs_pfn] = src; m->xs_pfl_keys[m->xs_pfn++] = ex; }
         }
+    }
+    if (m->apf_n) {
+        if (rc) {      /* nothing will read them: hand the room back */
+            for (int k = 0; k < m->apf_n; k++) { m->ec_reserved -= m->apf_res[2 * k].bytes + m->apf_res[2 * k + 1].bytes; sn_cuda_xs_pool_put(c, m->apf_pb[k] - 1); }
+            m->apf_n = 0;
+        } else { m->apf_pend = nx + 1; nemo_pool_prep(&m->pool, apf_job, m); }
+    }
+    for (int k = 0; k < ns; k++) if (m->xs_pfpb[k]) {      /* a failed send: give the reserved room and the block back */
+        const layer_t *l = &m->L[nx];
+        m->ec_reserved -= sn_res_bytes(&m->pack, l->eup[m->xs_pfx[k]]) + sn_res_bytes(&m->pack, l->edn[m->xs_pfx[k]]);
+        sn_cuda_xs_pool_put(c, m->xs_pfpb[k] - 1); m->xs_pfpb[k] = 0;
     }
     return rc;
 }
@@ -981,7 +1104,11 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
     else if (!m->ec) for (int i = 0; i < nu; i++) w->emode[i] = 0;
     for (int i = 0; i < nu; i++) w->epend[i].pb = 0;
     if (m->xs_pfli == li) {           /* how many of the experts sent early did the router pick */
-        for (int k = 0; k < m->xs_pfn; k++) if (w->cnt[m->xs_pfl_keys[k]]) m->xs_pf_right++;
+        for (int k = 0; k < m->xs_pfn; k++) {
+            int hit = w->cnt[m->xs_pfl_keys[k]] != 0, sr = m->xs_pfl_src[k];
+            if (hit) m->xs_pf_right++;
+            if (sr >= PFS_PACK) { m->xs_pf_pack++; if (!hit) m->xs_pf_pack_bad++; } else if (sr == PFS_DMA) { m->xs_pf_dma++; if (!hit) m->xs_pf_dma_bad++; }
+        }
         m->xs_pfli = -1; m->xs_pfn = 0;
     }
     for (int v = 0; v < n * K; v++) m->xs_oidx[v] = w->etok[v] * K + w->eslot[v];
@@ -1060,6 +1187,7 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
 int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen)
 {
     why[0] = 0;
+    if (m->apf_pend && m->cuda) apf_finish(m);
     if (!on) { m->xs_on = 0; return 0; }
     const sn_geom *g = &m->g;
     if (!m->cuda) { snprintf(why, (size_t)whylen, "no CUDA lane"); return -1; }
@@ -1081,12 +1209,19 @@ int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen)
         if ((v = getenv("SN_XS_PREFETCH")) && !strcmp(v, "0")) m->xs_nopf = 1;
         if ((v = getenv("SN_XS_PINNED")) && !strcmp(v, "0")) m->xs_nopin = 1;
         if ((v = getenv("SN_XS_SLOTCAP")) && !strcmp(v, "0")) m->xs_nocap = 1;
+        if ((v = getenv("SN_XS_PFMODE")) && atoi(v) >= 1 && atoi(v) <= 4) m->xs_pfmode = atoi(v);   /* 1: guesses read the pack on the main thread, 2: and are kept in the RAM cache, 3: only cached guesses are sent early, 4 (default): 3 plus background reads of the rest into the RAM cache */
     }
     if (!m->xs_next) {
         int K = g->moe_topk;
         m->xs_next = (int *)xalloc((size_t)m->n_all * sizeof(int)); m->xs_ph = (float *)xalloc((size_t)g->hidden * 4);
         m->xs_ptw = (float *)xalloc((size_t)K * 4); m->xs_ptop = (int *)xalloc((size_t)K * sizeof(int));
         m->xs_pfx = (int *)xalloc((size_t)K * sizeof(int)); m->xs_pfl_keys = (int *)xalloc((size_t)K * sizeof(int));
+        m->xs_pfpb = (int *)xalloc((size_t)K * sizeof(int)); m->xs_pfok = (int *)xalloc((size_t)K * sizeof(int)); m->xs_pfl_src = (int *)xalloc((size_t)K * sizeof(int));
+        m->xs_pfres = (sn_pq_res *)xalloc((size_t)K * 2 * sizeof(sn_pq_res)); if (!m->xs_pfmode) m->xs_pfmode = 4;
+        m->apf_ex = (int *)xalloc((size_t)K * sizeof(int)); m->apf_pb = (int *)xalloc((size_t)K * sizeof(int)); m->apf_ok = (int *)xalloc((size_t)K * sizeof(int));
+        m->apf_res = (sn_pq_res *)xalloc((size_t)K * 2 * sizeof(sn_pq_res));
+        if (!m->apf_ex || !m->apf_pb || !m->apf_ok || !m->apf_res) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
+        if (!m->xs_pfpb || !m->xs_pfok || !m->xs_pfl_src || !m->xs_pfres) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
         if (!m->xs_next || !m->xs_ph || !m->xs_ptw || !m->xs_ptop || !m->xs_pfx || !m->xs_pfl_keys) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
         for (int i = 0; i < m->n_all; i++) {      /* the next MoE layer of the main stack (none after the last, none for the MTP head) */
             m->xs_next[i] = -1;
@@ -1110,6 +1245,7 @@ int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen)
     if (sn_cuda_xs_open(m->cuda, &m->pack, &xg, why, whylen) != 0) return -1;
     if (m->gpu_tier) { m->gpu_tier = 0; sn_cuda_set_cache_budget(m->cuda, 0); }
     if (m->ec && !m->xs_nopin) sn_cuda_xs_pool_limit(m->cuda, (long long)m->ec_budget);
+    if (m->xs_pfmode == 4 && !m->prd_ok && sn_rd_open(&m->pack, &m->prd) == 0) m->prd_ok = 1;
     m->xs_on = 1;
     return 0;
 }
@@ -1671,6 +1807,12 @@ void sn_model_prof_report(sn_model *m, FILE *f, void (*tokname)(void *u, int tok
                 p->xs_wait, p->xs_prep, p->xs_issue, p->xs_pref, p->xs_end);
         fprintf(f, "PROF stream: %ld experts went up straight from pinned RAM cache blocks; early fetch sent %llu, router picked %llu of them\n",
                 p->xs_direct, (unsigned long long)m->xs_pf_sent, (unsigned long long)m->xs_pf_right);
+        double eb_mb = 0.0;
+        for (int q = 0; q < m->n_all && eb_mb == 0.0; q++) if (m->L[q].eup) eb_mb = (double)(sn_res_bytes(&m->pack, m->L[q].eup[0]) + sn_res_bytes(&m->pack, m->L[q].edn[0])) / 1048576.0;
+        fprintf(f, "PROF early fetch (mode %d): %llu sent from pinned cache blocks (%llu wrong), %llu read from the pack (%llu wrong, %.0f MB read for wrong guesses), %llu of the pack reads kept in the RAM cache\n",
+                m->xs_pfmode, (unsigned long long)m->xs_pf_dma, (unsigned long long)m->xs_pf_dma_bad, (unsigned long long)m->xs_pf_pack,
+                (unsigned long long)m->xs_pf_pack_bad, (double)m->xs_pf_pack_bad * eb_mb, (unsigned long long)m->xs_pf_adm);
+        if (m->xs_pfmode == 4) fprintf(f, "PROF early fetch background reads: %llu experts read on the prep thread and kept, %llu failed; the main thread waited %.0f ms for them\n", (unsigned long long)m->xs_apf_ok, (unsigned long long)m->xs_apf_fail, m->xs_apf_wait);
     }
     long a = 0, b = 0, c2 = 0, d = 0, n = 0, np = 0, ne = 0, su = 0;
     for (int li = 0; li < p->nl; li++) if (p->n_tok[li]) {
