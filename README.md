@@ -23,8 +23,8 @@ Little Nemo, exact scoring against the original model (119 items, first answer w
 | configuration | fits a 4 GB card | decode tok/s | first-answer hits | share of the original |
 |---|---|---|---|---|
 | original (bf16) | no | n/a | 106 of 119 | 100% |
-| shipping pack | yes | 12.6 to 16.2 | 31 of 119 | 29% |
-| pack plus x2 refinement | yes | 13.0 to 13.5 | 52 of 119 | 49% |
+| shipping pack | yes | 16.2 quieter morning, about 13 shared | 31 of 119 | 29% |
+| pack plus x2 refinement | yes | about 13, same conditions as the shared shipping-pack run | 52 of 119 | 49% |
 | pack plus x1 refinement | no (CPU only) | n/a | 59 of 119 | 56% |
 | pack with the original Mamba projections restored | not built yet | pending | quiz 47 of 50, same as the original | pending |
 
@@ -56,7 +56,40 @@ See the chat window first, with no model at all:
 python littlenemo\gui\nemo_chat.py --model littlenemo --engine "python littlenemo/tests/fake_engine.py --stdio --model littlenemo"
 ```
 
-To chat with a real model you need the NVIDIA checkpoint under its own license. [docs/ACCEL-CUDA.md](docs/ACCEL-CUDA.md) covers Little Nemo on the GPU, and [docs/SUPERNEMO.md](docs/SUPERNEMO.md) covers SuperNemo.
+You need NVIDIA's model files under their own licenses: the Nemotron Nano 9B v2 checkpoint and its tokenizer for Little Nemo, and a packed Super VL checkpoint with its `config.json` and `tokenizer.json` for SuperNemo. They are not in this repository.
+
+Build the CUDA Little Nemo engine (after `accel\build-accel.bat`, with the CUDA toolkit available):
+
+```
+powershell -File accel\build-nemo-gpu.ps1
+```
+
+Chat with Little Nemo from the window:
+
+```
+python littlenemo\gui\nemo_chat.py --model littlenemo --engine "accel\bin\nemo-engine-cuda-w.exe <checkpoint-dir> <tokenizer.json> --chat --cuda-pack <pack.nq2> --accel auto"
+```
+
+The same arguments work on the console binary, `accel\bin\nemo-engine-cuda.exe`. Details, flags and the ten-question smoke test are in [docs/ACCEL-CUDA.md](docs/ACCEL-CUDA.md).
+
+SuperNemo:
+
+```
+supernemo\build.bat
+sn-engine.exe --pack <pack-dir> --config <checkpoint-dir>\config.json --tokenizer <checkpoint-dir>\tokenizer.json --gpu-mb 3000 --below-normal --ask "your question"
+```
+
+Without `--ask` it speaks the chat protocol on stdin and stdout, so the same window can drive it. Details are in [docs/SUPERNEMO.md](docs/SUPERNEMO.md).
+
+## Where the reports live
+
+- [docs/INTELLIGENCE-RETENTION.md](docs/INTELLIGENCE-RETENTION.md): how much intelligence the compressed models keep, with speed beside accuracy
+- [docs/EXPAND-REFINE.md](docs/EXPAND-REFINE.md): the small refinement pack for Little Nemo
+- [docs/SUPERNEMO.md](docs/SUPERNEMO.md): the 120B engine
+- [docs/COMPARISON.md](docs/COMPARISON.md): how this is similar to llama.cpp
+- Scrubbed quiz and retention receipts: `littlenemo/tests/quiz/receipts/` and `littlenemo/tests/retention/receipts/`
+
+The documentation index is [docs/README.md](docs/README.md).
 
 ## Ideas in one page
 
@@ -67,9 +100,7 @@ To chat with a real model you need the NVIDIA checkpoint under its own license. 
 - **Tensor Handshake and zero mutexes.** Concurrent preparation, serialized use, no locks anywhere. [docs/TENSOR-HANDSHAKE.md](docs/TENSOR-HANDSHAKE.md), [docs/ZERO-MUTEX.md](docs/ZERO-MUTEX.md)
 - **Precision Gate and accel lanes.** When to trust the table, and the CUDA and OpenCL lanes. [docs/PRECISION-GATE.md](docs/PRECISION-GATE.md), [docs/ACCEL.md](docs/ACCEL.md)
 
-## Where to read more
-
-The documentation index is [docs/README.md](docs/README.md). The research record (experiments, baselines, the fidelity roadmap) is linked from it, and the earlier long README is kept in [docs/archive/](docs/archive/) so no credit or number is lost.
+The research record (experiments, baselines, the fidelity roadmap) is linked from the index, and the earlier long README is kept in [docs/archive/](docs/archive/) so no credit or number is lost.
 
 ## Layout
 

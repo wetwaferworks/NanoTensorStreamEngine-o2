@@ -4,12 +4,14 @@ Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.
 
 NTSE squeezes big models into small packs. This report answers the question that matters most: after squeezing, how much of the original model's intelligence is left, and how fast does it run? Speed and accuracy are shown side by side for every configuration, against the original ("raw") model.
 
+In short, the shipping Little Nemo pack keeps about 29 percent of the original model's first-answer hits (31 of 119, against 106). The small x2 refinement that still fits a 4 GB card keeps 49 percent (52 of 119), and the larger x1 refinement, which only runs on the CPU, keeps 56 percent (59 of 119). Both packs that fit the card decode at about 13 tokens per second when the machine is shared, and 16.2 on a quieter morning (pooled decode on the 50-question set). Almost all of the loss comes from compressing the Mamba `in_proj` and `out_proj` weights: putting the original values back in those alone returns the quiz to the original's score (47 of 50) and restores the habit of stopping at the end of a turn. Giving those projections more bits, in a size that still fits 4 GB, is the next step. SuperNemo's answers on the card match the CPU path (identical whole-model hash); the speed features do not change accuracy.
+
 Everything here was measured on one bench machine (RTX 3050 Ti Laptop 4 GB, i5-12450H, 16 GB RAM) on 27 and 28 November 2026. All timings are real-world: other jobs shared the CPU and the card while these ran, so read the ratios more than the last digit. Anything we did not measure is marked pending. The full detail, with every table and receipt, is in [RETENTION-BATTERY-2026-11-27.md](RETENTION-BATTERY-2026-11-27.md).
 
 ## The short version
 
 1. **Little Nemo (Nemotron Nano 9B v2) keeps about 29 percent of the original's first-answer hits in the shipping pack, and about 49 percent with the small "x2" refinement that still fits the 4 GB card.** Raw gets 106 of 119 right on the first answer word, the shipping pack 31, x2 52, and the larger x1 (CPU only) 59.
-2. **Speed is fine, accuracy is the gap.** Little Nemo decodes at about 12.6 to 13.9 tokens per second on the card while sharing the machine (16.2 on a quiet round), above the 10 tokens per second floor. x2 costs no measurable speed.
+2. **Speed is fine, accuracy is the gap.** Little Nemo decodes at about 12.6 to 13.9 tokens per second on the card while sharing the machine (16.2 on a quieter morning, pooled decode on the 50-question set), above the 10 tokens per second floor. x2 costs no measurable speed.
 3. **We found where the loss lives.** The Mamba `in_proj` and `out_proj` weights are almost all of it. Put the original weights back in just those, in all 27 Mamba layers, and the quiz returns to the original's score (17 to 47 of 50) and the model stops talking at the right moment again (stop probability 0.017 to 0.9997). That pack was not built at speed yet; it is the next step.
 4. **The output head is not the problem.** An 8-bit head against a 16-bit head changes the loss by at most 0.008 per token.
 5. **SuperNemo (Nemotron 3.5 Super VL, 120B-A12B) gives the same answers on the card as on the CPU** (identical whole-model hash) and passes its 5-question quiz subset, at about 0.1 to 0.3 tokens per second on this card. A raw SuperNemo comparison was not possible here.
@@ -28,7 +30,7 @@ Configurations: **raw** is the original bf16 model. **Packed** is the shipping 2
 | configuration | runs on the 4 GB card | decode tok/s (real-world) | first-token hits, of 119 | share of raw | loss per token | quiz first token, of 50 | share of raw gap in loss closed |
 |---|---|---|---|---|---|---|---|
 | raw bf16 (original) | no (18 GB) | n/a | 106 (89%) | 100% | 0.267 | 47 | 100% |
-| packed (shipping) | yes | 12.6 median (16.2 quiet) | 31 (26%) | 29% | 1.631 | 16 | 0% |
+| packed (shipping) | yes | 12.6 median (16.2 quieter morning) | 31 (26%) | 29% | 1.631 | 16 | 0% |
 | x2, layers 8 and 11 | yes | 13.0 median (13.5 pooled in the expansion round) | 52 (44%) | 49% | 1.224 | 28 | 30% |
 | x1, six layers | no (CPU only) | n/a | 59 (50%) | 56% | 1.107 | 34 | 38% |
 | packed + original Mamba in/out | speed pending (not built as a pack) | pending | pending | pending | pending | 47 (16-bit head, quiz only) | 100% |
@@ -141,7 +143,7 @@ JD's call: about 0.1 to 0.3 tokens per second is realistic for SuperNemo on a 4 
 
 | goal | result |
 |---|---|
-| Little Nemo at least 10 tok/s on the 4 GB card | met: 12.6 to 13.9 tok/s median, shared machine; 16.2 on a quiet round |
+| Little Nemo at least 10 tok/s on the 4 GB card | met: 12.6 to 13.9 tok/s median, shared machine; 16.2 on a quieter morning (pooled decode, questions) |
 | Little Nemo 30+ tok/s on 8 GB cards | not measured (only a 4 GB card here) |
 | SuperNemo | 0.1 to 0.3 tok/s on the 4 GB card, as agreed |
 
@@ -171,12 +173,14 @@ Moving the output head to the CPU would free about 560 MiB, but it ran at about 
 
 The CPU scorer takes matching specs, and its result for the whole `in_proj` matches the restored-weights run bit for bit, which checks the new path.
 
-## What was not measured
+## Not yet measured
 
-- A raw generated run of either model, and any 8 GB card.
-- The speed and score of an 8-bit Mamba pack (pending, see above).
-- SuperNemo against its raw checkpoint.
-- Samples are small (50 quiz questions, 8 to 12 in the extras). One run of SuperNemo moves by up to 60 percent from machine load alone.
+- Accuracy and speed of the 8-bit and partial Mamba-projection packs (sizes are known; the scoring runs were stopped before they finished).
+- Generated, user-visible answers from the original (raw) models. The 9B original is about 18 GB and does not fit this machine's 16 GB of RAM.
+- Little Nemo speed on 8 GB or larger cards (the 30+ tok/s goal). Only a 4 GB card was available here.
+- A same-card comparison with llama.cpp. That is waiting on a go to download and run it.
+- SuperNemo against its raw checkpoint (the raw model is far larger than this machine).
+- Samples are small (50 quiz questions, 8 to 12 in the extras). One SuperNemo run can move by up to 60 percent from machine load alone.
 
 ## Receipts
 
@@ -368,7 +372,7 @@ The packed pack's long-context miss is a format miss (it starts "The code for th
 
 ## J. Speed of every run (real-world)
 
-Recorded against JD's floor (**10 tok/s on the 4 GB card**) and target (**30+ tok/s on 8 GB cards**). All timings are real-world: another worker's fid-quant was running on the CPU for the whole battery, the teacher-forced runs shared the CPU (8 threads, BelowNormal), and JD may have been on the machine. The quiet 12:52 PM round decoded at 16.2 tok/s on the same pack; these runs read about 20 percent lower.
+Recorded against JD's floor (**10 tok/s on the 4 GB card**) and target (**30+ tok/s on 8 GB cards**). All timings are real-world: another worker's fid-quant was running on the CPU for the whole battery, the teacher-forced runs shared the CPU (8 threads, BelowNormal), and JD may have been on the machine. The quieter 12:52 PM ET 27 November round decoded at 16.2 tok/s pooled on the 50-question set (same pack, decode time only; see the note under appendix M); these later runs read about 20 percent lower under a more heavily shared machine.
 
 Generation (CUDA lane, `accel=cuda`, int8 lm_head, DTC on). Tok/s are per-item medians and means from the engine's own counters; wall time includes engine load and calibration; card peak is the whole card (Windows and other programs hold about 0.6 GiB).
 
@@ -503,11 +507,11 @@ Questions: three misses fixed (grams in a kilogram, millilitres in a litre, legs
 
 | speed run | path | decode tok/s (pooled) | prefill tok/s (pooled) | card peak MiB | RAM peak MB |
 |---|---|---|---|---|---|
-| morning base, questions | CUDA | 11.63 | 73.9 | 3841 | 306.5 |
-| morning base, essays | CUDA | 15.64 | 58.7 | 3841 | 306.6 |
+| morning base, questions | CUDA | 16.22 | 73.9 | 3841 | 306.5 |
+| morning base, essays | CUDA | 16.10 | 58.7 | 3841 | 306.6 |
 | control base, questions | CUDA | 13.35 | 43.8 | 3596 | 306.7 |
 | control base, essays | CUDA | 13.99 | 41.9 | 3596 | 307.0 |
 | x2, questions | CUDA | 13.51 (min 8.86) | 43.2 | 3681 | 345.1 |
 | x2, essays | CUDA | 13.95 (min 13.45) | 40.5 | 3681 | 306.7 |
 
-All timings are real-world (other jobs shared the CPU and card). The morning round's own report gives 16.2 tok/s pooled on questions and 16.1 on essays, while the expansion report lists 11.63 and 15.64 for the same morning run. The two records disagree and we have not reconciled them, so the 16.2 quoted elsewhere in this report should be read with that caveat; the control and x2 rows in this table were measured back to back with the same engine and are the fair comparison.
+All timings are real-world. The morning row is the 12:52 PM ET 27 November quiz on the shipping pack: 16.22 tok/s questions and 16.10 tok/s essays, pooled generated tokens over decode time only, from `littlenemo/tests/quiz/receipts/2026-11-27/little-nemo/` (`pooled.decode_tps_pooled`; also 16.2 and 16.1 in [LITTLE-NEMO-ROUND-2026-11-27.md](LITTLE-NEMO-ROUND-2026-11-27.md)). That same receipt has a `summary.decode_tps_pooled` field of 11.63 and 15.64, which divides generated tokens by prefill time plus decode time and is not a decode rate; it was copied into an earlier table by mistake. No new run was needed. The later control and x2 rows were measured back to back on a more heavily shared machine (about 13.4 to 14.0 tok/s) and are the fair comparison with each other.

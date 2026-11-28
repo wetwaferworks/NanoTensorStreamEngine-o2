@@ -117,8 +117,8 @@ net gain on one-line answers.
 
 | run | path | decode tok/s (pooled) | prefill tok/s (pooled) | card peak MiB | RAM peak MB |
 |---|---|---|---|---|---|
-| 27 Nov morning base, questions | CUDA | 11.63 | 73.9 | 3841 | 306.5 |
-| 27 Nov morning base, essays | CUDA | 15.64 | 58.7 | 3841 | 306.6 |
+| 27 Nov morning base, questions | CUDA | 16.22 | 73.9 | 3841 | 306.5 |
+| 27 Nov morning base, essays | CUDA | 16.10 | 58.7 | 3841 | 306.6 |
 | control base, questions | CUDA | 13.35 | 43.8 | 3596 | 306.7 |
 | control base, essays | CUDA | 13.99 | 41.9 | 3596 | 307.0 |
 | x2, questions | CUDA | 13.51 (min 8.86) | 43.2 | 3681 | 345.1 |
@@ -131,11 +131,20 @@ net gain on one-line answers.
 | 110 MiB three-layer pack | CPU fallback (refused) | 0.013 | 0.068 | 605 | 1294 |
 | host lm_head bench, 4 lanes | CPU | 92.45 ms per head | | | |
 
-x2 decodes at essentially the base rate (13.5 vs 13.35 tok/s pooled, essays
+x2 decodes at essentially the base rate on the later, shared-machine pair (13.5 vs 13.35 tok/s pooled, essays
 13.95 vs 13.99), well above the floor. The 2-question rows vary by 30 to 40
 percent between runs because other workers share the card and fid-quant
 shares the CPU; do not rank them finely. The 8 GB target (30+ tok/s) cannot
 be measured on this card.
+
+The morning decode rates above are 16.22 tok/s (questions) and 16.10 tok/s (essays):
+generated tokens divided by decode time only, from the published quiz receipt
+(`littlenemo/tests/quiz/receipts/2026-11-27/little-nemo/`, the `pooled.decode_tps_pooled`
+field, also 16.2 and 16.1 in [LITTLE-NEMO-ROUND-2026-11-27.md](LITTLE-NEMO-ROUND-2026-11-27.md)).
+An earlier version of this table used 11.63 and 15.64 from the same file's
+`summary.decode_tps_pooled` field, which divides generated tokens by prefill time
+plus decode time and is not a decode rate. No new run was needed; both figures
+come from one receipt.
 
 ## Threading and tensor handshake profile (x2, 47 decode steps, real-world)
 
