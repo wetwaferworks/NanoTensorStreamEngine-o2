@@ -470,6 +470,8 @@ typedef struct xs_lane {
     size_t dT_n, dW_n, dX_n, dY_n;   /* floats */
     uint64_t tick; uint32_t pin;
     uint32_t *key_cnt; uint64_t uses, age_every; int policy;   /* policy 1: keep hot experts (use counts, halved now and then) */
+    /* pinned RAM cache pool: block b lives in chunk b / per at (b % per) * slot_bytes */
+    unsigned char **pch; int per, npch, pcap, npool, nfree, pdead; int *pfree; CUevent *pev; unsigned char *pdma;
     int nph[2], ng[2];
     sn_xs_info info;
 } xs_lane;
@@ -488,6 +490,9 @@ static void xs_free(sn_cuda *c)
     CUdeviceptr *bufs[] = { &x->slots, &x->dLat, &x->dPL, &x->dEO, &x->dU, &x->dPmid, &x->dT, &x->dW, &x->dTok, &x->dOidx, &x->dX, &x->dY };
     for (size_t i = 0; i < sizeof bufs / sizeof bufs[0]; i++) if (*bufs[i]) c->cuMemFree(*bufs[i]);
     if (x->stage) c->cuMemFreeHost(x->stage);
+    for (int i = 0; i < x->npool; i++) if (x->pev && x->pev[i]) c->cuEventDestroy(x->pev[i]);
+    for (int i = 0; i < x->npch; i++) if (x->pch[i]) c->cuMemFreeHost(x->pch[i]);
+    free(x->pch); free(x->pfree); free(x->pev); free(x->pdma);
     if (x->s_copy) c->cuStreamDestroy(x->s_copy);
     if (x->s_comp) c->cuStreamDestroy(x->s_comp);
     free(x->slot_key); free(x->slot_tick); free(x->slot_pin); free(x->key_slot); free(x->key_cnt);
@@ -587,6 +592,9 @@ int sn_cuda_xs_open(sn_cuda *c, const sn_pack *p, const sn_xs_geom *g, char *why
     avail -= 64ll << 20;                                   /* the same headroom the dense loader keeps */
     long long ns = avail > 0 ? avail / (long long)x->slot_bytes : 0;
     if (ns > g->nkeys) ns = g->nkeys;
+    /* stream only (no dense tensors on the card): a big slot pool fills the card and the display driver starts paging it
+     * (measured: 1684 slots 0.030 tok/s, 300 slots 0.054-0.060), so cap it; the experts it would have held stay in RAM */
+    if (g->stream_cap > 0 && c->used == 0 && ns > g->stream_cap) { ns = g->stream_cap; x->info.capped = 1; }
     {   /* test knob: SN_XS_MAX_SLOTS caps the slot count so tests can force eviction and small staging halves */
         const char *cap = getenv("SN_XS_MAX_SLOTS");
         if (cap && atoll(cap) > 0 && atoll(cap) < ns) ns = atoll(cap);
@@ -671,6 +679,12 @@ int sn_cuda_xs_find(sn_cuda *c, int key)
     return s;
 }
 
+int sn_cuda_xs_peek(const sn_cuda *c, int key)
+{
+    const xs_lane *x = c->xs;
+    return (x && key >= 0 && key < x->nkeys) ? x->key_slot[key] : -1;
+}
+
 int sn_cuda_xs_claim(sn_cuda *c, int key)
 {
     xs_lane *x = c->xs;
@@ -703,6 +717,77 @@ int sn_cuda_xs_upload(sn_cuda *c, int j, int slot, int key)
     x->slot_key[slot] = key; x->key_slot[key] = slot;
     x->info.loads++; x->info.bytes_up += x->slot_bytes;
     return 0;
+}
+
+void sn_cuda_xs_pool_limit(sn_cuda *c, long long bytes)
+{
+    xs_lane *x = c->xs;
+    if (!x || x->pcap) return;                           /* set once, before the first block */
+    long long nb = bytes / (long long)x->slot_bytes;
+    if (nb <= 0) return;
+    if (nb > 1 << 20) nb = 1 << 20;
+    x->per = (int)((64ll << 20) / (long long)x->slot_bytes); if (x->per < 1) x->per = 1;   /* pin about 64 MB at a time */
+    int nch = (int)((nb + x->per - 1) / x->per);
+    x->pch = (unsigned char **)calloc((size_t)nch, sizeof *x->pch); x->pfree = (int *)malloc((size_t)nb * sizeof(int));
+    x->pev = (CUevent *)calloc((size_t)nb, sizeof(CUevent)); x->pdma = (unsigned char *)calloc((size_t)nb, 1);
+    if (!x->pch || !x->pfree || !x->pev || !x->pdma) { free(x->pch); free(x->pfree); free(x->pev); free(x->pdma); x->pch = NULL; x->pfree = NULL; x->pev = NULL; x->pdma = NULL; return; }
+    x->pcap = (int)nb;
+}
+
+int sn_cuda_xs_pool_get(sn_cuda *c)
+{
+    xs_lane *x = c->xs;
+    if (!x || !x->pcap) return -1;
+    int b = -1;
+    if (x->nfree > 0) b = x->pfree[--x->nfree];
+    else if (!x->pdead && x->npool < x->pcap) {
+        if (x->npool % x->per == 0) {                     /* the next chunk */
+            int ch = x->npool / x->per, cnt = x->pcap - x->npool < x->per ? x->pcap - x->npool : x->per;
+            void *hp = NULL;
+            if (c->cuMemHostAlloc(&hp, (size_t)cnt * x->slot_bytes, 0) != 0 || !hp) { x->pdead = 1; return -1; }
+            x->pch[ch] = (unsigned char *)hp; x->npch = ch + 1;
+            x->info.pool_bytes += (long long)cnt * (long long)x->slot_bytes;
+        }
+        if (c->cuEventCreate(&x->pev[x->npool], 2) != 0) { x->pdead = 1; return -1; }
+        b = x->npool++;
+    }
+    if (b >= 0 && x->pdma[b]) { if (c->cuEventSynchronize(x->pev[b]) != 0) { x->pfree[x->nfree++] = b; return -1; } x->pdma[b] = 0; }
+    return b;
+}
+
+void sn_cuda_xs_pool_put(sn_cuda *c, int b)
+{
+    xs_lane *x = c->xs;
+    if (x && b >= 0 && b < x->npool) x->pfree[x->nfree++] = b;
+}
+
+static unsigned char *xs_pool_at(const xs_lane *x, int b) { return x->pch[b / x->per] + (size_t)(b % x->per) * x->slot_bytes; }
+
+void sn_cuda_xs_pool_ptrs(sn_cuda *c, int b, int which, uint8_t **idx, uint16_t **mn, uint16_t **sc, float **book)
+{
+    xs_lane *x = c->xs;
+    unsigned char *p = xs_pool_at(x, b);
+    *idx = (uint8_t *)(p + x->off[which][0]); *mn = (uint16_t *)(p + x->off[which][1]);
+    *sc = (uint16_t *)(p + x->off[which][2]); *book = (float *)(p + x->off[which][3]);
+}
+
+int sn_cuda_xs_upload_pool(sn_cuda *c, int b, int slot, int key)
+{
+    xs_lane *x = c->xs;
+    CUdeviceptr dst = x->slots + (CUdeviceptr)slot * x->slot_bytes;
+    if (c->cuStreamWaitEvent(x->s_copy, x->ev_free[slot], 0) != 0) return -1;
+    if (c->cuMemcpyHtoDAsync(dst, xs_pool_at(x, b), x->slot_bytes, x->s_copy) != 0) return -1;
+    if (c->cuEventRecord(x->ev_ready[slot], x->s_copy) != 0 || c->cuEventRecord(x->pev[b], x->s_copy) != 0) return -1;
+    x->pdma[b] = 1;
+    x->slot_key[slot] = key; x->key_slot[key] = slot;
+    x->info.loads++; x->info.bytes_up += x->slot_bytes;
+    return 0;
+}
+
+void sn_cuda_xs_note(sn_cuda *c, uint64_t direct, uint64_t pf_sent, uint64_t pf_right)
+{
+    if (!c || !c->xs) return;
+    c->xs->info.direct = direct; c->xs->info.pf_sent = pf_sent; c->xs->info.pf_right = pf_right;
 }
 
 int sn_cuda_xs_layer_begin(sn_cuda *c, const float *lat, const double *plat, int n, const int *tok, const int *oidx, int nidx)

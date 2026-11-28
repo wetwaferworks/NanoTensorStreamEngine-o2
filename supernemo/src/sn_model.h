@@ -117,6 +117,10 @@ void sn_model_cache_stats(const sn_model *m, sn_cache_stats *s);
 int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen);
 int sn_model_gpu_experts_on(const sn_model *m);
 void sn_model_gpu_experts_info(const sn_model *m, sn_xs_info *out);
+/* GPU expert stream speed-ups, all on by default (each is results-identical): early fetch of the next MoE layer's experts,
+ * pinned RAM cache blocks that the card copies straight from, and the slot cap when the card holds only the stream.
+ * Call before sn_model_gpu_experts. */
+void sn_model_stream_options(sn_model *m, int prefetch, int pinned_cache, int slot_cap);
 
 /* Optional telemetry: called per layer entered and per MoE routing. */
 typedef void (*sn_layer_cb)(void *user, int layer, char type);

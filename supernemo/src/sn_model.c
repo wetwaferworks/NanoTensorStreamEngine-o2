@@ -141,7 +141,7 @@ typedef struct {
 
 /* Hot-expert cache entry: an expert's two packed matrices kept in RAM (byte copies of the pack, so every kernel returns
  * identical bits from them) and optionally mirrored in VRAM. uses counts tokens that chose the expert (deterministic). */
-typedef struct { sn_pq_res up, dn; unsigned char ram, gpu, pend; uint32_t uses; uint32_t epoch; int rpos; } ecent;
+typedef struct { sn_pq_res up, dn; unsigned char ram, gpu, pend; uint32_t uses; uint32_t epoch; int rpos; int pb; } ecent;   /* pb: pinned block + 1 (0: malloc'd copy) */
 
 struct sn_model {
     sn_geom g;
@@ -186,6 +186,9 @@ struct sn_model {
     /* GPU expert stream (sn_cuda_xs_*): every routed expert goes to the card compressed and is computed there */
     int xs_on;
     int *xs_oidx, *xs_list, *xs_slot; unsigned char *xs_done;
+    int xs_nopf, xs_nopin, xs_nocap;    /* the three speed-ups below are on unless switched off (sn_model_stream_options, SN_XS_*=0) */
+    int *xs_next; float *xs_ph, *xs_ptw; int *xs_ptop, *xs_pfx, *xs_pfl_keys; int xs_pfn, xs_pfli;   /* early fetch for the next MoE layer */
+    uint64_t xs_direct, xs_pf_sent, xs_pf_right;
     struct sn_prof *prof; int prof_state;   /* optional profile (env SN_PROF=1); measurement only */
 };
 
@@ -202,7 +205,7 @@ typedef struct sn_prof {
     double ms[2][PC_N]; long calls[2][PC_N], on_card[2][PC_N]; long tokens[2];
     int nl, E, K; int *next_moe, *prev, *early; unsigned char *has_prev, *has_early; uint32_t *cnt; float *tmp, *tw;
     long *n_tok, *n_prev, *n_early, *ov_prev, *ov_early, *ov_hot, *ov_union, *sz_union;
-    double xs_wait, xs_prep, xs_issue, xs_end; long xs_layers, xs_hit, xs_mode[4];
+    double xs_wait, xs_prep, xs_issue, xs_end, xs_pref; long xs_layers, xs_hit, xs_mode[4], xs_direct;
     long pos_tried[SN_NV], pos_ok[SN_NV]; int miss_d[PROF_MISS], miss_a[PROF_MISS], miss_pos[PROF_MISS], nmiss;
 } sn_prof;
 
@@ -446,9 +449,10 @@ void sn_model_close(sn_model *m)
     free(m->lanes); free(m->L); free(m->mam); free(m->att); free(m->normf_w);
     free(m->gsc); free(m->P); free(m->book_shared); free(m->Tbuf);
     free(m->hist_hn); free(m->hist_tok); free(m->spec_logits);
-    if (m->ec) { for (size_t k = 0; k < (size_t)m->n_all * (size_t)m->g.moe_experts; k++) { sn_res_free(&m->ec[k].up); sn_res_free(&m->ec[k].dn); } }
+    if (m->ec) { for (size_t k = 0; k < (size_t)m->n_all * (size_t)m->g.moe_experts; k++) if (!m->ec[k].pb) { sn_res_free(&m->ec[k].up); sn_res_free(&m->ec[k].dn); } }
     free(m->ec); free(m->rlist); free(m->gmid); free(m->gpmid);
     free(m->xs_oidx); free(m->xs_list); free(m->xs_slot); free(m->xs_done);
+    free(m->xs_next); free(m->xs_ph); free(m->xs_ptw); free(m->xs_ptop); free(m->xs_pfx); free(m->xs_pfl_keys);
     sn_pack_close(&m->pack);
     free(m);
 }
@@ -704,6 +708,13 @@ static void rlist_del(sn_model *m, size_t key)
     m->rlist[pos] = last; m->ec[last].rpos = pos;
 }
 
+/* Drop the packed copies of a cache entry (or of a pending one): a pinned block goes back to the pool, a malloc'd copy is freed. */
+static void ec_release(sn_model *m, ecent *e)
+{
+    if (e->pb) { if (m->cuda) sn_cuda_xs_pool_put(m->cuda, e->pb - 1); e->pb = 0; memset(&e->up, 0, sizeof e->up); memset(&e->dn, 0, sizeof e->dn); }
+    else { sn_res_free(&e->up); sn_res_free(&e->dn); }
+}
+
 static void cache_evict(sn_model *m, size_t key)
 {
     ecent *e = &m->ec[key];
@@ -711,7 +722,7 @@ static void cache_evict(sn_model *m, size_t key)
     const layer_t *l = &m->L[li];
     if (e->gpu && m->cuda) { sn_cuda_cache_drop(m->cuda, &m->pack, l->eup[ex]); sn_cuda_cache_drop(m->cuda, &m->pack, l->edn[ex]); e->gpu = 0; m->gpu_drops++; }
     m->ec_used -= e->up.bytes + e->dn.bytes;
-    sn_res_free(&e->up); sn_res_free(&e->dn);
+    ec_release(m, e);
     e->ram = 0;
     rlist_del(m, key);
     m->evicts++;
@@ -766,11 +777,11 @@ static void cache_adopt(sn_model *m, int li, fws *w, int nu, int failed)
         m->ec_reserved -= sn_res_bytes(&m->pack, l->eup[w->used[i]]) + sn_res_bytes(&m->pack, l->edn[w->used[i]]);
         if (pe->pend && !failed) {
             ecent *e = &m->ec[key];
-            e->up = pe->up; e->dn = pe->dn; e->ram = 1;
+            e->up = pe->up; e->dn = pe->dn; e->ram = 1; e->pb = pe->pb; pe->pb = 0;
             memset(&pe->up, 0, sizeof pe->up); memset(&pe->dn, 0, sizeof pe->dn);
             m->ec_used += e->up.bytes + e->dn.bytes; m->admits++;
             rlist_add(m, key);
-        } else { sn_res_free(&pe->up); sn_res_free(&pe->dn); }
+        } else ec_release(m, pe);
         pe->pend = 0;
     }
     if (!m->gpu_tier || failed) return;
@@ -864,7 +875,17 @@ static void xprep_job(void *vc, int b, int e)
             xs_copy_res(m->cuda, &m->pack, j, 0, &ce->up); xs_copy_res(m->cuda, &m->pack, j, 1, &ce->dn);
             continue;
         }
-        if (mode == 3) {     /* the RAM cache admits this expert: load its packed copy once, stage from it */
+        if (mode == 3 && w->epend[i].pb) {   /* admitted into a pinned block: read the pack straight into it, DMA from it */
+            ecent *pe = &w->epend[i];
+            sn_pq_res *rr[2] = { &pe->up, &pe->dn }; const sn_tensor *tt[2] = { up, dn }; int ok = 1;
+            for (int q = 0; q < 2 && ok; q++) {
+                sn_cuda_xs_pool_ptrs(m->cuda, pe->pb - 1, q, &rr[q]->idx, &rr[q]->mn, &rr[q]->sc, &rr[q]->book);
+                rr[q]->nblocks = tt[q]->nblocks; rr[q]->bytes = sn_res_bytes(&m->pack, tt[q]);
+                ok = sn_res_read_into(&m->pack, &ln->rd, tt[q], rr[q]->idx, rr[q]->mn, rr[q]->sc, rr[q]->book) == 0;
+            }
+            if (ok) { pe->pend = 1; continue; }
+            memset(&pe->up, 0, sizeof pe->up); memset(&pe->dn, 0, sizeof pe->dn); pe->pend = 0;   /* the main thread returns the block */
+        } else if (mode == 3) {     /* the RAM cache admits this expert: load its packed copy once, stage from it */
             ecent *pe = &w->epend[i];
             if (sn_res_load(&m->pack, &ln->rd, up, &pe->up) == 0 && sn_res_load(&m->pack, &ln->rd, dn, &pe->dn) == 0) {
                 pe->pend = 1;
@@ -886,17 +907,83 @@ static int xs_compute(sn_model *m, fws *w, int i, int slot, int fused)
     return 0;
 }
 
+/* Early fetch (on by default): while the card works on this MoE layer, run the NEXT MoE layer's router on this layer's input
+ * (right about two times in three on the real pack) and send the experts it picks ahead, so most of the next layer's experts
+ * are already in their slots. It only decides what sits in which slot, never what is computed, so results are unchanged. */
+typedef struct { sn_model *m; int nx, n, b0, j0; int fail; } xpf_ctx;
+
+static void xpf_job(void *vc, int b, int e)
+{
+    xpf_ctx *c = (xpf_ctx *)vc;
+    sn_model *m = c->m;
+    const layer_t *l = &m->L[c->nx];
+    lane_t *ln = &m->lanes[lane_of(c->n, m->nthreads, b)];
+    for (int k = b; k < e; k++) {
+        int ex = m->xs_pfx[c->b0 + k], j = c->j0 + k;
+        const ecent *ce = m->ec ? &m->ec[(size_t)c->nx * m->g.moe_experts + (size_t)ex] : NULL;
+        if (ce && ce->ram) { xs_copy_res(m->cuda, &m->pack, j, 0, &ce->up); xs_copy_res(m->cuda, &m->pack, j, 1, &ce->dn); continue; }
+        if (xs_read(m->cuda, &m->pack, &ln->rd, j, 0, l->eup[ex]) != 0 || xs_read(m->cuda, &m->pack, &ln->rd, j, 1, l->edn[ex]) != 0) c->fail = 1;
+    }
+}
+
+static int xs_prefetch(sn_model *m, int li, fws *w, int n, int *half)
+{
+    sn_cuda *c = m->cuda;
+    const sn_geom *g = &m->g;
+    int nx = m->xs_next[li], K = g->moe_topk, H = g->hidden, rc = 0;
+    if (nx < 0) return 0;
+    nemo_rmsnorm(w->X + (size_t)(n - 1) * H, m->L[nx].norm_w, m->xs_ph, H, g->eps);
+    if (route_token(m, nx, m->xs_ph, m->xs_ptop, m->xs_ptw) != 0) return 0;
+    m->xs_pfli = nx; m->xs_pfn = 0;
+    int ns = 0;
+    for (int k = 0; k < K && !rc; k++) {
+        int ex = m->xs_ptop[k], key = (int)ekey(m, nx, ex);
+        if (sn_cuda_xs_peek(c, key) >= 0) continue;            /* already on the card */
+        const ecent *ce = m->ec ? &m->ec[(size_t)key] : NULL;
+        if (ce && ce->ram && ce->pb) {                           /* pinned copy: one DMA, no CPU work */
+            sn_cuda_xs_chunk_begin(c);
+            int s = sn_cuda_xs_claim(c, key);
+            if (s < 0 || sn_cuda_xs_upload_pool(c, ce->pb - 1, s, key) != 0) rc = -1;
+            else { m->xs_pf_sent++; m->xs_direct++; m->xs_pfl_keys[m->xs_pfn++] = ex; }
+        } else m->xs_pfx[ns++] = ex;
+    }
+    int C = sn_cuda_xs_chunk(c);
+    for (int b = 0; b < ns && !rc; b += C, *half ^= 1) {
+        int e = b + C < ns ? b + C : ns, cnt = e - b, j0 = *half * C;
+        sn_cuda_xs_chunk_begin(c);
+        if (sn_cuda_xs_stage_wait(c, j0, cnt) != 0) { rc = -1; break; }
+        for (int k = b; k < e && !rc; k++) {
+            int s = sn_cuda_xs_claim(c, (int)ekey(m, nx, m->xs_pfx[k]));
+            if (s < 0) rc = -1; else m->xs_slot[k - b] = s;
+        }
+        if (rc) break;
+        xpf_ctx pc = { m, nx, cnt, b, j0, 0 };
+        nemo_pool_for(&m->pool, cnt, xpf_job, &pc);
+        if (pc.fail) { rc = -1; break; }
+        for (int k = 0; k < cnt && !rc; k++) {
+            rc = sn_cuda_xs_upload(c, j0 + k, m->xs_slot[k], (int)ekey(m, nx, m->xs_pfx[b + k]));
+            if (!rc) { m->xs_pf_sent++; m->xs_pfl_keys[m->xs_pfn++] = m->xs_pfx[b + k]; }
+        }
+    }
+    return rc;
+}
+
 /* 0: every used expert of the layer computed on the card, outputs in w->EO and m->xs_done[i] = 1. -1: leave it to the CPU. */
 static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
 {
     sn_cuda *c = m->cuda;
     const sn_geom *g = &m->g;
     const layer_t *l = &m->L[li];
-    int E = g->moe_experts, K = g->moe_topk, rc = 0, nmiss = 0;
+    int K = g->moe_topk, rc = 0, nmiss = 0;
     memset(m->xs_done, 0, (size_t)nu);
     if (n > PF_CHUNK) return -1;
     if (!fused) for (int i = 0; i < nu; i++) w->emode[i] = (m->ec && m->ec[ekey(m, li, w->used[i])].ram) ? 1 : 0;
     else if (!m->ec) for (int i = 0; i < nu; i++) w->emode[i] = 0;
+    for (int i = 0; i < nu; i++) w->epend[i].pb = 0;
+    if (m->xs_pfli == li) {           /* how many of the experts sent early did the router pick */
+        for (int k = 0; k < m->xs_pfn; k++) if (w->cnt[m->xs_pfl_keys[k]]) m->xs_pf_right++;
+        m->xs_pfli = -1; m->xs_pfn = 0;
+    }
     for (int v = 0; v < n * K; v++) m->xs_oidx[v] = w->etok[v] * K + w->eslot[v];
     if (sn_cuda_xs_layer_begin(c, w->Lat, fused ? w->PL : NULL, n, w->etok, m->xs_oidx, n * K) != 0) rc = -1;
     sn_cuda_xs_chunk_begin(c);
@@ -909,6 +996,23 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
     }
     if (pf) { q1 = pnow(); pf->xs_issue += q1 - q0; q0 = q1; pf->xs_layers++; pf->xs_hit += nu - nmiss;
               for (int k = 0; k < nmiss; k++) { int md = w->emode[m->xs_list[k]]; pf->xs_mode[md >= 0 && md < 4 ? md : 0]++; } }
+    {   /* pinned RAM cache copies go up first: one DMA each, no CPU copy; the rest go through the staging halves */
+        int keep = 0;
+        for (int k = 0; k < nmiss && !rc; k++) {
+            int i = m->xs_list[k], key = (int)ekey(m, li, w->used[i]);
+            const ecent *ce = m->ec ? &m->ec[(size_t)key] : NULL;
+            if (w->emode[i] == 1 && ce && ce->ram && ce->pb) {
+                sn_cuda_xs_chunk_begin(c);
+                int s = sn_cuda_xs_claim(c, key);
+                if (s < 0) rc = -1;
+                else rc = sn_cuda_xs_upload_pool(c, ce->pb - 1, s, key);
+                if (!rc) rc = xs_compute(m, w, i, s, fused);
+                if (!rc) { m->xs_direct++; if (pf) pf->xs_direct++; }
+            } else m->xs_list[keep++] = i;
+        }
+        nmiss = keep;
+        if (pf) { q1 = pnow(); pf->xs_issue += q1 - q0; q0 = q1; }
+    }
     int C = sn_cuda_xs_chunk(c), half = 0;
     for (int b = 0; b < nmiss && !rc; b += C, half ^= 1) {
         int e = b + C < nmiss ? b + C : nmiss, cnt = e - b, j0 = half * C;
@@ -916,8 +1020,10 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
         if (sn_cuda_xs_stage_wait(c, j0, cnt) != 0) { rc = -1; break; }
         if (pf) { q1 = pnow(); pf->xs_wait += q1 - q0; q0 = q1; }
         for (int k = b; k < e && !rc; k++) {
-            int s = sn_cuda_xs_claim(c, (int)ekey(m, li, w->used[m->xs_list[k]]));
+            int i = m->xs_list[k];
+            int s = sn_cuda_xs_claim(c, (int)ekey(m, li, w->used[i]));
             if (s < 0) rc = -1; else m->xs_slot[k - b] = s;
+            if (!rc && w->emode[i] == 3 && !m->xs_nopin) { int pb = sn_cuda_xs_pool_get(c); w->epend[i].pb = pb >= 0 ? pb + 1 : 0; }
         }
         if (rc) break;
         xprep_ctx pc = { m, l, li, w, b, j0, cnt, 0 };
@@ -925,23 +1031,29 @@ static int xs_layer(sn_model *m, int li, fws *w, int n, int nu, int fused)
         if (pc.fail) { rc = -1; break; }
         if (pf) { q1 = pnow(); pf->xs_prep += q1 - q0; q0 = q1; }
         for (int k = b; k < e && !rc; k++) {
-            int i = m->xs_list[k], s = m->xs_slot[k - b];
-            rc = sn_cuda_xs_upload(c, j0 + (k - b), s, (int)ekey(m, li, w->used[i]));
+            int i = m->xs_list[k], s = m->xs_slot[k - b], key = (int)ekey(m, li, w->used[i]);
+            ecent *pe = &w->epend[i];
+            if (w->emode[i] == 3 && pe->pb && !pe->pend) { sn_cuda_xs_pool_put(c, pe->pb - 1); pe->pb = 0; }   /* read failed: staged instead */
+            if (w->emode[i] == 3 && pe->pb) { rc = sn_cuda_xs_upload_pool(c, pe->pb - 1, s, key); if (!rc) { m->xs_direct++; if (pf) pf->xs_direct++; } }
+            else rc = sn_cuda_xs_upload(c, j0 + (k - b), s, key);
             if (!rc) rc = xs_compute(m, w, i, s, fused);
         }
         if (pf) { q1 = pnow(); pf->xs_issue += q1 - q0; q0 = q1; }
+    }
+    if (!rc && fused && !m->xs_nopf && m->xs_next) {
+        if (xs_prefetch(m, li, w, n, &half) != 0) rc = -1;
+        if (pf) { q1 = pnow(); pf->xs_pref += q1 - q0; q0 = q1; }
     }
     if (!rc) rc = sn_cuda_xs_layer_end(c, w->EO, n * K);
     if (pf) pf->xs_end += pnow() - q0;
     if (rc) {
         sn_cuda_xs_abort(c);
-        if (fused) for (int i = 0; i < nu; i++) if (w->emode[i] == 3 && w->epend[i].pend) { sn_res_free(&w->epend[i].up); sn_res_free(&w->epend[i].dn); w->epend[i].pend = 0; }
+        for (int i = 0; i < nu; i++) if (w->emode[i] == 3 && (w->epend[i].pend || w->epend[i].pb)) { ec_release(m, &w->epend[i]); w->epend[i].pend = 0; }
         fprintf(stderr, "sn_model: the GPU expert stream failed on layer %d; the CPU lanes take over from here\n", li);
         m->xs_on = 0;
         return -1;
     }
     memset(m->xs_done, 1, (size_t)nu);
-    (void)E;
     return 0;
 }
 
@@ -964,24 +1076,53 @@ int sn_model_gpu_experts(sn_model *m, int on, char *why, int whylen)
         m->xs_done = (unsigned char *)xalloc((size_t)E);
         if (!m->xs_oidx || !m->xs_list || !m->xs_slot || !m->xs_done) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
     }
+    {   /* switches for the three stream speed-ups (all on by default; tests and the engine's flags may turn them off) */
+        const char *v;
+        if ((v = getenv("SN_XS_PREFETCH")) && !strcmp(v, "0")) m->xs_nopf = 1;
+        if ((v = getenv("SN_XS_PINNED")) && !strcmp(v, "0")) m->xs_nopin = 1;
+        if ((v = getenv("SN_XS_SLOTCAP")) && !strcmp(v, "0")) m->xs_nocap = 1;
+    }
+    if (!m->xs_next) {
+        int K = g->moe_topk;
+        m->xs_next = (int *)xalloc((size_t)m->n_all * sizeof(int)); m->xs_ph = (float *)xalloc((size_t)g->hidden * 4);
+        m->xs_ptw = (float *)xalloc((size_t)K * 4); m->xs_ptop = (int *)xalloc((size_t)K * sizeof(int));
+        m->xs_pfx = (int *)xalloc((size_t)K * sizeof(int)); m->xs_pfl_keys = (int *)xalloc((size_t)K * sizeof(int));
+        if (!m->xs_next || !m->xs_ph || !m->xs_ptw || !m->xs_ptop || !m->xs_pfx || !m->xs_pfl_keys) { snprintf(why, (size_t)whylen, "out of memory"); return -1; }
+        for (int i = 0; i < m->n_all; i++) {      /* the next MoE layer of the main stack (none after the last, none for the MTP head) */
+            m->xs_next[i] = -1;
+            if (i < g->n_layers) for (int j = i + 1; j < g->n_layers; j++) if (m->L[j].eup) { m->xs_next[i] = j; break; }
+        }
+        m->xs_pfli = -1;
+    }
+    if (m->ec) {   /* reopening the stream frees the pinned pool: drop cache entries that live in it first */
+        for (size_t k = 0; k < (size_t)m->n_all * (size_t)E; k++) if (m->ec[k].ram && m->ec[k].pb) cache_evict(m, k);
+    }
     sn_xs_geom xg;
+    memset(&xg, 0, sizeof xg);
     xg.Lt = g->moe_latent; xg.I = g->moe_inter; xg.K = g->moe_topk; xg.nmax = PF_CHUNK;
     xg.up_blocks = l->eup[0]->nblocks; xg.dn_blocks = l->edn[0]->nblocks;
     xg.nkeys = m->n_all * E; xg.simd = sn_gemm_simd();
+    xg.stream_cap = m->xs_nocap ? 0 : 300;    /* measured on the real pack, card holding only the stream */
     for (int i = 0; i < m->n_all; i++) if (m->L[i].eup) for (int e = 0; e < E; e++)
         if (!m->L[i].eup[e] || !m->L[i].edn[e] || m->L[i].eup[e]->nblocks != xg.up_blocks || m->L[i].edn[e]->nblocks != xg.dn_blocks) {
             snprintf(why, (size_t)whylen, "experts of unequal size (layer %d expert %d)", i, e); return -1;
         }
     if (sn_cuda_xs_open(m->cuda, &m->pack, &xg, why, whylen) != 0) return -1;
     if (m->gpu_tier) { m->gpu_tier = 0; sn_cuda_set_cache_budget(m->cuda, 0); }
+    if (m->ec && !m->xs_nopin) sn_cuda_xs_pool_limit(m->cuda, (long long)m->ec_budget);
     m->xs_on = 1;
     return 0;
+}
+
+void sn_model_stream_options(sn_model *m, int prefetch, int pinned_cache, int slot_cap)
+{
+    m->xs_nopf = !prefetch; m->xs_nopin = !pinned_cache; m->xs_nocap = !slot_cap;
 }
 
 int sn_model_gpu_experts_on(const sn_model *m) { return m->xs_on; }
 void sn_model_gpu_experts_info(const sn_model *m, sn_xs_info *out)
 {
-    if (m->cuda) sn_cuda_xs_info(m->cuda, out); else memset(out, 0, sizeof *out);
+    if (m->cuda) { sn_cuda_xs_note(m->cuda, m->xs_direct, m->xs_pf_sent, m->xs_pf_right); sn_cuda_xs_info(m->cuda, out); } else memset(out, 0, sizeof *out);
     out->on = m->xs_on;
 }
 
@@ -1526,8 +1667,10 @@ void sn_model_prof_report(sn_model *m, FILE *f, void (*tokname)(void *u, int tok
         long miss = p->xs_mode[0] + p->xs_mode[1] + p->xs_mode[2] + p->xs_mode[3];
         fprintf(f, "PROF stream: %ld layer passes; slot hits %ld, misses %ld (from RAM cache %ld, read into the cache %ld, read from the pack %ld)\n",
                 p->xs_layers, p->xs_hit, miss, p->xs_mode[1], p->xs_mode[3], p->xs_mode[0] + p->xs_mode[2]);
-        fprintf(f, "PROF stream time: staging wait %.0f ms | CPU fill of pinned staging %.0f ms | queueing copies and kernels %.0f ms | waiting for the card at layer end %.0f ms\n",
-                p->xs_wait, p->xs_prep, p->xs_issue, p->xs_end);
+        fprintf(f, "PROF stream time: staging wait %.0f ms | CPU fill of pinned staging %.0f ms | queueing copies and kernels %.0f ms | early fetch %.0f ms | waiting for the card at layer end %.0f ms\n",
+                p->xs_wait, p->xs_prep, p->xs_issue, p->xs_pref, p->xs_end);
+        fprintf(f, "PROF stream: %ld experts went up straight from pinned RAM cache blocks; early fetch sent %llu, router picked %llu of them\n",
+                p->xs_direct, (unsigned long long)m->xs_pf_sent, (unsigned long long)m->xs_pf_right);
     }
     long a = 0, b = 0, c2 = 0, d = 0, n = 0, np = 0, ne = 0, su = 0;
     for (int li = 0; li < p->nl; li++) if (p->n_tok[li]) {

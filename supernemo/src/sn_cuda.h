@@ -58,6 +58,7 @@ typedef struct {
     uint64_t up_blocks, dn_blocks;   /* 256-weight blocks of one expert's up / down matrix */
     int nkeys;                       /* layers x experts (slot lookup table size) */
     int simd;                        /* 1: the CPU GEMM is the AVX2/FMA kernel, 0: the scalar one (sn_gemm_simd) */
+    int stream_cap;                  /* most slots when the card holds no dense tensors (stream only); 0 = no cap */
 } sn_xs_geom;
 
 typedef struct {
@@ -65,6 +66,10 @@ typedef struct {
     long long slot_bytes, vram_bytes, pinned_bytes, work_bytes;
     char sized_by[400];
     uint64_t hits, loads, bytes_up, experts_dtc, experts_gemm, dense_gemm;
+    long long pool_bytes;            /* pinned RAM cache blocks allocated so far */
+    uint64_t direct;                 /* uploads straight from a pinned RAM cache block (no CPU copy) */
+    uint64_t pf_sent, pf_right;      /* early fetch: experts sent ahead for the next MoE layer / of those, ones the router picked */
+    int capped;                      /* 1: the stream-only slot cap applied */
 } sn_xs_info;
 
 int sn_cuda_xs_open(sn_cuda *c, const sn_pack *p, const sn_xs_geom *g, char *why, int whylen);   /* 0, or -1 with a reason */
@@ -77,8 +82,18 @@ void sn_cuda_xs_stage_ptrs(sn_cuda *c, int j, int which, uint8_t **idx, uint16_t
 int sn_cuda_xs_stage_wait(sn_cuda *c, int j0, int n);     /* block until staging buffers j0.. are free to refill */
 void sn_cuda_xs_chunk_begin(sn_cuda *c);                  /* slots claimed after this are protected until the next call */
 int sn_cuda_xs_find(sn_cuda *c, int key);                 /* slot already holding expert `key`, or -1 */
+int sn_cuda_xs_peek(const sn_cuda *c, int key);           /* the same, without counting a use (early fetch) */
 int sn_cuda_xs_claim(sn_cuda *c, int key);                /* a slot to load `key` into (least recently used), or -1 */
 int sn_cuda_xs_upload(sn_cuda *c, int j, int slot, int key);   /* async DMA staging j -> slot */
+/* Pinned RAM cache: the RAM expert cache keeps its packed copies in pinned blocks laid out exactly like a slot, so a cached
+ * expert goes to the card in one DMA with no CPU copy. Blocks are pinned in chunks as the cache fills, up to the limit; when
+ * pinning fails the cache simply keeps pageable copies (the old way). Main thread only; the lanes may fill distinct blocks. */
+void sn_cuda_xs_pool_limit(sn_cuda *c, long long bytes);
+int sn_cuda_xs_pool_get(sn_cuda *c);                     /* a free block (its last DMA finished), or -1 */
+void sn_cuda_xs_pool_put(sn_cuda *c, int b);
+void sn_cuda_xs_pool_ptrs(sn_cuda *c, int b, int which, uint8_t **idx, uint16_t **mn, uint16_t **sc, float **book);
+int sn_cuda_xs_upload_pool(sn_cuda *c, int b, int slot, int key);   /* async DMA pinned block b -> slot */
+void sn_cuda_xs_note(sn_cuda *c, uint64_t direct, uint64_t pf_sent, uint64_t pf_right);   /* counters kept by the model */
 /* per MoE layer: n token latents (and their double prefix sums for decode), the expert-major token / output-row lists */
 int sn_cuda_xs_layer_begin(sn_cuda *c, const float *lat, const double *plat, int n, const int *tok, const int *oidx, int nidx);
 int sn_cuda_xs_dtc(sn_cuda *c, int slot, int tok, int orow);    /* decode: one token through one expert */

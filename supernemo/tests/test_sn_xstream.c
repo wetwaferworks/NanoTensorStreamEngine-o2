@@ -235,6 +235,7 @@ static void kernels(const char *pfx, const char *shp, long dense_mb, int n_exper
 
 /* ------------------------------------------------------------------ whole model */
 static int V;
+static int g_xopt = 1;   /* stream speed-ups (early fetch, pinned RAM cache, stream-only slot cap): on unless a run turns them off */
 static int argmax(const float *l) { int b = 0; for (int i = 1; i < V; i++) if (l[i] > l[b]) b = i; return b; }
 
 static uint64_t model_run(const char *pfx, const char *shp, const char *cfg, int threads, long dense_mb, int stream, long ram_mb,
@@ -249,6 +250,7 @@ static uint64_t model_run(const char *pfx, const char *shp, const char *cfg, int
     char why[600] = "";
     if (dense_mb >= 0 && sn_model_cuda(m, (long long)dense_mb << 20, why, sizeof why) < 0) { printf("   no CUDA lane: %s\n", why); sn_model_close(m); return 0; }
     if (ram_mb > 0) sn_model_cache(m, (long long)ram_mb << 20, 0, why, sizeof why);
+    if (stream) sn_model_stream_options(m, g_xopt, g_xopt, g_xopt);
     if (stream && sn_model_gpu_experts(m, 1, why, sizeof why) != 0) { printf("   stream off: %s\n", why); sn_model_close(m); return 0; }
     V = sn_model_geom(m)->vocab;
     int mtp = sn_model_has_mtp(m) && sn_model_mtp_enable(m, 1) == 0;     /* MTP layers and speculative cycles too */
@@ -286,9 +288,10 @@ out:
 
 int main(int argc, char **argv)
 {
-    if (argc < 3) { fprintf(stderr, "usage: test_sn_xstream PACK SHAPES [CONFIG] [--kernels-only|--model-only] [--dense-mb N] [--experts N] [--prompt N] [--steps N] [--reps N] [--threads LIST] [--model-dense-mb N]\n"); return 2; }
+    if (argc < 3) { fprintf(stderr, "usage: test_sn_xstream PACK SHAPES [CONFIG] [--kernels-only|--model-only] [--dense-mb N] [--experts N] [--prompt N] [--steps N] [--reps N] [--threads LIST] [--model-dense-mb N] [--expect-cpu HEX] [--expect-dense HEX]\n"); return 2; }
     const char *cfg = NULL; int kern = 1, model = 1, n_experts = 6, prompt = 24, steps = 24, reps = 2; long dense_mb = 300, mdense = 200;
     char tl[64] = "4,1,12";
+    unsigned long long expect_cpu = 0, expect_dense = 0;   /* known hashes from an earlier run: skip those (slow) CPU / dense runs */
     for (int i = 3; i < argc; i++) {
         if (!strcmp(argv[i], "--kernels-only")) model = 0;
         else if (!strcmp(argv[i], "--model-only")) kern = 0;
@@ -299,6 +302,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--steps") && i + 1 < argc) steps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--reps") && i + 1 < argc) reps = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--threads") && i + 1 < argc) snprintf(tl, sizeof tl, "%s", argv[++i]);
+        else if (!strcmp(argv[i], "--expect-cpu") && i + 1 < argc) expect_cpu = strtoull(argv[++i], NULL, 16);
+        else if (!strcmp(argv[i], "--expect-dense") && i + 1 < argc) expect_dense = strtoull(argv[++i], NULL, 16);
         else if (argv[i][0] != '-') cfg = argv[i];
     }
     if (kern) kernels(argv[1], argv[2], dense_mb, n_experts);
@@ -307,26 +312,46 @@ int main(int argc, char **argv)
         while (*p && nth < 8) { th[nth++] = atoi(p); while (*p && *p != ',') p++; if (*p) p++; }
         int ok; double ms; sn_xs_info xi;
         printf("model: prompt %d tokens, %d greedy steps, one 4-token fused verify with rollback (logits hashed)\n", prompt, steps);
-        uint64_t h_cpu = model_run(argv[1], argv[2], cfg, th[0], -1, 0, 64, prompt, steps, reps, &ok, NULL, &ms);
-        CHECK(ok, "CPU run failed");
-        printf("  CPU lanes, %2d threads                    : %016llx  (%.1f s)\n", th[0], (unsigned long long)h_cpu, ms / 1000);
+        uint64_t h_cpu;
+        if (expect_cpu) { h_cpu = expect_cpu; printf("  CPU lanes (hash from an earlier run)      : %016llx\n", (unsigned long long)h_cpu); }
+        else {
+            h_cpu = model_run(argv[1], argv[2], cfg, th[0], -1, 0, 64, prompt, steps, reps, &ok, NULL, &ms);
+            CHECK(ok, "CPU run failed");
+            printf("  CPU lanes, %2d threads                    : %016llx  (%.1f s)\n", th[0], (unsigned long long)h_cpu, ms / 1000);
+        }
         for (int k = 0; k < nth; k++) {
             uint64_t h = model_run(argv[1], argv[2], cfg, th[k], 0, 1, 64, prompt, steps, reps, &ok, &xi, &ms);
             CHECK(ok, "stream run failed (%d threads)", th[k]);
-            printf("  expert stream only, %2d threads           : %016llx  (%.1f s; %d slots, %llu sent, %llu slot hits, %llu decode / %llu prefill experts on the card)\n",
-                   th[k], (unsigned long long)h, ms / 1000, xi.slots, (unsigned long long)xi.loads, (unsigned long long)xi.hits, (unsigned long long)xi.experts_dtc, (unsigned long long)xi.experts_gemm);
+            printf("  expert stream only, %2d threads           : %016llx  (%.1f s; %d slots, %llu sent, %llu slot hits, %llu decode / %llu prefill experts on the card;"
+                   " %llu from pinned cache blocks, early fetch %llu sent / %llu right)\n",
+                   th[k], (unsigned long long)h, ms / 1000, xi.slots, (unsigned long long)xi.loads, (unsigned long long)xi.hits, (unsigned long long)xi.experts_dtc, (unsigned long long)xi.experts_gemm,
+                   (unsigned long long)xi.direct, (unsigned long long)xi.pf_sent, (unsigned long long)xi.pf_right);
             CHECK(h == h_cpu, "the expert stream changes the output against the CPU lanes (%d threads)", th[k]);
             CHECK(ok && xi.experts_dtc > 0 && xi.experts_gemm > 0, "the card did not compute the experts");
         }
-        if (th[0] != 1 || nth > 0) {
+        {   /* the same with the three speed-ups off: identical output, they only decide what sits in which slot */
+            g_xopt = 0;
+            uint64_t h = model_run(argv[1], argv[2], cfg, th[0], 0, 1, 64, prompt, steps, reps, &ok, &xi, &ms);
+            g_xopt = 1;
+            printf("  expert stream only, speed-ups off, %2d th : %016llx  (%.1f s; %d slots, %llu sent, %llu slot hits; %llu direct, %llu early)\n",
+                   th[0], (unsigned long long)h, ms / 1000, xi.slots, (unsigned long long)xi.loads, (unsigned long long)xi.hits, (unsigned long long)xi.direct, (unsigned long long)xi.pf_sent);
+            CHECK(ok && h == h_cpu, "the stream with its speed-ups off changes the output");
+            CHECK(xi.direct == 0 && xi.pf_sent == 0, "the off switches did not turn the speed-ups off");
+        }
+        if (!expect_cpu && (th[0] != 1 || nth > 0)) {
             uint64_t h1 = model_run(argv[1], argv[2], cfg, nth > 1 ? th[1] : 1, -1, 0, 64, prompt, steps, reps, &ok, NULL, &ms);
             printf("  CPU lanes, %2d threads                    : %016llx  (%.1f s)\n", nth > 1 ? th[1] : 1, (unsigned long long)h1, ms / 1000);
             CHECK(h1 == h_cpu, "CPU lanes differ across thread counts");
         }
-        uint64_t h_dense = model_run(argv[1], argv[2], cfg, th[0], mdense, 0, 64, prompt, steps, reps, &ok, NULL, &ms);
-        printf("  dense GPU lane %ld MB, no stream (today)  : %016llx  (%.1f s)\n", mdense, (unsigned long long)h_dense, ms / 1000);
+        uint64_t h_dense;
+        if (expect_dense) { h_dense = expect_dense; printf("  dense GPU lane %ld MB (hash from an earlier run): %016llx\n", mdense, (unsigned long long)h_dense); }
+        else {
+            h_dense = model_run(argv[1], argv[2], cfg, th[0], mdense, 0, 64, prompt, steps, reps, &ok, NULL, &ms);
+            printf("  dense GPU lane %ld MB, no stream (today)  : %016llx  (%.1f s)\n", mdense, (unsigned long long)h_dense, ms / 1000);
+        }
         uint64_t h_ds = model_run(argv[1], argv[2], cfg, th[0], mdense, 1, 64, prompt, steps, reps, &ok, &xi, &ms);
-        printf("  dense GPU lane %ld MB + expert stream     : %016llx  (%.1f s; %d slots)\n", mdense, (unsigned long long)h_ds, ms / 1000, xi.slots);
+        printf("  dense GPU lane %ld MB + expert stream     : %016llx  (%.1f s; %d slots; %llu from pinned cache blocks, early fetch %llu sent / %llu right)\n", mdense, (unsigned long long)h_ds, ms / 1000, xi.slots,
+               (unsigned long long)xi.direct, (unsigned long long)xi.pf_sent, (unsigned long long)xi.pf_right);
         CHECK(ok && h_ds == h_dense, "the expert stream changes the output of the dense GPU lane");
         if (h_dense != h_cpu) printf("  note: the dense GPU lane's own float kernels differ from the CPU lanes (known, unchanged by this work)\n");
     }

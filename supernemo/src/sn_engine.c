@@ -5,11 +5,15 @@
  *             [--ask "text"]      one-shot: print the reply and the measured speed, no protocol
  *             [--no-dtc] [--dtc-force]       Dense Tensor Compute on the packed blocks (default: auto, where it pays)
  *             [--cache-mb N] [--gpu-cache-mb N]   hot-expert cache budgets in RAM / VRAM (default 4096 / 0)
- *             [--spec] [--no-spec] [--draft-len K]   speculative decoding with the MTP head (greedy, token-identical)
+ *             [--spec] [--no-spec] [--draft-len K]   speculative decoding with the MTP head (greedy, token-identical; default on)
  *             [--gpu-experts] [--no-gpu-experts]   GPU expert stream (default: on whenever the CUDA lane is on): every
  *                                 routed expert goes to the card compressed, is expanded and computed there, and its
  *                                 slot is reused for the next token; --gpu-mb 0 --gpu-experts streams experts only
- *             [--ini FILE]        read the [supernemo-tuning] section (dtc, cache_mb, gpu_cache_mb, spec, draft_len, gpu_experts);
+ *             [--no-prefetch]     stream: do not send the next MoE layer's likely experts early (default: on)
+ *             [--no-pinned-cache] stream: keep the RAM expert cache in ordinary memory, copied through staging (default: pinned)
+ *             [--no-slot-cap]     stream only (--gpu-mb 0): fill the card with slots instead of the 300-slot cap (default: capped)
+ *             [--ini FILE]        read the [supernemo-tuning] section (dtc, cache_mb, gpu_cache_mb, spec, draft_len, gpu_experts,
+ *                                 expert_prefetch, pinned_cache, stream_slot_cap);
  *                                 command-line flags win over the ini
  *
  * Speaks the same line protocol as nemo-engine (littlenemo/PROTOCOL.md): PROMPT, STOP, RESET, QUIT in;
@@ -318,9 +322,10 @@ static int run_templated(engine *e, const char *text, int think_on, const float 
     }
     {
         sn_xs_info xi; sn_model_gpu_experts_info(e->m, &xi);
-        if (xi.slots) fprintf(stderr, "GPUX on=%d slots=%d slot_hits=%llu loads=%llu mb_sent=%.1f decode_experts=%llu prefill_experts=%llu dense_prefill=%llu\n",
+        if (xi.slots) fprintf(stderr, "GPUX on=%d slots=%d slot_hits=%llu loads=%llu mb_sent=%.1f decode_experts=%llu prefill_experts=%llu dense_prefill=%llu direct=%llu prefetch_sent=%llu prefetch_right=%llu pinned_cache_mb=%.0f\n",
                               xi.on, xi.slots, (unsigned long long)xi.hits, (unsigned long long)xi.loads, xi.bytes_up / 1048576.0,
-                              (unsigned long long)xi.experts_dtc, (unsigned long long)xi.experts_gemm, (unsigned long long)xi.dense_gemm);
+                              (unsigned long long)xi.experts_dtc, (unsigned long long)xi.experts_gemm, (unsigned long long)xi.dense_gemm,
+                              (unsigned long long)xi.direct, (unsigned long long)xi.pf_sent, (unsigned long long)xi.pf_right, xi.pool_bytes / 1048576.0);
     }
     if (getenv("SN_PROF")) sn_model_prof_report(e->m, stderr, prof_tokname, e->tk);
     printf("MEM peak_mb=%.1f\n", peak_kb() / 1024.0);
@@ -382,8 +387,9 @@ static void run_turn(engine *e, const char *user_text)
     free(u); free(tpl);
 }
 
-/* [supernemo-tuning] keys: dtc (off|auto|force), cache_mb, gpu_cache_mb, spec (0|1), draft_len, gpu_experts (0|1) */
-static void read_ini(const char *path, int *dtc, long *cache_mb, long *gpu_cache_mb, int *spec, int *draft, int *gpu_experts)
+/* [supernemo-tuning] keys: dtc (off|auto|force), cache_mb, gpu_cache_mb, spec (0|1), draft_len, gpu_experts (0|1),
+ * expert_prefetch, pinned_cache, stream_slot_cap (0|1; xopt[0..2]) */
+static void read_ini(const char *path, int *dtc, long *cache_mb, long *gpu_cache_mb, int *spec, int *draft, int *gpu_experts, int *xopt)
 {
     FILE *f = fopen(path, "r");
     if (!f) { fprintf(stderr, "sn-engine: cannot read ini %s\n", path); return; }
@@ -404,6 +410,9 @@ static void read_ini(const char *path, int *dtc, long *cache_mb, long *gpu_cache
         else if (!strcmp(p, "spec")) *spec = on;
         else if (!strcmp(p, "draft_len")) *draft = atoi(v);
         else if (!strcmp(p, "gpu_experts")) *gpu_experts = on;
+        else if (!strcmp(p, "expert_prefetch")) xopt[0] = on;
+        else if (!strcmp(p, "pinned_cache")) xopt[1] = on;
+        else if (!strcmp(p, "stream_slot_cap")) xopt[2] = on;
     }
     fclose(f);
 }
@@ -412,8 +421,9 @@ int main(int argc, char **argv)
 {
     const char *pack = NULL, *shapes = NULL, *config = NULL, *tokf = NULL, *ask = NULL;
     int threads = 0, max_pos = 4096, max_new = 256, think = 0, below = 0, max_patches = 1024, no_vision = 0, gpu_mb = 0;
-    int dtc = 1, spec = 0, draft_len = 3, gpu_experts = -1; long cache_mb = 4096, gpu_cache_mb = 0;
-    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--ini")) read_ini(argv[i + 1], &dtc, &cache_mb, &gpu_cache_mb, &spec, &draft_len, &gpu_experts);
+    int dtc = 1, spec = 1, draft_len = 3, gpu_experts = -1; long cache_mb = 4096, gpu_cache_mb = 0;
+    int xopt[3] = { 1, 1, 1 };   /* stream speed-ups: early fetch, pinned RAM cache, stream-only slot cap */
+    for (int i = 1; i + 1 < argc; i++) if (!strcmp(argv[i], "--ini")) read_ini(argv[i + 1], &dtc, &cache_mb, &gpu_cache_mb, &spec, &draft_len, &gpu_experts, xopt);
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--pack") && i + 1 < argc) pack = argv[++i];
         else if (!strcmp(argv[i], "--shapes") && i + 1 < argc) shapes = argv[++i];
@@ -436,13 +446,19 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--draft-len") && i + 1 < argc) draft_len = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--gpu-experts")) gpu_experts = 1;
         else if (!strcmp(argv[i], "--no-gpu-experts")) gpu_experts = 0;
+        else if (!strcmp(argv[i], "--no-prefetch")) xopt[0] = 0;
+        else if (!strcmp(argv[i], "--prefetch")) xopt[0] = 1;
+        else if (!strcmp(argv[i], "--no-pinned-cache")) xopt[1] = 0;
+        else if (!strcmp(argv[i], "--pinned-cache")) xopt[1] = 1;
+        else if (!strcmp(argv[i], "--no-slot-cap")) xopt[2] = 0;
+        else if (!strcmp(argv[i], "--slot-cap")) xopt[2] = 1;
         else if (!strcmp(argv[i], "--think")) think = 1;
         else if (!strcmp(argv[i], "--below-normal")) below = 1;
         else if (!strcmp(argv[i], "--chat") || !strcmp(argv[i], "--serve-stdio")) { /* accepted for GUI parity */ }
         else { fprintf(stderr, "sn-engine: unknown argument %s\n", argv[i]); return 2; }
     }
     if (!pack || !config || !tokf) {
-        fprintf(stderr, "usage: sn-engine --pack PREFIX [--shapes TSV] --config config.json --tokenizer tokenizer.json [--threads N] [--max-pos N] [--max-new N] [--think] [--below-normal] [--ask TEXT]\n  tuning: [--no-dtc|--dtc-force] [--cache-mb N] [--gpu-cache-mb N] [--spec|--no-spec] [--draft-len K] [--gpu-experts|--no-gpu-experts] [--ini FILE]\n");
+        fprintf(stderr, "usage: sn-engine --pack PREFIX [--shapes TSV] --config config.json --tokenizer tokenizer.json [--threads N] [--max-pos N] [--max-new N] [--think] [--below-normal] [--ask TEXT]\n  tuning: [--no-dtc|--dtc-force] [--cache-mb N] [--gpu-cache-mb N] [--spec|--no-spec] [--draft-len K] [--gpu-experts|--no-gpu-experts] [--no-prefetch] [--no-pinned-cache] [--no-slot-cap] [--ini FILE]\n");
         return 2;
     }
 #if defined(_WIN32)
@@ -481,11 +497,14 @@ int main(int argc, char **argv)
     }
     if (gpu_experts != 0 && (gpu_mb > 0 || gpu_experts == 1)) {
         char xwhy[600] = "";
+        sn_model_stream_options(e.m, xopt[0], xopt[1], xopt[2]);
         if (sn_model_gpu_experts(e.m, 1, xwhy, sizeof xwhy) != 0) fprintf(stderr, "sn-engine: GPU expert stream off: %s\n", xwhy);
         else {
             sn_xs_info xi; sn_model_gpu_experts_info(e.m, &xi);
-            fprintf(stderr, "sn-engine: GPU expert stream on: %d expert slots (%.0f MB VRAM, %.2f MB each), %d pinned staging buffers (%.0f MB RAM), %.0f MB work buffers; sized from %s\n",
-                    xi.slots, xi.vram_bytes / 1048576.0, xi.slot_bytes / 1048576.0, xi.stage, xi.pinned_bytes / 1048576.0, xi.work_bytes / 1048576.0, xi.sized_by);
+            fprintf(stderr, "sn-engine: GPU expert stream on: %d expert slots%s (%.0f MB VRAM, %.2f MB each), %d pinned staging buffers (%.0f MB RAM), %.0f MB work buffers; sized from %s\n",
+                    xi.slots, xi.capped ? " (stream-only cap)" : "", xi.vram_bytes / 1048576.0, xi.slot_bytes / 1048576.0, xi.stage, xi.pinned_bytes / 1048576.0, xi.work_bytes / 1048576.0, xi.sized_by);
+            fprintf(stderr, "sn-engine: stream speed-ups: early fetch %s, pinned RAM cache %s, stream-only slot cap %s\n",
+                    xopt[0] ? "on" : "off", xopt[1] ? "on" : "off", xopt[2] ? "on" : "off");
         }
     }
     if (spec) {
