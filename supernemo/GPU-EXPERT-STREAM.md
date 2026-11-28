@@ -11,9 +11,10 @@ With the stream on, the engine works like this for every MoE layer of every toke
 
 1. **Pick.** The router chooses the experts, exactly as before.
 2. **Check the card.** Experts that are still sitting in a card slot from an earlier token are used straight away.
-3. **Send the compressed form.** Experts that are missing are copied into pinned RAM staging buffers, then sent to the card
-   in their *compressed* form: index bytes, per-block min/scale and the codebook, about 1.9 MB per expert (up and down
-   matrices together). The copy comes from the warm expert cache in system RAM when the expert is there, otherwise from the pack.
+3. **Send the compressed form.** Experts that are missing are sent to the card in their *compressed* form: index bytes,
+   per-block min/scale and the codebook, about 1.9 MB per expert (up and down matrices together). The warm expert cache in
+   system RAM keeps its copies in pinned memory laid out exactly like a card slot, so a cached expert goes up in one copy
+   with no CPU work. Experts that are not cached are read from the pack into pinned staging buffers first.
 4. **Expand on the card.** CUDA kernels expand the compressed blocks into weights on the card itself. For decode the expansion
    happens inside the compute kernel, in registers (the same DTC method the CPU uses), so nothing bigger than the compressed
    form ever crosses the bus or is written to VRAM. For prefill (many tokens at once) the kernel writes the expanded matrix
@@ -21,6 +22,10 @@ With the stream on, the engine works like this for every MoE layer of every toke
 5. **Compute on the card.** relu squared and the weighted sum happen on the card too; only the layer's output row comes back.
 6. **Let go.** The slots are not pinned to anything: the next token reuses them. The least recently used slot is the one that
    gets the next expert, so experts that keep getting picked stay on the card for free.
+7. **Look ahead.** While the card works on this layer, the engine runs the *next* MoE layer's router on this layer's input
+   (right about two times in three) and sends the experts it picks ahead of time. When the next layer starts, most of its
+   experts are already on the card. The real router still decides what is computed, so a wrong guess costs a copy, never
+   a different answer.
 
 Sending and computing overlap: there are two staging halves and two CUDA streams. While the card computes one chunk of experts,
 the CPU fills the other half and the copy engine sends it. Events (no locks anywhere) keep a staging half or a slot from being
@@ -34,7 +39,9 @@ The slot count is not a hard-coded number. It comes from the hardware calibratio
     slots = (min(free VRAM now, free VRAM at calibration) - dense tensors already on the card
              - the VRAM expert cache - work buffers - 64 MB headroom) / bytes per expert slot
 
-capped at the number of experts in the model. The engine refuses to stream when the calibration says the card is not the lane
+capped at the number of experts in the model. When the card holds only the stream (`--gpu-mb 0`), the pool is also capped at
+300 slots: filling the whole 4 GB card made the display driver page it (1684 slots decoded at 0.030 tok/s, 300 slots at
+0.054 to 0.060). `--no-slot-cap` lifts the cap. The engine refuses to stream when the calibration says the card is not the lane
 to use. Staging is two chunks of up to 22 experts (or half the slots, whichever is smaller). The startup line on stderr says
 what it chose and why, for example:
 
@@ -49,6 +56,15 @@ and after each turn a `GPUX` line reports slot hits, loads, MB sent and how many
 | Stream experts through the card (default whenever `--gpu-mb` is above 0) | `--gpu-experts` | `gpu_experts = 1` |
 | Keep experts on the CPU lanes (the old behaviour) | `--no-gpu-experts` | `gpu_experts = 0` |
 | Stream experts only, no dense tensors on the card | `--gpu-mb 0 --gpu-experts` | |
+| Do not send the next layer's experts early | `--no-prefetch` | `expert_prefetch = 0` |
+| Keep the RAM expert cache in ordinary memory (copied through staging) | `--no-pinned-cache` | `pinned_cache = 0` |
+| Fill the card with slots in stream-only mode | `--no-slot-cap` | `stream_slot_cap = 0` |
+| Speculative decoding off (it is on by default) | `--no-spec` | `spec = 0` |
+
+The three stream speed-ups and speculative decoding are on by default (JD's rule: verified, hash-identical speed is on by
+default). The pinned cache pins memory about 64 MB at a time as the cache fills, up to the cache budget (`--cache-mb`); if
+Windows refuses more pinned memory the rest of the cache simply stays in ordinary memory. Tests can switch the speed-ups off
+with `SN_XS_PREFETCH=0`, `SN_XS_PINNED=0` and `SN_XS_SLOTCAP=0`.
 
 The stream needs DTC on (the default) and replaces the older VRAM expert tier (`--gpu-cache-mb`), which is ignored while the
 stream is on. If anything on the card fails mid-run the engine finishes that layer on the CPU, prints a note on stderr and
@@ -158,16 +174,16 @@ All three wrote the same answer.
 **What would help next, most expected gain first:**
 
 1. Turn speculative decoding on with the stream (`--spec --draft-len 3`): +15 to 33% decode measured, token-identical.
-   It is a default change, so it waits for JD's go.
+   Done: on by default since JD's go (see "Speed-ups switched on" below).
 2. Start the next layer's experts early: run the next layer's router one layer ahead (65 to 68% right), and fill
    staging and the RAM cache for those experts while the card is still working on this layer. Expected 10 to 25%
-   on decode; results unchanged, because the compute still uses the real picks.
+   on decode; results unchanged, because the compute still uses the real picks. Done (`--no-prefetch` turns it off).
 3. Let the card copy straight from the RAM cache: keep the cache's buffers in pinned memory, so a cached expert needs
-   no CPU copy at all. That targets the biggest cost above.
+   no CPU copy at all. That targets the biggest cost above. Done (`--no-pinned-cache` turns it off).
 4. Router on the card with an exact fixed-order kernel (9 to 14% of decode). Needs about 370 MB of VRAM for the
-   router weights, so the dense budget has to give some room.
+   router weights, so the dense budget has to give some room. On hold: Little Nemo's expanded round needs the headroom.
 5. Experts-only mode (`--gpu-mb 0`): cap the slot pool well below the full card. 300 slots decoded at 0.054 to
-   0.060 tok/s against 0.030 with 1684 slots on the 4 GB card, which also drives the display.
+   0.060 tok/s against 0.030 with 1684 slots on the 4 GB card, which also drives the display. Done (`--no-slot-cap`).
 
 A "hot" slot policy is available to try with `SN_XS_POLICY=hot` (keeps the most used experts in their slots). It raised
 slot hits from 0 to about 270 to 370 at about 100 slots and from 0 to 2257 at 300 slots, with no clear speed change, so
@@ -205,3 +221,43 @@ silently off on Windows.
 Real-pack test runs (not speed runs): the kernel checks took about 25 s each; the whole-model hash run took 729.7 s
 (CPU, 12 threads), 620.4 s (stream only, 12 threads), 935.2 s (stream only, 4 threads), 1088.8 s (CPU, 4 threads),
 249.8 s (dense 3000 MB) and 87.1 s (dense 3000 MB plus stream), with a CPU scan from another worker running at the time.
+
+## Round 6: early fetch, pinned cache, slot cap and MTP (evening of 2026-11-27)
+
+Same prompt as every run above ("List the eight planets ...", 32 new tokens allowed, 8 CPU threads, below-normal priority).
+All of these are **real-world** timings: fid-quant and other workers (Little Nemo expansion and retention runs) were using the
+CPU and the disk the whole time, so the same configuration can differ by a factor of two from one run to the next (compare rows 2
+and 8, which are the same setup). Read the ratios, not the absolute numbers. Prefill and decode are tok/s from the engine's STATS
+line; "card peak" is the whole card as nvidia-smi sees it; "MB sent" is everything copied to the card.
+
+| # | Run | MTP | Early fetch | Pinned cache | Slots | Prefill tok/s | Decode tok/s | Wall | Card peak | Engine RAM | MB sent to card | Early fetch sent / right | RAM cache hits / misses |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | defaults: MTP + early fetch + pinned cache | on (80% accepted) | on | on | 119 | 0.307 | 0.0933 | 338 s | 3801 MiB | 3610 MB | 45541 | 5148 / 3776 (73%) | 3817 / 8937 |
+| 2 | MTP off | off | on | on | 119 | 0.242 | 0.0611 | 491 s | 3730 MiB | 3653 MB | 57912 | 15444 / 10496 (68%) | 5000 / 10840 |
+| 3 | MTP off, early fetch off | off | off | on | 119 | 0.303 | 0.1171 | 308 s | 3730 MiB | 3659 MB | 48538 | - | 8887 / 6953 |
+| 4 | MTP off, pinned cache off | off | on | off | 119 | 0.310 | 0.0573 | 471 s | 3730 MiB | 3682 MB | 57912 | 15444 / 10496 (68%) | 5000 / 10840 |
+| 5 | MTP off, early fetch off, pinned cache off | off | off | off | 119 | 0.283 | 0.0916 | 365 s | 3730 MiB | 4451 MB | 48538 | - | 8887 / 6953 |
+| 6 | stream only, defaults (MTP on) | on (80% accepted) | on | on | 300 (cap) | 0.216 | 0.0350 | 765 s | 1102 MiB | 4130 MB | 45488 | 5148 / 3776 (73%) | 3800 / 8954 |
+| 7 | stream only, MTP off | off | on | on | 300 (cap) | 0.232 | 0.0245 | 894 s | 1102 MiB | 2985 MB | 57912 | 15444 / 10496 (68%) | 5000 / 10840 |
+| 8 | MTP off, SN_PROF=1 | off | on | on | 119 | 0.578 | 0.1003 | 265 s | 3730 MiB | 4799 MB | 57912 | 15444 / 10496 (68%) | 5000 / 10840 |
+
+Hashes first: with all three stream speed-ups on, the whole-model logits hash equals the CPU path's (`b0c32d2989f86f69`, stream only,
+300 slots, 8 threads) and equals the dense-lane hash (`5dacc350426a9506`, dense 3000 MB plus stream); with them off it is the same
+`b0c32d2989f86f69`. Tiny packs: 116 checks, 0 failed; 3-slot and 5-slot runs (which force eviction, early fetch and pinned blocks)
+hash the same. So the output cannot tell which of these paths ran.
+
+What the table shows, in plain words:
+
+- **Early fetch (EEF) was right about 68 to 73% of the time** (10,496 of 15,444 sent early in row 2; 3,776 of 5,148 with MTP in row 1),
+  but turning it on made the run slower, not faster: MTP off went from 0.117 (row 3) to 0.061 (row 2), and with MTP on the default
+  (row 1, 0.093) is slower than MTP off and EEF off (row 3, 0.117).
+- Early fetch sent about 9.4 GB more to the card than the run without it (57.9 GB against 48.5 GB): roughly a third of what it sent
+  was for experts the router did not pick.
+- It also **starved the RAM expert cache**: with early fetch off the cache served 8,887 of 15,840 expert loads, with it on only
+  5,000. Experts that arrived early skipped the cache, so the cache stopped learning, and more loads went to the pack on disk,
+  which is the slowest step by far. (Being fixed; see the profile that follows.)
+- MTP itself is fine: 80% of drafts accepted (12 of 15), and with early fetch on it was the faster half (0.093 against 0.061).
+- The pinned cache is a win when early fetch is off (0.117 against 0.092 with it off, rows 3 and 5).
+- Stream-only mode (rows 6 and 7) is slower than dense-on-card plus stream, as expected: the dense mixers then run on the CPU.
+- Targets: JD's 10 tok/s (4 GB card) and 30 tok/s (8 GB cards) goals do not apply to this 120B-A12B model. JD's call (1:25 AM): about
+  0.1 tok/s is realistic for SuperNemo on a 4 GB card, and MTP and early fetch stay on by default while profiling finds what is next.
