@@ -7,11 +7,28 @@ JD approved this battery on 2026-11-27 at 5:51 PM ET (all of Gizmo's lanes, plus
 1. **The model stops talking because of the compression, not because of the engine.** After the gold answer and its newline, the original bf16 model puts probability 1.0 on its end-of-turn token (`<SPECIAL_12>`, id 12, already in the engine's stop set) on **50 of 50** items. The packed model puts a mean of **0.017** there (median 0.001), and the stop token is the top choice on **0 of 50**. It writes another newline (27 times) or opens a parenthesis (14 times) instead. That is why packed answers run to the token cap with blank lines and "(150 words)" loops. See [Termination](#p0-termination-the-end-of-turn-token).
 2. **The damage is in the layers, not in the output head.** Swapping the lm_head between bf16 and the int8 per-row head the CUDA lane uses moves the loss by 0.008 nats per token or less, and the first-token hits by at most 1 of 119, in every arm. Gizmo's higher-precision-head test says: no gain there.
 3. **Three tensor classes carry the loss, and Mamba carries almost all of it.** Putting the original bf16 weights back into the Mamba `in_proj` and `out_proj` of all 27 Mamba layers (and nothing else) takes the quiz from 17/50 to **47/50, the same as the original**, and closes 100 percent of the loss gap. MLP `down_proj` alone closes 41 percent, Mamba `in_proj` alone 46 percent, the four attention layers 10 percent.
-4. **Expanded packs help but do not close the gap.** Six refined layers (x1, teacher-forced on the CPU only, it does not fit the 4 GB card) halve the loss (NLL per token 1.62 to 1.10, raw 0.27) and fix long-context recall (0/4 to 4/4). The x2 pack that does fit the card (4 refine tensors, 73.4 MiB) ran the full generation battery on CUDA: quiz 34/50 against 36/50 for the packed pack, multi-step 3/12 against 1/12, long context 4/4 against 3/4, essays 8/10 by the keyword grader against 4/10 (4/10 against 3/10 when read by hand). Differences this small are inside what one run can show.
+4. **Expanded packs help, and two layers get most of the way there.** Six refined layers (x1, teacher-forced on the CPU only, it does not fit the 4 GB card) halve the loss (NLL per token 1.62 to 1.10, raw 0.27; first-token hits 32 to 60 of 119, raw 106) and fix long-context recall (0/4 to 4/4). The x2 pack that does fit the card (refine tensors on layers 8 and 11 only, 73.4 MiB) gets NLL 1.22 and 53 of 119 first-token hits (quiz 29/50 against 17/50 packed, 34/50 for x1), so about three quarters of x1's gain for a third of the refined layers. On CUDA, the full generation battery for x2 against packed: quiz 34/50 against 36/50 (the lenient grader hides the improvement, see headline 5), multi-step 3/12 against 1/12, long context 4/4 against 3/4, essays 8/10 by the keyword grader against 4/10 (4/10 against 3/10 when read by hand). Generated differences this small are inside what one run can show.
 5. **The packed model writes a sentence where the original writes the answer.** Teacher-forced on "answer with just the answer", the original starts with the bare answer on 47 of 50 quiz items. The packed pack starts with the bare answer on 17 of 50, and on 18 of the 33 misses its first token is "The". Generated with a lenient grader (answer found in the first line) the same pack passes 36 of 50. Both numbers are real; they measure different things, see [How to read the numbers](#how-to-read-the-numbers).
 6. **Abstention survives, confidence does not.** On made-up entities the packed model still answers "I don't know" on 8 of 8, in generation and teacher-forced. But its confidence is no longer tied to being right: mean top-1 confidence 0.53 with 27 percent of first tokens right (expected calibration error 0.256), against 0.93 and 89 percent for the original (ECE 0.065).
 7. **Speed against JD's targets.** Little Nemo on CUDA decodes at **12.6 to 13.7 tok/s (median)** and prefills at 56 to 70 tok/s on the 4 GB card: above the **10 tok/s floor**, well under the **30+ tok/s target**, which is for 8 GB cards and was not measured here (this machine has only the 4 GB card). These runs shared the CPU with other jobs, so they read lower than the quiet 12:52 PM round (16.2 tok/s decode). The SuperNemo subset decoded at 0.17 tok/s, far under the floor. See [Speeds](#speeds).
 8. **Results are repeatable.** The teacher-forced evaluator gives the same hash with 1 thread and with 12 (`8f3435aec98819af`), and 72 of 72 generated answers were identical between the default host threads and a 1-thread run.
+
+## Accuracy and speed per configuration
+
+One line per configuration, accuracy next to speed, for picking the best setup. Teacher-forced columns are exact and repeatable (CPU); generated columns are CUDA greedy runs; speeds are real-world (shared CPU, see [Speeds](#speeds)). Higher is better for hits and passes, lower for NLL. Configurations that cannot run on the card have no speed.
+
+| configuration | where it runs | first-token hits, all 119 items (teacher-forced) | NLL per token | quiz first token (TF) | quiz pass (generated) | multi-step (generated) | essays (generated) | answers that stop on their own | decode tok/s (median) | prefill tok/s (median) | card peak MiB | against the 10 tok/s floor |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| raw bf16 (original) | CPU, teacher-forced only | 106/119 (89%) | 0.2675 | 47/50 | - | - | - | - | - | - | - | no speed on the card: 18 GB, does not fit |
+| raw bf16, int8 head | CPU, teacher-forced only | 106/119 (89%) | 0.2669 | 47/50 | - | - | - | - | - | - | - |  |
+| packed, int8 head (the shipping CUDA lane) | CUDA 4 GB | 31/119 (26%) | 1.6309 | 16/50 | 36/50 | 1/12 | 4/10 keyword, 3/10 read by hand | 8/141 | 12.6 | 66.2 | 3672 | meets the 10 tok/s floor |
+| packed, bf16 head | CPU only (head 1,120 MiB does not fit) | 32/119 (27%) | 1.6232 | 17/50 | - | - | - | - | - | - | - | no gain over int8 head |
+| x1 expanded, 6 layers, int8 head | CPU, teacher-forced only | 59/119 (50%) | 1.1071 | 34/50 | - | - | - | - | - | - | - | does not fit the 4 GB card |
+| x1 expanded, bf16 head | CPU, teacher-forced only | 60/119 (50%) | 1.1031 | 34/50 | - | - | - | - | - | - | - |  |
+| x2 expanded, 4 tensors, int8 head | CUDA 4 GB | 53/119 (45%) | 1.2187 | 29/50 | 34/50 | 3/12 | 8/10 keyword, 4/10 read by hand | 13/141 | 13.0 | 70.3 | 3681 | meets the 10 tok/s floor; fits the card; TF columns are the bf16-head run (int8-head run pending) |
+| SuperNemo (120B MoE) subset | CUDA (sn-engine) | - | - | - | 5/5 on 5 questions (earlier round) | - | - | - | 0.17 | 0.58 | 3777 | BELOW the 10 tok/s floor |
+
+Reading it: only two Little Nemo configurations run on the 4 GB card at all, the packed pack and x2, and both decode at about 13 tok/s, above the floor. x2 costs no measurable speed. Its accuracy gain on the generated quiz is within noise; the teacher-forced columns show what the expansion buys when it is measured exactly. The original and x1 are the accuracy ceiling and the middle point, not options for this card.
 
 ## How to read the numbers
 
@@ -57,6 +74,7 @@ Teacher-forced first-token results (set sizes: quiz 50, paraphrase 39, multi-ste
 | packed, int8 head | 16/50 | 14/50 | 11/39 | 1/12 | 0/10 | 3/8 | 31/119 | 1.6309 | 84/119 | 0.2648 | 0.5254 |
 | expanded x1 (6 layers) | 34/50 | 32/50 | 16/39 | 2/12 | 3/10 | 5/8 | 60/119 | 1.1031 | 95/119 | 0.1449 | 0.5939 |
 | x1, int8 head | 34/50 | 32/50 | 16/39 | 2/12 | 2/10 | 5/8 | 59/119 | 1.1071 | 95/119 | 0.1311 | 0.5901 |
+| expanded x2 (2 layers, 4 tensors) | 29/50 | 26/50 | 15/39 | 2/12 | 2/10 | 5/8 | 53/119 | 1.2187 | 90/119 | 0.1785 | 0.595 |
 
 Generated on CUDA, graded on the first answer line:
 
@@ -66,7 +84,7 @@ Generated on CUDA, graded on the first answer line:
 | packed-det-ht1 | 36/50 | - | 1/12 | 4/10 | - | - | - | - |
 | expanded-x2 | 34/50 | 23/39 | 3/12 | 4/10 | 13/16 | 2/10 | 6/10 | 4/4 |
 
-What it means: the original gets 106 of 119 first tokens right, the packed pack 32, x1 60. Multi-step arithmetic and novel-passage reasoning are hit hardest (packed 1/12 and 0/10 teacher-forced, 1/12 and 4/10 generated with the lenient grader, against 9/12 and 8/10 for the original). Expansion recovers part of it; x2 changes the generated quiz score by two questions either way, which is noise at n = 50.
+What it means: the original gets 106 of 119 first tokens right, the packed pack 32, x1 60. Multi-step arithmetic and novel-passage reasoning are hit hardest (packed 1/12 and 0/10 teacher-forced, 1/12 and 4/10 generated with the lenient grader, against 9/12 and 8/10 for the original). Expansion recovers part of it (x1 60 and x2 53 of 119 first tokens, against 32 packed). The generated quiz score for x2 differs from packed by two questions, which is noise at n = 50, and the lenient grader accepts a sentence that contains the answer, so the teacher-forced columns are the better measure of what the expansion restores.
 
 ## P1: head precision (Gizmo's specific ask)
 
@@ -107,23 +125,24 @@ The 14 quiz questions the 12:52 PM round failed (4, 5, 8, 14, 31, 37, 38, 39, 41
 | raw bf16 | 12/14 | 13/14 | 0 | 11/14 |
 | packed | 2/14 | 7/14 | 6 | 1/14 |
 | expanded x1 (6 layers) | 4/14 | 9/14 | 3 | 5/14 |
+| expanded x2 (2 layers, 4 tensors) | 3/14 | 9/14 | 3 | 2/14 |
 
-| quiz item | raw bf16 | packed | expanded x1 (6 layers) |
-|---|---|---|---|
-| 4 | rank 0 (p=1.000), top-1 '9' | rank 8 (p=0.003), top-1 '7' | rank 9 (p=0.001), top-1 '4' |
-| 5 | rank 0 (p=0.999), top-1 '1' | rank 2 (p=0.041), top-1 '4' | rank 0 (p=0.507), top-1 '1' |
-| 8 | rank 0 (p=0.997), top-1 '3' | rank 6 (p=0.004), top-1 '1' | rank 4 (p=0.004), top-1 '4' |
-| 14 | rank 0 (p=0.990), top-1 'O' | rank 7 (p=0.001), top-1 'Toronto' | rank 7 (p=0.002), top-1 'Toronto' |
-| 31 | rank 0 (p=0.989), top-1 '1' | rank 0 (p=0.629), top-1 '1' | rank 0 (p=0.880), top-1 '1' |
-| 37 | rank 0 (p=0.999), top-1 '1' | rank 2 (p=0.203), top-1 '4' | rank 0 (p=0.739), top-1 '1' |
-| 38 | rank 0 (p=1.000), top-1 '3' | rank 7 (p=0.005), top-1 '6' | rank 1 (p=0.194), top-1 '6' |
-| 39 | rank 0 (p=0.999), top-1 '1' | rank 3 (p=0.082), top-1 '6' | rank 1 (p=0.302), top-1 '3' |
-| 41 | rank 0 (p=0.991), top-1 '3' | rank 9 (p=0.021), top-1 'There' | rank 2 (p=0.107), top-1 '6' |
-| 42 | rank 0 (p=1.000), top-1 '1' | rank 0 (p=0.362), top-1 '1' | rank 0 (p=0.671), top-1 '1' |
-| 44 | rank 0 (p=0.999), top-1 'J' | rank 3 (p=0.010), top-1 'The' | rank 5 (p=0.009), top-1 'The' |
-| 45 | rank 0 (p=0.998), top-1 'Merc' | rank 3 (p=0.017), top-1 'Mars' | rank 3 (p=0.014), top-1 'Earth' |
-| 48 | rank 1 (p=0.417), top-1 'Six' | rank 57 (p=0.001), top-1 'The' | rank 15 (p=0.004), top-1 'The' |
-| 49 | rank 7 (p=0.001), top-1 'Diamond' | rank 241 (p=0.000), top-1 'The' | rank 117 (p=0.000), top-1 'The' |
+| quiz item | raw bf16 | packed | expanded x1 (6 layers) | expanded x2 (2 layers, 4 tensors) |
+|---|---|---|---|---|
+| 4 | rank 0 (p=1.000), top-1 '9' | rank 8 (p=0.003), top-1 '7' | rank 9 (p=0.001), top-1 '4' | rank 9 (p=0.002), top-1 '4' |
+| 5 | rank 0 (p=0.999), top-1 '1' | rank 2 (p=0.041), top-1 '4' | rank 0 (p=0.507), top-1 '1' | rank 1 (p=0.127), top-1 '4' |
+| 8 | rank 0 (p=0.997), top-1 '3' | rank 6 (p=0.004), top-1 '1' | rank 4 (p=0.004), top-1 '4' | rank 2 (p=0.006), top-1 '4' |
+| 14 | rank 0 (p=0.990), top-1 'O' | rank 7 (p=0.001), top-1 'Toronto' | rank 7 (p=0.002), top-1 'Toronto' | rank 6 (p=0.004), top-1 'Toronto' |
+| 31 | rank 0 (p=0.989), top-1 '1' | rank 0 (p=0.629), top-1 '1' | rank 0 (p=0.880), top-1 '1' | rank 0 (p=0.756), top-1 '1' |
+| 37 | rank 0 (p=0.999), top-1 '1' | rank 2 (p=0.203), top-1 '4' | rank 0 (p=0.739), top-1 '1' | rank 0 (p=0.809), top-1 '1' |
+| 38 | rank 0 (p=1.000), top-1 '3' | rank 7 (p=0.005), top-1 '6' | rank 1 (p=0.194), top-1 '6' | rank 1 (p=0.128), top-1 '6' |
+| 39 | rank 0 (p=0.999), top-1 '1' | rank 3 (p=0.082), top-1 '6' | rank 1 (p=0.302), top-1 '3' | rank 1 (p=0.168), top-1 '3' |
+| 41 | rank 0 (p=0.991), top-1 '3' | rank 9 (p=0.021), top-1 'There' | rank 2 (p=0.107), top-1 '6' | rank 3 (p=0.086), top-1 '6' |
+| 42 | rank 0 (p=1.000), top-1 '1' | rank 0 (p=0.362), top-1 '1' | rank 0 (p=0.671), top-1 '1' | rank 0 (p=0.606), top-1 '1' |
+| 44 | rank 0 (p=0.999), top-1 'J' | rank 3 (p=0.010), top-1 'The' | rank 5 (p=0.009), top-1 'The' | rank 6 (p=0.005), top-1 'Mars' |
+| 45 | rank 0 (p=0.998), top-1 'Merc' | rank 3 (p=0.017), top-1 'Mars' | rank 3 (p=0.014), top-1 'Earth' | rank 3 (p=0.008), top-1 'Earth' |
+| 48 | rank 1 (p=0.417), top-1 'Six' | rank 57 (p=0.001), top-1 'The' | rank 15 (p=0.004), top-1 'The' | rank 35 (p=0.001), top-1 'The' |
+| 49 | rank 7 (p=0.001), top-1 'Diamond' | rank 241 (p=0.000), top-1 'The' | rank 117 (p=0.000), top-1 'The' | rank 140 (p=0.000), top-1 'The' |
 
 What it means: for the original the gold answer is the first choice on 12 of the 14 (the other two are hard even for it: "legs of an insect", "hardest natural substance"). The packed pack ranks the gold answer first on 2 of 14 and in the top 5 on 7. The wrong answers it gave are not random slips: the gold sits at rank 2 to 9 on most, so the knowledge is damaged rather than gone. x1 lifts some (items 5 and 37 reach rank 0, 38, 39 and 41 reach rank 1 to 2) but 4, 14, 44, 45, 48 and 49 stay low.
 
@@ -165,6 +184,7 @@ Paraphrase stability: the same fact asked three ways (13 groups of three).
 | packed, int8 head | 13 | 2 | 3 | 8 |
 | expanded x1 (6 layers) | 13 | 4 | 2 | 7 |
 | x1, int8 head | 13 | 4 | 2 | 7 |
+| expanded x2 (2 layers, 4 tensors) | 13 | 4 | 2 | 7 |
 
 | generation arm | groups of 3 | all three right | mixed | all three wrong |
 |---|---|---|---|---|
@@ -190,6 +210,7 @@ What it means: the original is stable (11 of 13 groups right all three ways). Th
 | packed, int8 head | 8/8 | 0.8959 | 0.126 |
 | expanded x1 (6 layers) | 8/8 | 0.9881 | 0.024 |
 | x1, int8 head | 8/8 | 0.9886 | 0.024 |
+| expanded x2 (2 layers, 4 tensors) | 8/8 | 0.9752 | 0.032 |
 
 Abstention is intact in every arm. The cost shows up on the answerable ones: x2 refused one and got 5 of 8 right against 7 of 8 for packed (the 8 are too few to separate them). Confidence quality is in the ECE column of the matched table above.
 
@@ -254,6 +275,8 @@ Teacher-forced CPU runs (layer-major, the whole probe set per configuration, 8 C
 | E | base | 1602 | 613.0 | 2.61 | 2dbb65ab1fdc090b |
 | E | X1 | 1602 | 792.1 | 2.02 | e722ac0a7d2b3ed3 |
 | E | ref | 1602 | 902.9 | 1.77 | 6d76c8f8052da1a5 |
+| F | base | 5387 | 3555.6 | 1.52 | 8db9f55f7ff5f1ed |
+| F | X2 | 5387 | 3035.5 | 1.77 | 144b547ef9b64541 |
 
 TF peak RAM: 3.4 GB (run A), 2.4 GB (B), 2.8 GB (C), 1.8 GB (D). Path: CPU for every teacher-forced run.
 
@@ -297,5 +320,7 @@ Run hashes (teacher-forced evaluator):
 | E | base | term (50) | `2dbb65ab1fdc090b` |
 | E | X1 | term (50) | `e722ac0a7d2b3ed3` |
 | E | ref | term (50) | `6d76c8f8052da1a5` |
+| F | base | A set (139) | `8db9f55f7ff5f1ed` |
+| F | X2 | A set (139) | `144b547ef9b64541` |
 
 Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.

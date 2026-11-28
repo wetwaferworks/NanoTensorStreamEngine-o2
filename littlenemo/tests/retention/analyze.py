@@ -76,7 +76,7 @@ def ece(pairs, bins=5):
 
 def tf_tables(tfdir: Path):
     S = {}
-    A = read_detail(tfdir / "A-detail.tsv") + read_detail(tfdir / "F-detail.tsv")
+    A = read_detail(tfdir / "A-detail.tsv") + [r for r in read_detail(tfdir / "F-detail.tsv") if r["cfg"] != "base"]
     by = defaultdict(lambda: defaultdict(list))
     for r in A:
         by[r["cfg"]][r["set"]].append(r)

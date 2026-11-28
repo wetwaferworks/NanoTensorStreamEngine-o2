@@ -173,6 +173,43 @@ for k in ("A", "B", "C", "D1", "D12", "E", "F", "G"):
             tfr.append([k, name, tokens[k], v["sec"], "n/a (head only, layer outputs reused)" if head_only else "%.2f" % (tokens[k] / float(v["sec"])), v.get("hash", "")])
 out["speeds_tf"] = tab(["run", "arm", "tokens scored", "seconds", "teacher-forced tok/s (CPU)", "hash"], tfr)
 
+
+# per-configuration summary: accuracy next to speed (JD picks the best configuration from this)
+def tfall(c):
+    if c not in TF["matched"]:
+        return ("pending", "pending")
+    a = TF["matched"][c]["all"]
+    return ("%d/%d (%.0f%%)" % (a["first_ok"], a["n"], 100.0 * a["first_ok"] / a["n"]), a["nll_per_tok"])
+def tfq(c):
+    return "%d/50" % TF["matched"][c]["quiz"]["first_ok"] if c in TF["matched"] else "pending"
+def genrow(arm):
+    a = GEN[arm]; s = a["sets"]; sp = a["speeds"]["short (cap 48)"]
+    sem_p = D.parent / "sem" / ("%s.json" % arm)
+    ess = a.get("essays", {}).get("score", {}).get("passes")
+    sem_n = sum(1 for i in json.loads(sem_p.read_text())["items"] if i["semantic"] == "pass") if sem_p.exists() else None
+    return {"quiz": "%d/50" % s["quiz"]["pass"], "multi": "%d/12" % s["multi"]["pass"], "ess": "%s/10 keyword, %s/10 read by hand" % (ess, sem_n) if ess is not None else "-",
+            "stop": a["natural_stop_all"], "dec": "%.1f" % sp["decode_tps"]["median"], "pre": "%.1f" % sp["prefill_tps"]["median"], "vram": sp.get("vram_card_peak_mib")}
+rows = []
+def cfg_row(label, tfc, gen, where, note=""):
+    t = tfall(tfc) if tfc else ("-", "-")
+    tq = tfq(tfc) if tfc else "-"
+    if gen and gen in GEN:
+        g = genrow(gen)
+        rows.append([label, where, t[0], t[1], tq, g["quiz"], g["multi"], g["ess"], g["stop"], g["dec"], g["pre"], g["vram"], note])
+    else:
+        rows.append([label, where, t[0], t[1], tq, "-", "-", "-", "-", "-", "-", "-", note])
+cfg_row("raw bf16 (original)", "ref", None, "CPU, teacher-forced only", "no speed on the card: 18 GB, does not fit")
+cfg_row("raw bf16, int8 head", "ref_h8", None, "CPU, teacher-forced only", "")
+cfg_row("packed, int8 head (the shipping CUDA lane)", "base_h8", "packed", "CUDA 4 GB", "meets the 10 tok/s floor")
+cfg_row("packed, bf16 head", "base", None, "CPU only (head 1,120 MiB does not fit)", "no gain over int8 head")
+cfg_row("x1 expanded, 6 layers, int8 head", "X1_h8", None, "CPU, teacher-forced only", "does not fit the 4 GB card")
+cfg_row("x1 expanded, bf16 head", "X1", None, "CPU, teacher-forced only", "")
+cfg_row("x2 expanded, 4 tensors, int8 head", "X2_h8" if "X2_h8" in TF["matched"] else "X2", "expanded-x2", "CUDA 4 GB", "meets the 10 tok/s floor; fits the card" + ("" if "X2_h8" in TF["matched"] else "; TF columns are the bf16-head run (int8-head run pending)"))
+if "X2" in TF["matched"] and "X2_h8" in TF["matched"]:
+    cfg_row("x2 expanded, bf16 head", "X2", None, "CPU, teacher-forced only", "")
+rows.append(["SuperNemo (120B MoE) subset", "CUDA (sn-engine)", "-", "-", "-", "5/5 on 5 questions (earlier round)", "-", "-", "-", "0.17", "0.58", q["gpu"]["vram_used_peak_mib"], "BELOW the 10 tok/s floor"])
+out["config_summary"] = tab(["configuration", "where it runs", "first-token hits, all 119 items (teacher-forced)", "NLL per token", "quiz first token (TF)", "quiz pass (generated)", "multi-step (generated)", "essays (generated)", "answers that stop on their own", "decode tok/s (median)", "prefill tok/s (median)", "card peak MiB", "against the 10 tok/s floor"], rows)
+
 for k, v in out.items():
     print("<!--%s-->\n%s\n" % (k, v))
 (D / "tables.json").write_text(json.dumps(out, indent=1))
