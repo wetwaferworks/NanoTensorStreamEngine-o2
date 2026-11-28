@@ -294,8 +294,37 @@ static int nslots(char t) { return t == '*' ? 4 : 2; }
 
 typedef struct { char name[96]; unsigned char src[NL][4]; int head8; } config;   /* 0 B, 1 A, 2 R */
 
+/* Quantized or partial restores of the original weights (src codes 64 and up):
+ *   q<bits>:<spec>[:<slice>]  original weights rounded to <bits> (8 = int8 per-row absmax, the
+ *                             scheme of the CUDA int8 head; 2..7 = absmax groups of 128 per row)
+ *   a:<spec>:<slice>          original bf16 values in the slice only, packed elsewhere
+ * <spec> is class:<leaf> or L<n>.<leaf>; <slice> picks rows of a Mamba in_proj:
+ * z, x, B, C, dt, BC, BCdt (full tensor when absent). src = 64 + slice * 16 + bits (bits 16 = exact). */
+static const struct { const char *n; int lo, hi; } g_slices[8] = {
+    {"all", 0, 1 << 30}, {"z", 0, 10240}, {"x", 10240, 20480}, {"B", 20480, 21504},
+    {"C", 21504, 22528}, {"dt", 22528, 22656}, {"BC", 20480, 22528}, {"BCdt", 20480, 22656}};
+static int parse_spec(config *c, const char *spec);
+static int parse_qspec(config *c, const char *spec) {
+    int bits; const char *rest;
+    if (spec[0] == 'a' && spec[1] == ':') { bits = 16; rest = spec + 2; }
+    else { char *e; bits = (int)strtol(spec + 1, &e, 10); if (*e != ':' || bits < 2 || bits > 8) return -1; rest = e + 1; }
+    char buf[128]; snprintf(buf, sizeof buf, "%s", rest);
+    int slice = 0;
+    char *colon = strrchr(buf, ':');   /* a trailing :<slice> (class:<leaf> alone is not a slice) */
+    if (colon) {
+        int k; for (k = 1; k < 8; k++) if (!strcmp(colon + 1, g_slices[k].n)) break;
+        if (k < 8) { slice = k; *colon = 0; }
+    }
+    config t; memset(&t, 0, sizeof t);
+    if (parse_spec(&t, buf)) return -1;
+    for (int l = 0; l < NL; l++) for (int j = 0; j < 4; j++)
+        if (t.src[l][j] == 1) c->src[l][j] = (unsigned char)(64 + slice * 16 + (bits == 16 ? 0 : bits));
+    return 0;
+}
+
 static int parse_spec(config *c, const char *spec) {
     if (!strcmp(spec, "base")) return 0;
+    if ((spec[0] == 'q' && spec[1] >= '2' && spec[1] <= '8') || (spec[0] == 'a' && spec[1] == ':')) return parse_qspec(c, spec);
     if (!strcmp(spec, "head8")) { c->head8 = 1; return 0; }
     if (!strncmp(spec, "class:", 6)) {
         const char *leaf = spec + 6; int hit = 0;
@@ -354,6 +383,34 @@ static float *load_proj(int l, int j, int src) {
     snprintf(nm, sizeof nm, "backbone.layers.%d.mixer.%s.weight", l, leaf_of(nemo_layer_type(l), j));
     uint64_t cnt;
     if (src == 1) return load_f32_from(&g_A, nm, &cnt);
+    if (src >= 64) {
+        int slice = (src - 64) / 16, bits = (src - 64) % 16;
+        const nemo_tensor_info *ti = nemo_find(&g_A, nm);
+        int cols = (int)ti->shape[ti->ndim - 1], rows = (int)(ti->count / (uint64_t)cols);
+        float *a = load_f32_from(&g_A, nm, &cnt);
+        float *w = slice ? load_f32_from(&g_B, nm, &cnt) : a;
+        int lo = slice ? g_slices[slice].lo : 0, hi = slice ? g_slices[slice].hi : rows;
+        if (hi > rows) hi = rows;
+        if (slice && (nemo_layer_type(l) != 'M' || j != 0)) { fprintf(stderr, "%s: row slices are for Mamba in_proj\n", nm); exit(4); }
+        for (int r = lo; r < hi; r++) {
+            float *dst = w + (size_t)r * cols; const float *s0 = a + (size_t)r * cols;
+            if (bits == 0) { if (dst != s0) memcpy(dst, s0, (size_t)cols * 4); continue; }
+            int qmax = (1 << (bits - 1)) - 1, g = bits == 8 ? cols : 128;
+            for (int c0 = 0; c0 < cols; c0 += g) {
+                int n = c0 + g <= cols ? g : cols - c0; float m = 0.f;
+                for (int k = 0; k < n; k++) { float v = fabsf(s0[c0 + k]); if (v > m) m = v; }
+                float sc = m > 0.f ? m / (float)qmax : 1.f;
+                for (int k = 0; k < n; k++) {
+                    float q = rintf(s0[c0 + k] / sc);
+                    if (q > qmax) q = (float)qmax;
+                    if (q < -qmax) q = (float)-qmax;
+                    dst[c0 + k] = q * sc;
+                }
+            }
+        }
+        if (w != a) free(a);
+        return w;
+    }
     float *w = load_f32_from(&g_B, nm, &cnt);
     if (src == 2) {
         char rn[176]; snprintf(rn, sizeof rn, "%s.refine", nm);

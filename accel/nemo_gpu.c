@@ -146,6 +146,8 @@ typedef struct {
     CUdeviceptr ssm, win;                   /* M state */
     CUdeviceptr kc, vc;                     /* * cache */
     CUdeviceptr ssm_s, win_s;               /* M: snapshot for a step redo */
+    CUdeviceptr o8q, o8s;                   /* M: in_proj rows o8lo..o8lo+o8n as int8 per-row (NEMO_GPU_I8ROWS) */
+    int o8lo, o8n;
 } glayer;
 
 struct nemo_gpu {
@@ -882,11 +884,24 @@ static int pqr_gemm(nemo_gpu *g, const gpq *w, const gpq *r, CUdeviceptr X, CUde
     return add(g, Y, g->brt, r->rows * n);
 }
 
+/* Rows of a Mamba in_proj kept at int8 per-row from the original weights
+ * (2026-11-28 retention battery: the dt, B and C rows carry most of what the
+ * PQ pack loses). The PQ GEMV writes every row first; this overwrites the
+ * kept slice with the int8 GEMV the lm_head uses, so it is the same kernel
+ * and summation order for a step and for each token of a prefill. */
+static int i8_rows(nemo_gpu *g, const glayer *L, CUdeviceptr x, CUdeviceptr y) {
+    CUdeviceptr yo = y + (CUdeviceptr)L->o8lo * 4;
+    int rows = L->o8n, cols = H;
+    void *a[] = {(void *)&L->o8q, (void *)&L->o8s, &x, &yo, &rows, &cols};
+    return launch(g, K_I8, (unsigned)((rows + 7) / 8), 1, 256, a);
+}
+
 static int run_layer(nemo_gpu *g, int l) {
     glayer *L = &g->L[l];
     if (rmsnorm(g, g->x, L->norm_w, g->h)) return -1;
     if (L->type == 'M') {
         if (pqr_gemv(g, &L->p0, &L->r0, g->h, g->proj)) return -1;
+        if (L->o8n && i8_rows(g, L, g->h, g->proj)) return -1;
         CUdeviceptr u = g->proj + (CUdeviceptr)INNER * 4, dt = g->proj + (CUdeviceptr)(INNER + CONV) * 4;
         int ch = CONV;
         void *ac[] = {&L->win, &u, &L->conv_w, &L->conv_b, &g->v, &ch};
@@ -1014,6 +1029,9 @@ static int run_layer_b(nemo_gpu *g, int l, int n, int pos0) {
       if (launch_sm(g, K_RMSB, (unsigned)n, 1, 1024, 0, a)) return -1; }
     if (L->type == 'M') {
         if (pqr_gemm(g, &L->p0, &L->r0, g->bh, g->bproj, n)) return -1;
+        if (L->o8n)
+            for (int t = 0; t < n; t++)
+                if (i8_rows(g, L, g->bh + (CUdeviceptr)t * H * 4, g->bproj + (CUdeviceptr)t * PROJ * 4)) return -1;
         CUdeviceptr u = g->bproj + (CUdeviceptr)INNER * 4, dt = g->bproj + (CUdeviceptr)(INNER + CONV) * 4;
         int us = PROJ, os = CONV, ch = CONV;
         void *ac[] = {&L->win, &u, &us, &L->conv_w, &L->conv_b, &g->bv, &os, &ch, &n};
@@ -1329,6 +1347,65 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         }
     }
 #undef NM
+    {
+        /* NEMO_GPU_I8ROWS=<slice>[@l,l,...]: keep rows of every (or the listed)
+         * Mamba in_proj as int8 per-row, quantized here from the original bf16
+         * exactly like the int8 lm_head. Slices: dt, B, C, BC, BCdt, x, z, all.
+         * Placed before the VRAM plan, so refinements see what is left. */
+        const char *spec = getenv("NEMO_GPU_I8ROWS");
+        static const struct { const char *n; int lo, hi; } sl[] = {
+            {"z", 0, INNER}, {"x", INNER, 2 * INNER}, {"B", 2 * INNER, 2 * INNER + NGROUP * NSTATE},
+            {"C", 2 * INNER + NGROUP * NSTATE, 2 * INNER + 2 * NGROUP * NSTATE}, {"dt", PROJ - NHEAD, PROJ},
+            {"BC", 2 * INNER, PROJ - NHEAD}, {"BCdt", 2 * INNER, PROJ}, {"all", 0, PROJ}};
+        if (spec && spec[0] && strcmp(spec, "off")) {
+            char nmb[32]; const char *at = strchr(spec, '@');
+            size_t nl = at ? (size_t)(at - spec) : strlen(spec);
+            if (nl >= sizeof nmb) nl = sizeof nmb - 1;
+            memcpy(nmb, spec, nl); nmb[nl] = 0;
+            int si = -1;
+            for (int i = 0; i < (int)(sizeof sl / sizeof sl[0]); i++) if (!strcmp(nmb, sl[i].n)) si = i;
+            if (si < 0) { snprintf(g->err, sizeof g->err, "NEMO_GPU_I8ROWS: unknown slice %s", nmb); goto ferr; }
+            int lo = sl[si].lo, n8 = sl[si].hi - sl[si].lo, nlay = 0;
+            uint64_t hsh = 1469598103934665603ull, bytes = 0;
+            int8_t *qb = (int8_t *)malloc((size_t)n8 * H);
+            float *sc = (float *)malloc(sizeof(float) * (size_t)n8);
+            uint16_t *wb = (uint16_t *)malloc((size_t)n8 * H * 2);
+            if (!qb || !sc || !wb) { free(qb); free(sc); free(wb); snprintf(g->err, sizeof g->err, "I8ROWS alloc failed"); goto ferr; }
+            for (int l = 0; l < g->layer_limit; l++) {
+                glayer *L = &g->L[l];
+                if (L->type != 'M') continue;
+                if (at) {
+                    int hit = 0; const char *p = at + 1;
+                    while (*p) { char *e; long v = strtol(p, &e, 10); if (e == p) break; if (v == l) hit = 1; p = *e ? e + 1 : e; }
+                    if (!hit) continue;
+                }
+                char tn[96]; snprintf(tn, sizeof tn, "backbone.layers.%d.mixer.in_proj.weight", l);
+                const nemo_tensor_info *t = nemo_find(&cp, tn);
+                FILE *f = t && t->is_bf16 ? fopen(t->shard_path, "rb") : NULL;
+                int okr = f && !seek64(f, t->data_off + (uint64_t)lo * H * 2) && fread(wb, 2, (size_t)n8 * H, f) == (size_t)n8 * H;
+                if (f) fclose(f);
+                if (!okr) { free(qb); free(sc); free(wb); snprintf(g->err, sizeof g->err, "I8ROWS: cannot read %s", tn); goto ferr; }
+                for (int r = 0; r < n8; r++) {
+                    float mx = 0.0f;
+                    for (int c = 0; c < H; c++) { uint32_t u = (uint32_t)wb[(size_t)r * H + c] << 16; float v; memcpy(&v, &u, 4); if (fabsf(v) > mx) mx = fabsf(v); }
+                    float s = mx > 0.0f ? mx / 127.0f : 1.0f;
+                    sc[r] = s;
+                    for (int c = 0; c < H; c++) { uint32_t u = (uint32_t)wb[(size_t)r * H + c] << 16; float v; memcpy(&v, &u, 4);
+                        long q = lrintf(v / s); if (q > 127) q = 127; if (q < -127) q = -127; qb[(size_t)r * H + c] = (int8_t)q; }
+                }
+                const uint8_t *hb = (const uint8_t *)qb;
+                for (size_t i = 0; i < (size_t)n8 * H; i++) { hsh ^= hb[i]; hsh *= 1099511628211ull; }
+                hb = (const uint8_t *)sc;
+                for (size_t i = 0; i < sizeof(float) * (size_t)n8; i++) { hsh ^= hb[i]; hsh *= 1099511628211ull; }
+                if (up(g, &L->o8q, qb, (size_t)n8 * H) || up(g, &L->o8s, sc, sizeof(float) * (size_t)n8)) { free(qb); free(sc); free(wb); goto ferr; }
+                L->o8lo = lo; L->o8n = n8; nlay++;
+                bytes += (uint64_t)n8 * H + sizeof(float) * (uint64_t)n8;
+            }
+            free(qb); free(sc); free(wb);
+            fprintf(stderr, "nemo_gpu: int8 rows %s (in_proj %d..%d) on %d Mamba layers, %.1f MiB on the device, hash %016llx\n",
+                    nmb, lo, lo + n8 - 1, nlay, bytes / 1048576.0, (unsigned long long)hsh);
+        }
+    }
     if (up_param(g, &cp, "backbone.norm_f.weight", H, &g->norm_f)) goto ferr;
     if (dalloc(g, &g->x, H * 4) || dalloc(g, &g->h, H * 4) || dalloc(g, &g->proj, PROJ * 4)
         || dalloc(g, &g->v, CONV * 4) || dalloc(g, &g->y, INNER * 4) || dalloc(g, &g->inner, INNER * 4)
