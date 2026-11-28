@@ -2123,7 +2123,64 @@
      "hash": "a8ec97d1103350cb"
     }
    },
-   "G": {}
+   "G": {
+    "base": {
+     "name": "base",
+     "start": "0",
+     "tune_nll": "163.605913",
+     "tune_tok": "164",
+     "tune_first": "17/50",
+     "tune_all": "16/50",
+     "hold_nll": "0.000000",
+     "hold_tok": "0",
+     "hold_first": "0/0",
+     "hold_all": "0/0",
+     "sec": "1234.6",
+     "hash": "2dbb65ab1fdc090b"
+    },
+    "X2": {
+     "name": "X2",
+     "start": "8",
+     "tune_nll": "114.984970",
+     "tune_tok": "164",
+     "tune_first": "29/50",
+     "tune_all": "25/50",
+     "hold_nll": "0.000000",
+     "hold_tok": "0",
+     "hold_first": "0/0",
+     "hold_all": "0/0",
+     "sec": "899.2",
+     "hash": "a11f392eed364f21"
+    },
+    "cls_mamba": {
+     "name": "cls_mamba",
+     "start": "0",
+     "tune_nll": "25.233997",
+     "tune_tok": "164",
+     "tune_first": "47/50",
+     "tune_all": "45/50",
+     "hold_nll": "0.000000",
+     "hold_tok": "0",
+     "hold_first": "0/0",
+     "hold_all": "0/0",
+     "sec": "935.3",
+     "hash": "20d91f1a27967094"
+    },
+    "cls_mlp": {
+     "name": "cls_mlp",
+     "start": "1",
+     "tune_nll": "80.661240",
+     "tune_tok": "164",
+     "tune_first": "32/50",
+     "tune_all": "30/50",
+     "hold_nll": "0.000000",
+     "hold_tok": "0",
+     "hold_first": "0/0",
+     "hold_all": "0/0",
+     "sec": "878.7",
+     "hash": "1fdcffbabf577074"
+    }
+   }
   },
   "classes": {
    "base": {
@@ -2398,6 +2455,32 @@
      ]
     ]
    },
+   "X2": {
+    "n": 50,
+    "p_stop_mean": 0.0219,
+    "p_stop_median": 0.0019,
+    "stop_is_argmax": 1,
+    "stop_in_top5": 1,
+    "stop_rank_median": 19,
+    "argmax_tokens": [
+     [
+      " (",
+      20
+     ],
+     [
+      "\\n",
+      19
+     ],
+     [
+      " ",
+      1
+     ],
+     [
+      "\\n\\n",
+      1
+     ]
+    ]
+   },
    "base": {
     "n": 50,
     "p_stop_mean": 0.0171,
@@ -2421,6 +2504,46 @@
      [
       " centim",
       1
+     ]
+    ]
+   },
+   "cls_mamba": {
+    "n": 50,
+    "p_stop_mean": 0.9997,
+    "p_stop_median": 0.9999,
+    "stop_is_argmax": 50,
+    "stop_in_top5": 50,
+    "stop_rank_median": 0,
+    "argmax_tokens": [
+     [
+      "<SPECIAL_12>",
+      50
+     ]
+    ]
+   },
+   "cls_mlp": {
+    "n": 50,
+    "p_stop_mean": 0.0805,
+    "p_stop_median": 0.0031,
+    "stop_is_argmax": 4,
+    "stop_in_top5": 12,
+    "stop_rank_median": 16,
+    "argmax_tokens": [
+     [
+      "\\n",
+      23
+     ],
+     [
+      " (",
+      14
+     ],
+     [
+      "<SPECIAL_12>",
+      4
+     ],
+     [
+      ".\\n",
+      2
      ]
     ]
    },

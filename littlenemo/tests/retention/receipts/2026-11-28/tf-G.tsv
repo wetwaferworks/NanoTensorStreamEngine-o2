@@ -1,0 +1,4 @@
+base	start=0	tune_nll=163.605913	tune_tok=164	tune_first=17/50	tune_all=16/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=1234.6	hash=2dbb65ab1fdc090b
+X2	start=8	tune_nll=114.984970	tune_tok=164	tune_first=29/50	tune_all=25/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=899.2	hash=a11f392eed364f21
+cls_mamba	start=0	tune_nll=25.233997	tune_tok=164	tune_first=47/50	tune_all=45/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=935.3	hash=20d91f1a27967094
+cls_mlp	start=1	tune_nll=80.661240	tune_tok=164	tune_first=32/50	tune_all=30/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=878.7	hash=1fdcffbabf577074

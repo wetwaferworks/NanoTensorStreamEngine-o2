@@ -4,7 +4,7 @@ JD approved this battery on 2026-11-27 at 5:51 PM ET (all of Gizmo's lanes, plus
 
 ## Headline
 
-1. **The model stops talking because of the compression, not because of the engine.** After the gold answer and its newline, the original bf16 model puts probability 1.0 on its end-of-turn token (`<SPECIAL_12>`, id 12, already in the engine's stop set) on **50 of 50** items. The packed model puts a mean of **0.017** there (median 0.001), and the stop token is the top choice on **0 of 50**. It writes another newline (27 times) or opens a parenthesis (14 times) instead. That is why packed answers run to the token cap with blank lines and "(150 words)" loops. See [Termination](#p0-termination-the-end-of-turn-token).
+1. **The model stops talking because of the compression, not because of the engine.** After the gold answer and its newline, the original bf16 model puts probability 1.0 on its end-of-turn token (`<SPECIAL_12>`, id 12, already in the engine's stop set) on **50 of 50** items. The packed model puts a mean of **0.017** there (median 0.001), and the stop token is the top choice on **0 of 50**. It writes another newline (27 times) or opens a parenthesis (14 times) instead. That is why packed answers run to the token cap with blank lines and "(150 words)" loops. The cause is in the Mamba projections: put the original bf16 `in_proj` and `out_proj` back in all 27 Mamba layers (nothing else) and the stop token returns to a mean probability of **0.9997**, top choice on **50 of 50**. Restoring the MLP projections instead gets only 0.08 (4 of 50), and the x1 and x2 expansions, which refine a handful of layers, do not move it (0.024 and 0.022). See [Termination](#p0-termination-the-end-of-turn-token).
 2. **The damage is in the layers, not in the output head.** Swapping the lm_head between bf16 and the int8 per-row head the CUDA lane uses moves the loss by 0.008 nats per token or less, and the first-token hits by at most 1 of 119, in every arm. Gizmo's higher-precision-head test says: no gain there.
 3. **Three tensor classes carry the loss, and Mamba carries almost all of it.** Putting the original bf16 weights back into the Mamba `in_proj` and `out_proj` of all 27 Mamba layers (and nothing else) takes the quiz from 17/50 to **47/50, the same as the original**, and closes 100 percent of the loss gap. MLP `down_proj` alone closes 41 percent, Mamba `in_proj` alone 46 percent, the four attention layers 10 percent.
 4. **Expanded packs help, and two layers get most of the way there.** Six refined layers (x1, teacher-forced on the CPU only, it does not fit the 4 GB card) halve the loss (NLL per token 1.62 to 1.10, raw 0.27; first-token hits 32 to 60 of 119, raw 106) and fix long-context recall (0/4 to 4/4). The x2 pack that does fit the card (refine tensors on layers 8 and 11 only, 73.4 MiB) gets NLL 1.22 and 53 of 119 first-token hits with the bf16 head (52 of 119, NLL 1.22 with the int8 head the card uses; quiz 29/50 against 17/50 packed, 34/50 for x1), so about three quarters of x1's gain for a third of the refined layers. On CUDA, the full generation battery for x2 against packed: quiz 34/50 against 36/50 (the lenient grader hides the improvement, see headline 5), multi-step 3/12 against 1/12, long context 4/4 against 3/4, essays 8/10 by the keyword grader against 4/10 (4/10 against 3/10 when read by hand). Generated differences this small are inside what one run can show.
@@ -31,6 +31,8 @@ One line per configuration, accuracy next to speed, for picking the best setup. 
 
 Reading it: only two Little Nemo configurations run on the 4 GB card at all, the packed pack and x2, and both decode at about 13 tok/s, above the floor. x2 costs no measurable speed. Its accuracy gain on the generated quiz is within noise; the teacher-forced columns show what the expansion buys when it is measured exactly. The original and x1 are the accuracy ceiling and the middle point, not options for this card.
 
+For choosing: on this card x2 is the better of the two runnable configurations on every exact measure at no speed cost (first-token hits 52 against 31 of 119, NLL 1.22 against 1.63, same 13 tok/s). Neither fixes the stopping problem. The biggest lever the sweep found is the Mamba `in_proj` and `out_proj` weights: with those restored, both accuracy (quiz 47/50) and turn-end behaviour (stop on 50 of 50) return to the original. A pack that gives more bits to those tensors is the configuration this battery points to, but it was not built or timed here, so its size and speed are unknown. The x2 expansion refines only 2 of the 27 Mamba layers.
+
 ## How to read the numbers
 
 - **Teacher-forced (TF)** runs feed the gold answer to the model one token at a time and score what it would have said at each step. They are exact, repeatable, and do not depend on sampling. "First token" means the model's top choice at the first answer position equals the gold's first token, so a model that writes "The capital of Australia is Canberra." misses even though it knows the answer. "Whole answer" needs every gold token to be top-1. NLL per token is the average surprise (lower is better). "Gold in top 5" is a looser check. All TF runs ran on the CPU, layer by layer, because the bf16 model does not fit the card.
@@ -50,6 +52,9 @@ Teacher-forced at the right place (the 50 quiz gold answers, each followed by a 
 | raw bf16 | 50 | 1.0 | 1.0 | 50/50 | 50/50 | 0 | <SPECIAL_12> x50 |
 | packed | 50 | 0.0171 | 0.001 | 0/50 | 6/50 | 19 | \n x27;  ( x14;   x1 |
 | expanded x1 (6 layers) | 50 | 0.0238 | 0.0046 | 1/50 | 5/50 | 16 |  ( x24; \n x8;   x6 |
+| expanded x2 (2 layers, 4 tensors) | 50 | 0.0219 | 0.0019 | 1/50 | 1/50 | 19 |  ( x20; \n x19;   x1 |
+| packed + original Mamba in/out_proj | 50 | 0.9997 | 0.9999 | 50/50 | 50/50 | 0 | <SPECIAL_12> x50 |
+| packed + original MLP up/down_proj | 50 | 0.0805 | 0.0031 | 4/50 | 12/50 | 16 | \n x23;  ( x14; <SPECIAL_12> x4 |
 
 In generation, the same measurement at the step after the first newline of each answer:
 
@@ -59,9 +64,9 @@ In generation, the same measurement at the step after the first newline of each 
 | packed-det-ht1 | 3/72 | 70 | 0.0178 | 0.00048 | 2/70 | 47 |
 | expanded-x2 | 13/141 | 138 | 0.0766 | 0.00154 | 12/138 | 25 |
 
-What it means: the original model ends its turn with certainty right after the answer line. The compressed model has lost that habit. Its stop token has a median rank around 19 to 55 and a probability of about 1 in a thousand, so under greedy decoding it almost never leaves. Raising the lm_head precision does not help (see the head table), so the end-of-turn behaviour is stored in the compressed layers. The x2 expansion raises the stop probability somewhat (it is the top choice in 12 of 138 generated answers against 5 of 139) and doubled the number of answers that end on their own (13 of 141 against 8 of 141), but it is nowhere near the original. A cheap practical fix is a serving-side one: stop at the first blank line after a non-empty answer line for short-answer prompts. That changes the reply the user sees, not the model, so it is a mitigation and not a retention result.
+What it means: the original model ends its turn with certainty right after the answer line. The compressed model has lost that habit. Its stop token has a median rank around 19 to 55 and a probability of about 1 in a thousand, so under greedy decoding it almost never leaves. Raising the lm_head precision does not help (see the head table), so the end-of-turn behaviour is stored in the compressed layers, and run G (below) narrows it to the Mamba input and output projections. The x2 expansion raises the generated stop probability somewhat (top choice in 12 of 138 generated answers against 5 of 139) and raises the number of answers that end on their own from 8 to 13 of 141, but the teacher-forced probe on the clean position shows no real change (mean 0.022 against 0.017 packed), so that gain is small and unreliable. A cheap practical fix is a serving-side one: stop at the first blank line after a non-empty answer line for short-answer prompts. That changes the reply the user sees, not the model, so it is a mitigation and not a retention result.
 
-**Which layers carry it (run G).** Same 50 probes, teacher-forced, base plus three variants. Not finished when this was written (still running or not run): x2 (layers 8 and 11 refined); packed with the original Mamba in/out projections; packed with the original MLP up/down projections. The turn-end table above lists only the arms that finished.
+**Which layers carry it (run G).** Same 50 probes, teacher-forced, base plus three variants. Finished: x2 (layers 8 and 11 refined): mean P(stop) 0.0219, stop is top-1 on 1 of 50, median stop rank 19; packed with the original Mamba in/out projections: mean P(stop) 0.9997, stop is top-1 on 50 of 50, median stop rank 0; packed with the original MLP up/down projections: mean P(stop) 0.0805, stop is top-1 on 4 of 50, median stop rank 16. Restoring the Mamba projections brings the stop probability to a mean of 0.9997 against 0.0171 packed and 1.0 raw, so the end-of-turn habit lives mostly in those layers, consistent with the class sweep.
 
 ## P0: matched raw, packed and expanded battery
 
@@ -283,6 +288,10 @@ Teacher-forced CPU runs (layer-major, the whole probe set per configuration, 8 C
 | F | base | 5387 | 3555.6 | 1.52 | 8db9f55f7ff5f1ed |
 | F | X2 | 5387 | 3035.5 | 1.77 | 144b547ef9b64541 |
 | F | X2_h8 | 5387 | 3454.9 | 1.56 | a8ec97d1103350cb |
+| G | base | 1602 | 1234.6 | 1.30 | 2dbb65ab1fdc090b |
+| G | X2 | 1602 | 899.2 | 1.78 | a11f392eed364f21 |
+| G | cls_mamba | 1602 | 935.3 | 1.71 | 20d91f1a27967094 |
+| G | cls_mlp | 1602 | 878.7 | 1.82 | 1fdcffbabf577074 |
 
 TF peak RAM: 3.4 GB (run A), 2.4 GB (B), 2.8 GB (C), 1.8 GB (D). Path: CPU for every teacher-forced run.
 
@@ -329,5 +338,9 @@ Run hashes (teacher-forced evaluator):
 | F | base | A set (139) | `8db9f55f7ff5f1ed` |
 | F | X2 | A set (139) | `144b547ef9b64541` |
 | F | X2_h8 | A set (139) | `a8ec97d1103350cb` |
+| G | base | term (50) | `2dbb65ab1fdc090b` |
+| G | X2 | term (50) | `a11f392eed364f21` |
+| G | cls_mamba | term (50) | `20d91f1a27967094` |
+| G | cls_mlp | term (50) | `1fdcffbabf577074` |
 
 Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.
