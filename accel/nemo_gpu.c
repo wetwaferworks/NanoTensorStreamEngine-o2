@@ -670,7 +670,7 @@ static size_t refine_bytes_of(const pack *k, int i, int half_book) {
     return isz + (size_t)nb * 4 + 2 * fsz + bb;
 }
 
-/* Default layer order, from the 27 Nov 2026 probe (best triples first).
+/* Default layer order, from the 27-28 Nov 2026 probe (best pair R8+R11 first).
  * Overridden by NEMO_GPU_REFINE=all|off|auto|11,10,8,... */
 static int refine_pri(int layer, const char *spec) {
     if (spec && !strcmp(spec, "off")) return 10000;
@@ -683,7 +683,7 @@ static int refine_pri(int layer, const char *spec) {
         }
         return 10000;
     }
-    static const int pref[] = {11, 10, 8, 21, 14, 9, 20, 15, 12, 13, 22, 23, -1};
+    static const int pref[] = {11, 8, 10, 21, 14, 9, 20, 15, 12, 13, 22, 23, -1};
     for (int i = 0; pref[i] >= 0; i++) if (pref[i] == layer) return i;
     return 100 + layer;
 }
