@@ -55,6 +55,7 @@ and is verified hash-identical is on by default.
 | Hot-expert cache: RAM tier (resident packed experts) and VRAM tier (mirror of the hottest) | `--cache-mb N`, `--gpu-cache-mb N` | `cache_mb`, `gpu_cache_mb` | 4096 / 0 |
 | GPU expert stream: compressed experts sent to the card, expanded and computed there, slots reused per token | `--gpu-experts`, `--no-gpu-experts` | `gpu_experts` | on when `--gpu-mb` > 0 |
 | Stream: send the next MoE layer's likely experts early (its router run one layer ahead) | `--no-prefetch` | `expert_prefetch` | on |
+| Stream: how early fetch works (1 old, 2 keep guesses in the cache, 3 cached guesses only, 4 background reads) | env `SN_XS_PFMODE` | - | 4 |
 | Stream: RAM expert cache in pinned memory, copied straight to the card | `--no-pinned-cache` | `pinned_cache` | on |
 | Stream only (`--gpu-mb 0`): cap the slot pool at 300 so the card is not paged | `--no-slot-cap` | `stream_slot_cap` | on |
 | Speculative decoding with the checkpoint's MTP head (greedy, verify in one fused pass) | `--spec`, `--no-spec`, `--draft-len K` (1..7) | `spec`, `draft_len` | on, 3 |
