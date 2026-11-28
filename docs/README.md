@@ -6,6 +6,11 @@ Start with the [project README](../README.md): the credits, an honest status tab
 
 | Guide | Covers |
 |---|---|
+| [INTELLIGENCE-RETENTION.md](INTELLIGENCE-RETENTION.md) | how much intelligence the compressed models keep, with speed beside accuracy for every configuration, and every table behind it |
+| [COMPARISON.md](COMPARISON.md) | how NTSE compares with llama.cpp, ExLlamaV2, MLC-LLM, vLLM, KTransformers and PowerInfer, using only their published figures |
+| [SUPERNEMO.md](SUPERNEMO.md) | the 120B SuperNemo engine: expert cache, GPU expert stream, MTP, early expert fetch, results |
+| [EXPAND-REFINE.md](EXPAND-REFINE.md) | expanded packs: a refinement stage for chosen layers, sized to the free VRAM |
+| [RETENTION-BATTERY-2026-11-27.md](RETENTION-BATTERY-2026-11-27.md) | the full retention battery report |
 | [CREDITS.md](CREDITS.md) | everyone who built this, including the assistants as co-implementers, and the third-party papers and models with full author lists |
 | [FORMAT-AND-CONVERTER.md](FORMAT-AND-CONVERTER.md) | the NQ2 format v3, the `nq2-quantize` converter and every option (per-tensor books, `--embed-fp16`, `--budgets`, `--pq`, multithreading), the manifest and pairing |
 | [INFERENCE-TOOLS.md](INFERENCE-TOOLS.md) | `nq2-infer`, `nq2-run`, the Triforce engine, `nq2-infer-lab`, `nq2-logitcmp`, `nq2-streamtest`, pinned anchors |
