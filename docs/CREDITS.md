@@ -162,7 +162,9 @@ built with Grok Bot by SpaceX.
 ## Third-party work this project stands on
 
 Models and papers are credited to their authors; the weights are theirs, under
-their own licenses, and are not part of this repository.
+their own licenses, and are not part of this repository. NVIDIA releases the
+Nemotron models used here under the NVIDIA Open Model License; read its terms
+(and each model card) before you download or redistribute the weights.
 
 ### NVIDIA Nemotron-Nano-9B-v2 (Little Nemo's model)
 
@@ -171,6 +173,14 @@ Reasoning Model", arXiv:2508.14444, NVIDIA. The 216 named authors, in the order
 the paper lists them:
 
 ﻿ NVIDIA; Aarti Basant; Abhijit Khairnar; Abhijit Paithankar; Abhinav Khattar; Adithya Renduchintala; Aditya Malte; Akhiad Bercovich; Akshay Hazare; Alejandra Rico; Aleksander Ficek; Alex Kondratenko; Alex Shaposhnikov; Alexander Bukharin; Ali Taghibakhshi; Amelia Barton; Ameya Sunil Mahabaleshwarkar; Amy Shen; Andrew Tao; Ann Guan; Anna Shors; Anubhav Mandarwal; Arham Mehta; Arun Venkatesan; Ashton Sharabiani; Ashwath Aithal; Ashwin Poojary; Ayush Dattagupta; Balaram Buddharaju; Banghua Zhu; Barnaby Simkin; Bilal Kartal; Bita Darvish Rouhani; Bobby Chen; Boris Ginsburg; Brandon Norick; Brian Yu; Bryan Catanzaro; Charles Wang; Charlie Truong; Chetan Mungekar; Chintan Patel; Chris Alexiuk; Christian Munley; Christopher Parisien; Dan Su; Daniel Afrimi; Daniel Korzekwa; Daniel Rohrer; Daria Gitman; David Mosallanezhad; Deepak Narayanan; Dima Rekesh; Dina Yared; Dmytro Pykhtar; Dong Ahn; Duncan Riach; Eileen Long; Elliott Ning; Eric Chung; Erick Galinkin; Evelina Bakhturina; Gargi Prasad; Gerald Shen; Haifeng Qian; Haim Elisha; Harsh Sharma; Hayley Ross; Helen Ngo; Herman Sahota; Hexin Wang; Hoo Chang Shin; Hua Huang; Iain Cunningham; Igor Gitman; Ivan Moshkov; Jaehun Jung; Jan Kautz; Jane Polak Scowcroft; Jared Casper; Jian Zhang; Jiaqi Zeng; Jimmy Zhang; Jinze Xue; Jocelyn Huang; Joey Conway; John Kamalu; Jonathan Cohen; Joseph Jennings; Julien Veron Vialard; Junkeun Yi; Jupinder Parmar; Kari Briski; Katherine Cheung; Katherine Luna; Keith Wyss; Keshav Santhanam; Kezhi Kong; Krzysztof Pawelec; Kumar Anik; Kunlun Li; Kushan Ahmadian; Lawrence McAfee; Laya Sleiman; Leon Derczynski; Luis Vega; Maer Rodrigues de Melo; Makesh Narsimhan Sreedhar; Marcin Chochowski; Mark Cai; Markus Kliegl; Marta Stepniewska-Dziubinska; Matvei Novikov; Mehrzad Samadi; Meredith Price; Meriem Boubdir; Michael Boone; Michael Evans; Michal Bien; Michal Zawalski; Miguel Martinez; Mike Chrzanowski; Mohammad Shoeybi; Mostofa Patwary; Namit Dhameja; Nave Assaf; Negar Habibi; Nidhi Bhatia; Nikki Pope; Nima Tajbakhsh; Nirmal Kumar Juluru; Oleg Rybakov; Oleksii Hrinchuk; Oleksii Kuchaiev; Oluwatobi Olabiyi; Pablo Ribalta; Padmavathy Subramanian; Parth Chadha; Pavlo Molchanov; Peter Dykas; Peter Jin; Piotr Bialecki; Piotr Januszewski; Pradeep Thalasta; Prashant Gaikwad; Prasoon Varshney; Pritam Gundecha; Przemek Tredak; Rabeeh Karimi Mahabadi; Rajen Patel; Ran El-Yaniv; Ranjit Rajan; Ria Cheruvu; Rima Shahbazyan; Ritika Borkar; Ritu Gala; Roger Waleffe; Ruoxi Zhang; Russell J. Hewett; Ryan Prenger; Sahil Jain; Samuel Kriman; Sanjeev Satheesh; Saori Kaji; Sarah Yurick; Saurav Muralidharan; Sean Narenthiran; Seonmyeong Bak; Sepehr Sameni; Seungju Han; Shanmugam Ramasamy; Shaona Ghosh; Sharath Turuvekere Sreenivas; Shelby Thomas; Shizhe Diao; Shreya Gopal; Shrimai Prabhumoye; Shubham Toshniwal; Shuoyang Ding; Siddharth Singh; Siddhartha Jain; Somshubra Majumdar; Soumye Singhal; Stefania Alborghetti; Syeda Nahida Akter; Terry Kong; Tim Moon; Tomasz Hliwiak; Tomer Asida; Tony Wang; Tugrul Konuk; Twinkle Vashishth; Tyler Poon; Udi Karpas; Vahid Noroozi; Venkat Srinivasan; Vijay Korthikanti; Vikram Fugro; Vineeth Kalluru; Vitaly Kurin; Vitaly Lavrukhin; Wasi Uddin Ahmad; Wei Du; Wonmin Byeon; Ximing Lu; Xin Dong; Yashaswi Karnati; Yejin Choi; Yian Zhang; Ying Lin; Yonggan Fu; Yoshi Suhara; Zhen Dong; Zhiyu Li; Zhongbo Zhu; Zijia Chen
+
+### NVIDIA Nemotron 3.5 Super VL (SuperNemo's model)
+
+Credit: NVIDIA. A 120B-parameter hybrid Mamba-2, attention and mixture-of-experts
+language model (about 12B active per token) with a RADIO vision encoder and a
+multi-token-prediction head, released under the NVIDIA Open Model License. The
+model card lists its authors and how to cite it. NTSE ships no copy of the
+weights and does not reproduce an author list here.
 
 ### NVIDIA Nemotron-Labs-Sigma-3B (the model the packed benchmarks run on)
 
