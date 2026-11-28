@@ -34,7 +34,7 @@ rows = []
 for a, b in (("ref", "ref_h8"), ("base", "base_h8"), ("X1", "X1_h8"), ("X2", "X2_h8")):
     if a in TF["matched"] and b in TF["matched"]:
         x, y = TF["matched"][a]["all"], TF["matched"][b]["all"]
-        rows.append([NAMES[a].split(",")[0], "%d/%d" % (x["first_ok"], x["n"]), x["nll_per_tok"], "%d/%d" % (y["first_ok"], y["n"]), y["nll_per_tok"], round(y["nll_per_tok"] - x["nll_per_tok"], 4)])
+        rows.append([NAMES[a], "%d/%d" % (x["first_ok"], x["n"]), x["nll_per_tok"], "%d/%d" % (y["first_ok"], y["n"]), y["nll_per_tok"], round(y["nll_per_tok"] - x["nll_per_tok"], 4)])
 out["head"] = tab(["weights", "bf16-class head: first token", "NLL/tok", "int8 per-row head: first token", "NLL/tok", "NLL change"], rows)
 
 rows = []

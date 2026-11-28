@@ -7,7 +7,7 @@ JD approved this battery on 2026-11-27 at 5:51 PM ET (all of Gizmo's lanes, plus
 1. **The model stops talking because of the compression, not because of the engine.** After the gold answer and its newline, the original bf16 model puts probability 1.0 on its end-of-turn token (`<SPECIAL_12>`, id 12, already in the engine's stop set) on **50 of 50** items. The packed model puts a mean of **0.017** there (median 0.001), and the stop token is the top choice on **0 of 50**. It writes another newline (27 times) or opens a parenthesis (14 times) instead. That is why packed answers run to the token cap with blank lines and "(150 words)" loops. See [Termination](#p0-termination-the-end-of-turn-token).
 2. **The damage is in the layers, not in the output head.** Swapping the lm_head between bf16 and the int8 per-row head the CUDA lane uses moves the loss by 0.008 nats per token or less, and the first-token hits by at most 1 of 119, in every arm. Gizmo's higher-precision-head test says: no gain there.
 3. **Three tensor classes carry the loss, and Mamba carries almost all of it.** Putting the original bf16 weights back into the Mamba `in_proj` and `out_proj` of all 27 Mamba layers (and nothing else) takes the quiz from 17/50 to **47/50, the same as the original**, and closes 100 percent of the loss gap. MLP `down_proj` alone closes 41 percent, Mamba `in_proj` alone 46 percent, the four attention layers 10 percent.
-4. **Expanded packs help, and two layers get most of the way there.** Six refined layers (x1, teacher-forced on the CPU only, it does not fit the 4 GB card) halve the loss (NLL per token 1.62 to 1.10, raw 0.27; first-token hits 32 to 60 of 119, raw 106) and fix long-context recall (0/4 to 4/4). The x2 pack that does fit the card (refine tensors on layers 8 and 11 only, 73.4 MiB) gets NLL 1.22 and 53 of 119 first-token hits (quiz 29/50 against 17/50 packed, 34/50 for x1), so about three quarters of x1's gain for a third of the refined layers. On CUDA, the full generation battery for x2 against packed: quiz 34/50 against 36/50 (the lenient grader hides the improvement, see headline 5), multi-step 3/12 against 1/12, long context 4/4 against 3/4, essays 8/10 by the keyword grader against 4/10 (4/10 against 3/10 when read by hand). Generated differences this small are inside what one run can show.
+4. **Expanded packs help, and two layers get most of the way there.** Six refined layers (x1, teacher-forced on the CPU only, it does not fit the 4 GB card) halve the loss (NLL per token 1.62 to 1.10, raw 0.27; first-token hits 32 to 60 of 119, raw 106) and fix long-context recall (0/4 to 4/4). The x2 pack that does fit the card (refine tensors on layers 8 and 11 only, 73.4 MiB) gets NLL 1.22 and 53 of 119 first-token hits with the bf16 head (52 of 119, NLL 1.22 with the int8 head the card uses; quiz 29/50 against 17/50 packed, 34/50 for x1), so about three quarters of x1's gain for a third of the refined layers. On CUDA, the full generation battery for x2 against packed: quiz 34/50 against 36/50 (the lenient grader hides the improvement, see headline 5), multi-step 3/12 against 1/12, long context 4/4 against 3/4, essays 8/10 by the keyword grader against 4/10 (4/10 against 3/10 when read by hand). Generated differences this small are inside what one run can show.
 5. **The packed model writes a sentence where the original writes the answer.** Teacher-forced on "answer with just the answer", the original starts with the bare answer on 47 of 50 quiz items. The packed pack starts with the bare answer on 17 of 50, and on 18 of the 33 misses its first token is "The". Generated with a lenient grader (answer found in the first line) the same pack passes 36 of 50. Both numbers are real; they measure different things, see [How to read the numbers](#how-to-read-the-numbers).
 6. **Abstention survives, confidence does not.** On made-up entities the packed model still answers "I don't know" on 8 of 8, in generation and teacher-forced. But its confidence is no longer tied to being right: mean top-1 confidence 0.53 with 27 percent of first tokens right (expected calibration error 0.256), against 0.93 and 89 percent for the original (ECE 0.065).
 7. **Speed against JD's targets.** Little Nemo on CUDA decodes at **12.6 to 13.7 tok/s (median)** and prefills at 56 to 70 tok/s on the 4 GB card: above the **10 tok/s floor**, well under the **30+ tok/s target**, which is for 8 GB cards and was not measured here (this machine has only the 4 GB card). These runs shared the CPU with other jobs, so they read lower than the quiet 12:52 PM round (16.2 tok/s decode). The SuperNemo subset decoded at 0.17 tok/s, far under the floor. See [Speeds](#speeds).
@@ -25,7 +25,8 @@ One line per configuration, accuracy next to speed, for picking the best setup. 
 | packed, bf16 head | CPU only (head 1,120 MiB does not fit) | 32/119 (27%) | 1.6232 | 17/50 | - | - | - | - | - | - | - | no gain over int8 head |
 | x1 expanded, 6 layers, int8 head | CPU, teacher-forced only | 59/119 (50%) | 1.1071 | 34/50 | - | - | - | - | - | - | - | does not fit the 4 GB card |
 | x1 expanded, bf16 head | CPU, teacher-forced only | 60/119 (50%) | 1.1031 | 34/50 | - | - | - | - | - | - | - |  |
-| x2 expanded, 4 tensors, int8 head | CUDA 4 GB | 53/119 (45%) | 1.2187 | 29/50 | 34/50 | 3/12 | 8/10 keyword, 4/10 read by hand | 13/141 | 13.0 | 70.3 | 3681 | meets the 10 tok/s floor; fits the card; TF columns are the bf16-head run (int8-head run pending) |
+| x2 expanded, 4 tensors, int8 head | CUDA 4 GB | 52/119 (44%) | 1.2238 | 28/50 | 34/50 | 3/12 | 8/10 keyword, 4/10 read by hand | 13/141 | 13.0 | 70.3 | 3681 | meets the 10 tok/s floor; fits the card |
+| x2 expanded, bf16 head | CPU, teacher-forced only | 53/119 (45%) | 1.2187 | 29/50 | - | - | - | - | - | - | - |  |
 | SuperNemo (120B MoE) subset | CUDA (sn-engine) | - | - | - | 5/5 on 5 questions (earlier round) | - | - | - | 0.17 | 0.58 | 3777 | BELOW the 10 tok/s floor |
 
 Reading it: only two Little Nemo configurations run on the 4 GB card at all, the packed pack and x2, and both decode at about 13 tok/s, above the floor. x2 costs no measurable speed. Its accuracy gain on the generated quiz is within noise; the teacher-forced columns show what the expansion buys when it is measured exactly. The original and x1 are the accuracy ceiling and the middle point, not options for this card.
@@ -60,7 +61,7 @@ In generation, the same measurement at the step after the first newline of each 
 
 What it means: the original model ends its turn with certainty right after the answer line. The compressed model has lost that habit. Its stop token has a median rank around 19 to 55 and a probability of about 1 in a thousand, so under greedy decoding it almost never leaves. Raising the lm_head precision does not help (see the head table), so the end-of-turn behaviour is stored in the compressed layers. The x2 expansion raises the stop probability somewhat (it is the top choice in 12 of 138 generated answers against 5 of 139) and doubled the number of answers that end on their own (13 of 141 against 8 of 141), but it is nowhere near the original. A cheap practical fix is a serving-side one: stop at the first blank line after a non-empty answer line for short-answer prompts. That changes the reply the user sees, not the model, so it is a mitigation and not a retention result.
 
-Run G (which tensor class carries the end-of-turn behaviour: base, x2, Mamba class restored, MLP class restored) is queued; its result is added below when it finishes.
+**Which layers carry it (run G).** Same 50 probes, teacher-forced, base plus three variants. Not finished when this was written (still running or not run): x2 (layers 8 and 11 refined); packed with the original Mamba in/out projections; packed with the original MLP up/down projections. The turn-end table above lists only the arms that finished.
 
 ## P0: matched raw, packed and expanded battery
 
@@ -75,6 +76,7 @@ Teacher-forced first-token results (set sizes: quiz 50, paraphrase 39, multi-ste
 | expanded x1 (6 layers) | 34/50 | 32/50 | 16/39 | 2/12 | 3/10 | 5/8 | 60/119 | 1.1031 | 95/119 | 0.1449 | 0.5939 |
 | x1, int8 head | 34/50 | 32/50 | 16/39 | 2/12 | 2/10 | 5/8 | 59/119 | 1.1071 | 95/119 | 0.1311 | 0.5901 |
 | expanded x2 (2 layers, 4 tensors) | 29/50 | 26/50 | 15/39 | 2/12 | 2/10 | 5/8 | 53/119 | 1.2187 | 90/119 | 0.1785 | 0.595 |
+| x2, int8 head | 28/50 | 25/50 | 15/39 | 2/12 | 2/10 | 5/8 | 52/119 | 1.2238 | 90/119 | 0.1815 | 0.592 |
 
 Generated on CUDA, graded on the first answer line:
 
@@ -95,6 +97,7 @@ Little Nemo with a higher-precision output head, everything else held constant. 
 | raw bf16 | 106/119 | 0.2675 | 106/119 | 0.2669 | -0.0006 |
 | packed | 32/119 | 1.6232 | 31/119 | 1.6309 | 0.0077 |
 | expanded x1 (6 layers) | 60/119 | 1.1031 | 59/119 | 1.1071 | 0.004 |
+| expanded x2 (2 layers, 4 tensors) | 53/119 | 1.2187 | 52/119 | 1.2238 | 0.0051 |
 
 What it means: the head is not where the quality goes. Raising it from the int8 per-row head to bf16 buys at most 0.008 nats per token and changes at most one item. Spending 1.1 GB of VRAM on a bf16 head is not worth it.
 
@@ -185,6 +188,7 @@ Paraphrase stability: the same fact asked three ways (13 groups of three).
 | expanded x1 (6 layers) | 13 | 4 | 2 | 7 |
 | x1, int8 head | 13 | 4 | 2 | 7 |
 | expanded x2 (2 layers, 4 tensors) | 13 | 4 | 2 | 7 |
+| x2, int8 head | 13 | 4 | 2 | 7 |
 
 | generation arm | groups of 3 | all three right | mixed | all three wrong |
 |---|---|---|---|---|
@@ -211,6 +215,7 @@ What it means: the original is stable (11 of 13 groups right all three ways). Th
 | expanded x1 (6 layers) | 8/8 | 0.9881 | 0.024 |
 | x1, int8 head | 8/8 | 0.9886 | 0.024 |
 | expanded x2 (2 layers, 4 tensors) | 8/8 | 0.9752 | 0.032 |
+| x2, int8 head | 8/8 | 0.9761 | 0.031 |
 
 Abstention is intact in every arm. The cost shows up on the answerable ones: x2 refused one and got 5 of 8 right against 7 of 8 for packed (the 8 are too few to separate them). Confidence quality is in the ECE column of the matched table above.
 
@@ -277,6 +282,7 @@ Teacher-forced CPU runs (layer-major, the whole probe set per configuration, 8 C
 | E | ref | 1602 | 902.9 | 1.77 | 6d76c8f8052da1a5 |
 | F | base | 5387 | 3555.6 | 1.52 | 8db9f55f7ff5f1ed |
 | F | X2 | 5387 | 3035.5 | 1.77 | 144b547ef9b64541 |
+| F | X2_h8 | 5387 | 3454.9 | 1.56 | a8ec97d1103350cb |
 
 TF peak RAM: 3.4 GB (run A), 2.4 GB (B), 2.8 GB (C), 1.8 GB (D). Path: CPU for every teacher-forced run.
 
@@ -322,5 +328,6 @@ Run hashes (teacher-forced evaluator):
 | E | ref | term (50) | `6d76c8f8052da1a5` |
 | F | base | A set (139) | `8db9f55f7ff5f1ed` |
 | F | X2 | A set (139) | `144b547ef9b64541` |
+| F | X2_h8 | A set (139) | `a8ec97d1103350cb` |
 
 Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.
