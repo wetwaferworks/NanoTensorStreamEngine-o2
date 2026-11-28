@@ -1,0 +1,8 @@
+base	start=0	tune_nll=162.462231	tune_tok=139	tune_first=26/62	tune_all=25/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=1011.9	hash=6d559932df49ea49
+cls_in	start=0	tune_nll=141.554032	tune_tok=139	tune_first=33/62	tune_all=31/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=926.1	hash=23f04d27a588ee98
+cls_out	start=0	tune_nll=195.272440	tune_tok=139	tune_first=20/62	tune_all=19/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=906.1	hash=d9ef4db5cc044274
+cls_up	start=1	tune_nll=141.900502	tune_tok=139	tune_first=24/62	tune_all=21/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=983.6	hash=269e8b91e3361b78
+cls_down	start=1	tune_nll=129.385892	tune_tok=139	tune_first=37/62	tune_all=32/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=697.0	hash=e891e81dee35d4ec
+cls_attn	start=14	tune_nll=159.047924	tune_tok=139	tune_first=32/62	tune_all=28/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=544.3	hash=49862408bbe2f297
+cls_mamba	start=0	tune_nll=132.951978	tune_tok=139	tune_first=50/62	tune_all=46/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=926.9	hash=2dc7dd7c5a1aa50d
+cls_mlp	start=1	tune_nll=121.456169	tune_tok=139	tune_first=38/62	tune_all=34/62	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=787.9	hash=a1cf3498b8023e22

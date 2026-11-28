@@ -1,0 +1,2204 @@
+{
+ "arm": "packed-det-ht1",
+ "started": "2026-11-27 19:18:18 -0500",
+ "wall_s": 442.636,
+ "topk": 5,
+ "groups": {
+  "48": {
+   "command": [
+    "nemo-engine-cuda.exe",
+    "original",
+    "tokenizer.json",
+    "--chat",
+    "--max-new",
+    "48",
+    "--cuda-pack",
+    "nemo9b-pq4-L.nq2",
+    "--host-threads",
+    "1"
+   ],
+   "ready": "READY nemo-engine 3 model=Nemotron-Nano-9B-v2 weights=nq2-pq4 layers=56 cores=12 threads=1 mode=max simd=0 accel=cuda chat=1 think=0",
+   "hw": "HW cores=12 threads=1 accel=cuda gpu=NVIDIA%20GeForce%20RTX%203050%20Ti%20Laptop%20GPU calib=fresh dtc=on expand=auto host_threads=1 prefill_chunk=64 full_path=fast tok_overlap=1",
+   "max_new": 48,
+   "load_s": 99.675,
+   "launches": 1,
+   "pauses": [],
+   "wall_s": 441.955,
+   "gpu": {
+    "vram_used_peak_mib": 3673,
+    "gpu_util_mean": 52.9,
+    "samples": 376
+   },
+   "summary": {
+    "prefill_tps": {
+     "mean": 68.234,
+     "min": 39.871,
+     "median": 70.044,
+     "max": 80.965
+    },
+    "decode_tps": {
+     "mean": 12.591,
+     "min": 9.332,
+     "median": 12.756,
+     "max": 15.547
+    },
+    "decode_tps_pooled": 12.332,
+    "prefill_tps_pooled": 67.646,
+    "gen_tokens": 3407,
+    "prompt_tokens": 2708,
+    "ram_peak_mb": 346.3,
+    "vram_card_peak_mib": 3673,
+    "expand_steps": 802,
+    "dtc_steps": 2709
+   },
+   "items": [
+    {
+     "id": "q01",
+     "set": "quiz",
+     "prompt": "What is 12 times 12? Answer with just the answer.",
+     "first_line": "144",
+     "grade": "pass",
+     "answer": "144\n\n144\n\n144\n\n144\n\n144\n\n144\n\n14",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 3,
+      "eol_stop_lp": -14.7384,
+      "eol_stop_rank": 149
+     },
+     "stop_after_newline": {
+      "stop_lp": -5.5202,
+      "stop_rank": 25
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 39.871,
+      "gen_tokens": 48,
+      "decode_tps": 12.964,
+      "ram_peak_mb": 315.5,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 4,
+      "dtc_steps": 45
+     }
+    },
+    {
+     "id": "q02",
+     "set": "quiz",
+     "prompt": "What is 15 plus 27? Answer with just the answer.",
+     "first_line": "42",
+     "grade": "pass",
+     "answer": "42\n\n42\n\n42\n\n42\n42\n42\n42\n42\n42\n42\n42\n42\n42",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -14.7283,
+      "eol_stop_rank": 103
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2225,
+      "stop_rank": 11
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 78.486,
+      "gen_tokens": 48,
+      "decode_tps": 14.965,
+      "ram_peak_mb": 346.2,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 4,
+      "dtc_steps": 45
+     }
+    },
+    {
+     "id": "q03",
+     "set": "quiz",
+     "prompt": "What is 100 minus 37? Answer with just the answer.",
+     "first_line": "63",
+     "grade": "pass",
+     "answer": "63\n\n63\n\n63\n\n63\n\n63\n of\n 63\n\n63\n\n63\n of\n 6",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -13.8446,
+      "eol_stop_rank": 115
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.0898,
+      "stop_rank": 7
+     },
+     "profile": {
+      "prompt_tokens": 31,
+      "prefill_tps": 77.791,
+      "gen_tokens": 48,
+      "decode_tps": 13.775,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q04",
+     "set": "quiz",
+     "prompt": "What is 72 divided by 8? Answer with just the answer.",
+     "first_line": "7",
+     "grade": "fail",
+     "answer": "7\n\n72 divided by 8 is 9.\n\n72 divided by 8 is 9.\n\n9\n\n72 divided by 8 is 9.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -14.6701,
+      "eol_stop_rank": 293
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.6462,
+      "stop_rank": 46
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 64.897,
+      "gen_tokens": 48,
+      "decode_tps": 12.702,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q05",
+     "set": "quiz",
+     "prompt": "What is the square root of 144? Answer with just the answer.",
+     "first_line": "42",
+     "grade": "fail",
+     "answer": "42\n\n42\n\n42\n\n42\n\n42\n\n42\n\n42\n\n42\n of\n 42",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -14.5529,
+      "eol_stop_rank": 200
+     },
+     "stop_after_newline": {
+      "stop_lp": -5.2569,
+      "stop_rank": 6
+     },
+     "profile": {
+      "prompt_tokens": 31,
+      "prefill_tps": 79.14,
+      "gen_tokens": 48,
+      "decode_tps": 13.216,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 4,
+      "dtc_steps": 45
+     }
+    },
+    {
+     "id": "q06",
+     "set": "quiz",
+     "prompt": "What is 2 to the power of 10? Answer with just the answer.",
+     "first_line": "2 to the power of 10 is 1024.",
+     "grade": "pass",
+     "answer": "2 to the power of 10 is 1024.\n\n The answer is \\boxed{1024}.\n\n The answer is \\boxed{1024}.\n\n The answer is",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 14,
+      "eol_stop_lp": -16.8701,
+      "eol_stop_rank": 331
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.1912,
+      "stop_rank": 124
+     },
+     "profile": {
+      "prompt_tokens": 32,
+      "prefill_tps": 80.965,
+      "gen_tokens": 48,
+      "decode_tps": 14.568,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 3,
+      "dtc_steps": 46
+     }
+    },
+    {
+     "id": "q07",
+     "set": "quiz",
+     "prompt": "What is 25 percent of 200? Answer with just the answer.",
+     "first_line": "50",
+     "grade": "pass",
+     "answer": "50\n\n50\n\n50\n50\n50\n50\n50\n50\n50\n50\n50\n50\n50\n50\n50",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -12.649,
+      "eol_stop_rank": 75
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.3862,
+      "stop_rank": 10
+     },
+     "profile": {
+      "prompt_tokens": 32,
+      "prefill_tps": 67.543,
+      "gen_tokens": 48,
+      "decode_tps": 14.577,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 1,
+      "dtc_steps": 48
+     }
+    },
+    {
+     "id": "q08",
+     "set": "quiz",
+     "prompt": "What is 13 times 3? Answer with just the answer.",
+     "first_line": "49",
+     "grade": "fail",
+     "answer": "49\n\n13 times 3 is 49.\n\n13 times 3 is 49.\n\n13 times 3 is 49.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -15.0183,
+      "eol_stop_rank": 278
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.7303,
+      "stop_rank": 15
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 60.146,
+      "gen_tokens": 48,
+      "decode_tps": 13.689,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "q09",
+     "set": "quiz",
+     "prompt": "What is 1000 divided by 8? Answer with just the answer.",
+     "first_line": "125",
+     "grade": "pass",
+     "answer": "125\n\n125\n\n125\n\n125\n\n125\n of\n 125\n of\n 125\n of",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 3,
+      "eol_stop_lp": -13.5231,
+      "eol_stop_rank": 122
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2536,
+      "stop_rank": 16
+     },
+     "profile": {
+      "prompt_tokens": 32,
+      "prefill_tps": 73.321,
+      "gen_tokens": 48,
+      "decode_tps": 12.931,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 1,
+      "dtc_steps": 48
+     }
+    },
+    {
+     "id": "q10",
+     "set": "quiz",
+     "prompt": "What is 3 cubed? Answer with just the answer.",
+     "first_line": "3 cubed is 27.",
+     "grade": "pass",
+     "answer": "3 cubed is 27.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -15.706,
+      "eol_stop_rank": 267
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.3362,
+      "stop_rank": 146
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 54.772,
+      "gen_tokens": 48,
+      "decode_tps": 10.619,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 19,
+      "dtc_steps": 30
+     }
+    },
+    {
+     "id": "q11",
+     "set": "quiz",
+     "prompt": "What is the capital of France? Answer with just the answer.",
+     "first_line": "Paris",
+     "grade": "pass",
+     "answer": "Paris\n\nParis\n is the capital of France.\n (This is a factual statement.)\n\n (This is a factual statement.)\n\n (This is a capital of France.)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -13.9139,
+      "eol_stop_rank": 129
+     },
+     "stop_after_newline": {
+      "stop_lp": -4.6477,
+      "stop_rank": 6
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 69.42,
+      "gen_tokens": 48,
+      "decode_tps": 10.223,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 11,
+      "dtc_steps": 38
+     }
+    },
+    {
+     "id": "q12",
+     "set": "quiz",
+     "prompt": "What is the capital of Japan? Answer with just the answer.",
+     "first_line": "Tokyo",
+     "grade": "pass",
+     "answer": "Tokyo\n\nTokyo\n (capital)\n is the capital of Japan.\n The answer is Tokyo.\n\n Tokyo, Japan.\n The capital is Tokyo.\n The answer is Tokyo.\n\n. The capital is",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -14.0153,
+      "eol_stop_rank": 165
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2334,
+      "stop_rank": 6
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 71.636,
+      "gen_tokens": 48,
+      "decode_tps": 9.49,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 13,
+      "dtc_steps": 36
+     }
+    },
+    {
+     "id": "q13",
+     "set": "quiz",
+     "prompt": "What is the capital of Italy? Answer with just the answer.",
+     "first_line": "Rome",
+     "grade": "pass",
+     "answer": "Rome\n\n or Rome\n (Italy)\n\n, capital of Italy\n.\n\n (Rome, Italy)\n - capital of Italy\n.\n\n (Rome, Italy) - capital of Italy\n.\n\n (Rome,",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -13.969,
+      "eol_stop_rank": 130
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.0669,
+      "stop_rank": 8
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 70.289,
+      "gen_tokens": 48,
+      "decode_tps": 10.002,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 12,
+      "dtc_steps": 37
+     }
+    },
+    {
+     "id": "q14",
+     "set": "quiz",
+     "prompt": "What is the capital of Canada? Answer with just the answer.",
+     "first_line": "Toronto",
+     "grade": "fail",
+     "answer": "Toronto\n\n (Canada)\n is the capital of Canada.\n The capital is Toronto.\n The capital is Ottawa. The capital is Victoria. The capital is Montreal. The capital is Toronto.\n The capital is Toronto.\n The capital",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -13.4383,
+      "eol_stop_rank": 179
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.9649,
+      "stop_rank": 15
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 67.707,
+      "gen_tokens": 48,
+      "decode_tps": 10.901,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 14,
+      "dtc_steps": 35
+     }
+    },
+    {
+     "id": "q15",
+     "set": "quiz",
+     "prompt": "What is the capital of Australia? Answer with just the answer.",
+     "first_line": "The capital of Australia is Canberra.",
+     "grade": "pass",
+     "answer": "The capital of Australia is Canberra.\n\n (Capital of Australia is Canberra)\n\n (Capital of Australia is Canberra)\n\n (Capital of Australia is Canberra)\n\n (Capital of Australia is Canberra",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 6,
+      "eol_stop_lp": -17.8441,
+      "eol_stop_rank": 431
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.9093,
+      "stop_rank": 41
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 63.811,
+      "gen_tokens": 48,
+      "decode_tps": 11.882,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 9,
+      "dtc_steps": 40
+     }
+    },
+    {
+     "id": "q16",
+     "set": "quiz",
+     "prompt": "What is the capital of Germany? Answer with just the answer.",
+     "first_line": "Berlin",
+     "grade": "pass",
+     "answer": "Berlin\n\n (Berlin, Germany)\n is the capital of Germany.\n\n (Berlin, Germany)\n is the capital of Germany.\n\n (Berlin, Germany) is the capital of Germany.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -12.7733,
+      "eol_stop_rank": 51
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.5972,
+      "stop_rank": 5
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 68.62,
+      "gen_tokens": 48,
+      "decode_tps": 12.594,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "q17",
+     "set": "quiz",
+     "prompt": "What is the capital of Egypt? Answer with just the answer.",
+     "first_line": "Cairo",
+     "grade": "pass",
+     "answer": "Cairo\n\n (capital city of Egypt)\n\n (Capital city of Egypt)\n\n (Capital city of Egypt)\n\n (Capital city of Egypt)\n  ....\n.\n. ....\n (Capital city of Egypt)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -12.0077,
+      "eol_stop_rank": 49
+     },
+     "stop_after_newline": {
+      "stop_lp": -3.6985,
+      "stop_rank": 1
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 56.734,
+      "gen_tokens": 48,
+      "decode_tps": 11.619,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 14,
+      "dtc_steps": 35
+     }
+    },
+    {
+     "id": "q18",
+     "set": "quiz",
+     "prompt": "What is the capital of Spain? Answer with just the answer.",
+     "first_line": "The capital of Spain is Madrid.",
+     "grade": "pass",
+     "answer": "The capital of Spain is Madrid.\n\n (Spain is a country, and its capital is a specific city within that country.)\n\n (Spain is a country, and its capital is a specific city within that country.)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 6,
+      "eol_stop_lp": -17.9684,
+      "eol_stop_rank": 391
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.5697,
+      "stop_rank": 34
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 67.302,
+      "gen_tokens": 48,
+      "decode_tps": 10.979,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q19",
+     "set": "quiz",
+     "prompt": "What is the capital of Kenya? Answer with just the answer.",
+     "first_line": "The capital of Kenya is Nairobi.",
+     "grade": "pass",
+     "answer": "The capital of Kenya is Nairobi.\n However, since the question asks for the capital, the answer should be the specific city or area that serves as the capital. In this case, the answer is \"Nairo\" (or the specific location",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 6,
+      "eol_stop_lp": -18.3186,
+      "eol_stop_rank": 636
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.8509,
+      "stop_rank": 37
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 70.257,
+      "gen_tokens": 48,
+      "decode_tps": 10.628,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 14,
+      "dtc_steps": 35
+     }
+    },
+    {
+     "id": "q20",
+     "set": "quiz",
+     "prompt": "What is the capital of Brazil? Answer with just the answer.",
+     "first_line": "The capital of Brazil is Brasília.",
+     "grade": "pass",
+     "answer": "The capital of Brazil is Brasília.\n\n (Capital city of Brazil is Brasal.)\n\n(Capital city of Brazil is Brasal.)\n\n (Capital city of Brazil is Brasal.)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -16.791,
+      "eol_stop_rank": 291
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.265,
+      "stop_rank": 28
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 69.742,
+      "gen_tokens": 48,
+      "decode_tps": 10.054,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 17,
+      "dtc_steps": 32
+     }
+    },
+    {
+     "id": "q21",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+     "first_line": "The chemical symbol for gold is Au.",
+     "grade": "pass",
+     "answer": "The chemical symbol for gold is Au.\n\n (This is a placeholder question and the answer is supposed to be a single word or phrase, not a sentence or a question.)\n</think>\n\nThe chemical symbol for gold is Au.\n (",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -18.7463,
+      "eol_stop_rank": 3454
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.8401,
+      "stop_rank": 47
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 71.174,
+      "gen_tokens": 48,
+      "decode_tps": 12.924,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 9,
+      "dtc_steps": 40
+     }
+    },
+    {
+     "id": "q22",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for silver? Answer with just the answer.",
+     "first_line": "The chemical symbol for silver is Ag.",
+     "grade": "pass",
+     "answer": "The chemical symbol for silver is Ag.\n\n (Silver is a chemical element, and its symbol is Ag.)\n\n (Silver is a chemical element, and its symbol is Ag.)\n\n (Silver is a chemical",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -17.6445,
+      "eol_stop_rank": 2457
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.6748,
+      "stop_rank": 66
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 71.51,
+      "gen_tokens": 48,
+      "decode_tps": 13.081,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q23",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for iron? Answer with just the answer.",
+     "first_line": "The chemical symbol for iron is Fe.",
+     "grade": "pass",
+     "answer": "The chemical symbol for iron is Fe.\n (This is a placeholder question, as the question is asking for a specific answer and not a general question.)\n</think>\n The answer is \\boxed{Fe}.\n (This is a placeholder question",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -18.9456,
+      "eol_stop_rank": 2488
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2372,
+      "stop_rank": 52
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 70.044,
+      "gen_tokens": 48,
+      "decode_tps": 9.332,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 13,
+      "dtc_steps": 36
+     }
+    },
+    {
+     "id": "q24",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for sodium? Answer with just the answer.",
+     "first_line": "Na",
+     "grade": "pass",
+     "answer": "Na\n\nThe chemical symbol for sodium is Na.\n\n (The answer is: \\boxed{Na})\n )\n\n (The answer is: \\boxed{Na})\n )\n\n (The answer is:",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -13.7199,
+      "eol_stop_rank": 366
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.397,
+      "stop_rank": 109
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 56.944,
+      "gen_tokens": 48,
+      "decode_tps": 12.175,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q25",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for potassium? Answer with just the answer.",
+     "first_line": "The chemical symbol for potassium is K.",
+     "grade": "pass",
+     "answer": "The chemical symbol for potassium is K.\n\n (K)\n.\n\n (K)\n.\n\n (K)$\n.\n\n (K)$\n.\n (K)$\n.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -17.8945,
+      "eol_stop_rank": 1903
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.7245,
+      "stop_rank": 72
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 67.772,
+      "gen_tokens": 48,
+      "decode_tps": 10.817,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 12,
+      "dtc_steps": 37
+     }
+    },
+    {
+     "id": "q26",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for oxygen? Answer with just the answer.",
+     "first_line": "The chemical symbol for oxygen is O.",
+     "grade": "pass",
+     "answer": "The chemical symbol for oxygen is O.\n (O)\n\n (O)\n\n (O)\n\n (O)\n$\n\n (O)$\n (O)$\n (O)$\n (O)$\n (",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -16.511,
+      "eol_stop_rank": 1923
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.4143,
+      "stop_rank": 60
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 69.297,
+      "gen_tokens": 48,
+      "decode_tps": 12.582,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 7,
+      "dtc_steps": 42
+     }
+    },
+    {
+     "id": "q27",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for lead? Answer with just the answer.",
+     "first_line": "The chemical symbol for lead is Pb.",
+     "grade": "pass",
+     "answer": "The chemical symbol for lead is Pb.\n\n (Pb)\n\n (Pb)\n\n (Pb)\n\n (Pb)\n (Pb)\n (Pb)\n (Pb)\n (Pb)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -18.619,
+      "eol_stop_rank": 2690
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.3333,
+      "stop_rank": 60
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 70.833,
+      "gen_tokens": 48,
+      "decode_tps": 11.687,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 10,
+      "dtc_steps": 39
+     }
+    },
+    {
+     "id": "q28",
+     "set": "quiz",
+     "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+     "first_line": "The chemical symbol for helium is He.",
+     "grade": "pass",
+     "answer": "The chemical symbol for helium is He.\n\n (Note: This answer is a placeholder and should be replaced with the actual answer, which is \"He\".)\n)\n\n (Hel)\n is the correct answer.\n)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -19.0543,
+      "eol_stop_rank": 1567
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.7973,
+      "stop_rank": 79
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 72.354,
+      "gen_tokens": 48,
+      "decode_tps": 10.863,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 15,
+      "dtc_steps": 34
+     }
+    },
+    {
+     "id": "q29",
+     "set": "quiz",
+     "prompt": "In what year did humans first land on the Moon? Answer with just the answer.",
+     "first_line": "The first time humans landed on the Moon was in 1969.",
+     "grade": "pass",
+     "answer": "The first time humans landed on the Moon was in 1969.\n The answer is 1969.\n\n The first time humans landed on the Moon was in 1969.\n The answer is 1",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 15,
+      "eol_stop_lp": -18.2444,
+      "eol_stop_rank": 285
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.9906,
+      "stop_rank": 70
+     },
+     "profile": {
+      "prompt_tokens": 31,
+      "prefill_tps": 66.982,
+      "gen_tokens": 48,
+      "decode_tps": 13.089,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q30",
+     "set": "quiz",
+     "prompt": "In what year did World War II end? Answer with just the answer.",
+     "first_line": "World War II ended in 1945.",
+     "grade": "pass",
+     "answer": "World War II ended in 1945.\n\n (1945)\n.\n\n (1945)\n.\n\n (1945)$.\n\n (1",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 10,
+      "eol_stop_lp": -18.3195,
+      "eol_stop_rank": 199
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2851,
+      "stop_rank": 41
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 74.437,
+      "gen_tokens": 48,
+      "decode_tps": 13.609,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q31",
+     "set": "quiz",
+     "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+     "first_line": "1789",
+     "grade": "fail",
+     "answer": "1789\n (year the United States Declaration of Independence was adopted)\n\n 1776\n (year the United States Declaration of Independence was adopted)\n\n 1789\n (year the United States",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 4,
+      "eol_stop_lp": -13.3273,
+      "eol_stop_rank": 73
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.8593,
+      "stop_rank": 35
+     },
+     "profile": {
+      "prompt_tokens": 32,
+      "prefill_tps": 79.527,
+      "gen_tokens": 48,
+      "decode_tps": 13.933,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "q32",
+     "set": "quiz",
+     "prompt": "In what year did the Berlin Wall fall? Answer with just the answer.",
+     "first_line": "The Berlin Wall fell in 1989.",
+     "grade": "pass",
+     "answer": "The Berlin Wall fell in 1989.\n However, the question asks for the year the Berlin Wall fell, not when it was built or when it fell. The wall fell in 1989.\n So the answer is",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 10,
+      "eol_stop_lp": -18.8643,
+      "eol_stop_rank": 555
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.8471,
+      "stop_rank": 67
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 72.954,
+      "gen_tokens": 48,
+      "decode_tps": 12.634,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 7,
+      "dtc_steps": 42
+     }
+    },
+    {
+     "id": "q33",
+     "set": "quiz",
+     "prompt": "In what year did Christopher Columbus first reach the Americas? Answer with just the answer.",
+     "first_line": "1492",
+     "grade": "pass",
+     "answer": "1492\n (year)\n or 1492 (year)\n or 1492 (year)",
+     "termination": {
+      "natural_stop": true,
+      "gen_steps": 27,
+      "eol_step": 4,
+      "eol_stop_lp": -13.1288,
+      "eol_stop_rank": 53
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.3848,
+      "stop_rank": 16
+     },
+     "profile": {
+      "prompt_tokens": 31,
+      "prefill_tps": 78.063,
+      "gen_tokens": 26,
+      "decode_tps": 15.547,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 1,
+      "dtc_steps": 27
+     }
+    },
+    {
+     "id": "q34",
+     "set": "quiz",
+     "prompt": "In what year did the Titanic sink? Answer with just the answer.",
+     "first_line": "1912",
+     "grade": "pass",
+     "answer": "1912\n (year the Titanic sank)\n\n1912\n (year the Titanic sank)\n\n (year the Titanic sank)\n\n (year the Titanic",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 4,
+      "eol_stop_lp": -13.4034,
+      "eol_stop_rank": 53
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.2164,
+      "stop_rank": 19
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 61.317,
+      "gen_tokens": 48,
+      "decode_tps": 14.507,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q35",
+     "set": "quiz",
+     "prompt": "In what year did World War I begin? Answer with just the answer.",
+     "first_line": "World War I began in 1914.",
+     "grade": "pass",
+     "answer": "World War I began in 1914.\n However, the question asks for the year, so the answer is: 1914.\n\n1914\n is the year World War",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 10,
+      "eol_stop_lp": -18.7149,
+      "eol_stop_rank": 237
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.3144,
+      "stop_rank": 24
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 73.008,
+      "gen_tokens": 48,
+      "decode_tps": 12.022,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q36",
+     "set": "quiz",
+     "prompt": "How many centimeters are in one meter? Answer with just the answer.",
+     "first_line": "100",
+     "grade": "pass",
+     "answer": "100\n centimeters are in one meter.\n (100)\n\n (100%)\n\n (100%)\n\n (100%)\n (100%)\n (1",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 3,
+      "eol_stop_lp": -14.0718,
+      "eol_stop_rank": 382
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.9803,
+      "stop_rank": 130
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 72.467,
+      "gen_tokens": 48,
+      "decode_tps": 13.052,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "q37",
+     "set": "quiz",
+     "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+     "first_line": "44.39 grams",
+     "grade": "fail",
+     "answer": "44.39 grams\n (grams per kilogram)\n\n 44.39 grams\n (grams per kilogram)\n\n 44.39 grams\n (grams per kilogram)\n\n 44.39",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 6,
+      "eol_stop_lp": -14.4253,
+      "eol_stop_rank": 616
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.7988,
+      "stop_rank": 94
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 62.426,
+      "gen_tokens": 48,
+      "decode_tps": 11.537,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 14,
+      "dtc_steps": 35
+     }
+    },
+    {
+     "id": "q38",
+     "set": "quiz",
+     "prompt": "How many seconds are in one hour? Answer with just the answer.",
+     "first_line": "60",
+     "grade": "fail",
+     "answer": "60\n seconds.\n (60)\n seconds.\n (60) seconds.\n (60) seconds.\n (60) seconds.\n (60) seconds.\n (60) seconds.\n (60) seconds.\n (",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -13.6013,
+      "eol_stop_rank": 163
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2307,
+      "stop_rank": 36
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 70.948,
+      "gen_tokens": 48,
+      "decode_tps": 13.843,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 2,
+      "dtc_steps": 47
+     }
+    },
+    {
+     "id": "q39",
+     "set": "quiz",
+     "prompt": "How many inches are in one foot? Answer with just the answer.",
+     "first_line": "60",
+     "grade": "fail",
+     "answer": "60\n inches are in one foot.\n (60 inches in one foot)\n\n90\n inches are in one foot.\n (90 inches in one foot)\n\n (90 inches in",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -13.0293,
+      "eol_stop_rank": 443
+     },
+     "stop_after_newline": {
+      "stop_lp": -10.7031,
+      "stop_rank": 90
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 61.641,
+      "gen_tokens": 48,
+      "decode_tps": 13.138,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q40",
+     "set": "quiz",
+     "prompt": "How many feet are in one yard? Answer with just the answer.",
+     "first_line": "There are 3 feet in one yard.",
+     "grade": "pass",
+     "answer": "There are 3 feet in one yard.\n\n(3)\n\n3\n feet.\n\n(3) feet.\n\n(3) feet.\n\n. (3) feet.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 8,
+      "eol_stop_lp": -17.8231,
+      "eol_stop_rank": 474
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.4911,
+      "stop_rank": 57
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 71.732,
+      "gen_tokens": 48,
+      "decode_tps": 11.679,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 11,
+      "dtc_steps": 38
+     }
+    },
+    {
+     "id": "q41",
+     "set": "quiz",
+     "prompt": "How many days are in a leap year? Answer with just the answer.",
+     "first_line": "There are 365 days in a leap year.",
+     "grade": "fail",
+     "answer": "There are 365 days in a leap year.\n (This is a placeholder for the answer, which should be a specific number of days.)\n\n (This is a placeholder for the",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 11,
+      "eol_stop_lp": -18.9307,
+      "eol_stop_rank": 802
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.6405,
+      "stop_rank": 57
+     },
+     "profile": {
+      "prompt_tokens": 29,
+      "prefill_tps": 62.226,
+      "gen_tokens": 48,
+      "decode_tps": 11.062,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 14,
+      "dtc_steps": 35
+     }
+    },
+    {
+     "id": "q42",
+     "set": "quiz",
+     "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+     "first_line": "1",
+     "grade": "fail",
+     "answer": "1\n\n1 liter is equal to 1000 milliliters.\n So, 1 liter is equal to 1000 milliliters.\n\n1 liter is equal to",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -14.2152,
+      "eol_stop_rank": 1355
+     },
+     "stop_after_newline": {
+      "stop_lp": -11.1752,
+      "stop_rank": 779
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 78.264,
+      "gen_tokens": 48,
+      "decode_tps": 12.935,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "q43",
+     "set": "quiz",
+     "prompt": "At sea level, at how many degrees Celsius does water boil? Answer with just the answer.",
+     "first_line": "The boiling point of water at sea level is approximately 100 degrees Celsius.",
+     "grade": "pass",
+     "answer": "The boiling point of water at sea level is approximately 100 degrees Celsius.\n\n (100)\n\n (100)\n\n 100 degrees Celsius.\n (100)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 16,
+      "eol_stop_lp": -18.6489,
+      "eol_stop_rank": 671
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.0994,
+      "stop_rank": 44
+     },
+     "profile": {
+      "prompt_tokens": 33,
+      "prefill_tps": 76.558,
+      "gen_tokens": 48,
+      "decode_tps": 14.169,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "q44",
+     "set": "quiz",
+     "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+     "first_line": "The largest planet in our solar system is Earth.",
+     "grade": "fail",
+     "answer": "The largest planet in our solar system is Earth.\n However, this is incorrect as the largest planet is actually Jupiter.\n The answer should be: Jupiter.\n\n (This is a",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 9,
+      "eol_stop_lp": -18.455,
+      "eol_stop_rank": 710
+     },
+     "stop_after_newline": {
+      "stop_lp": -10.6166,
+      "stop_rank": 141
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 63.255,
+      "gen_tokens": 48,
+      "decode_tps": 11.92,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 12,
+      "dtc_steps": 37
+     }
+    },
+    {
+     "id": "q45",
+     "set": "quiz",
+     "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+     "first_line": "Mars.",
+     "grade": "fail",
+     "answer": "Mars.\n (Mars is a planet, not a planet itself, but it is the closest to the Sun.)\n (Note: The answer is \"Mars\" as it is the closest planet to the Sun.)\n)\n\n (This",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -15.8427,
+      "eol_stop_rank": 518
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.6835,
+      "stop_rank": 30
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 59.254,
+      "gen_tokens": 48,
+      "decode_tps": 11.021,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 16,
+      "dtc_steps": 33
+     }
+    },
+    {
+     "id": "q46",
+     "set": "quiz",
+     "prompt": "What is the chemical formula for water? Answer with just the answer.",
+     "first_line": "The chemical formula for water is H₂O.",
+     "grade": "pass",
+     "answer": "The chemical formula for water is H₂O.\n (H₂O)\n\n (H₂O)\n\n H₂O\n (H₂O)\n\n H₂O\n (H₂O)\n\n H",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 9,
+      "eol_stop_lp": -16.5212,
+      "eol_stop_rank": 960
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.685,
+      "stop_rank": 92
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 63.163,
+      "gen_tokens": 48,
+      "decode_tps": 13.033,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 11,
+      "dtc_steps": 38
+     }
+    },
+    {
+     "id": "q47",
+     "set": "quiz",
+     "prompt": "How many continents are there on Earth? Answer with just the answer.",
+     "first_line": "There are 7 continents on Earth.",
+     "grade": "pass",
+     "answer": "There are 7 continents on Earth.\n (This answer is a single number, as per the instruction.)\n)\n\n (7)\n\n (7)\n (7)\n (7)$\n (7)$\n (7)$\n (7",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -19.3001,
+      "eol_stop_rank": 542
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.6841,
+      "stop_rank": 98
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 60.814,
+      "gen_tokens": 48,
+      "decode_tps": 13.561,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 7,
+      "dtc_steps": 42
+     }
+    },
+    {
+     "id": "q48",
+     "set": "quiz",
+     "prompt": "How many legs does an insect have? Answer with just the answer.",
+     "first_line": "The number of legs an insect has varies by species, but most insects have two pairs of legs (e.g., two pairs in total).",
+     "grade": "fail",
+     "answer": "The number of legs an insect has varies by species, but most insects have two pairs of legs (e.g., two pairs in total).",
+     "termination": {
+      "natural_stop": true,
+      "gen_steps": 29,
+      "eol_step": 27,
+      "eol_stop_lp": -19.5909,
+      "eol_stop_rank": 2734
+     },
+     "stop_after_newline": {
+      "stop_lp": -0.4809,
+      "stop_rank": 0
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 60.901,
+      "gen_tokens": 28,
+      "decode_tps": 12.756,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 25
+     }
+    },
+    {
+     "id": "q49",
+     "set": "quiz",
+     "prompt": "What is the hardest natural substance? Answer with just the answer.",
+     "first_line": "The hardest natural substance is a mineral or mineral.",
+     "grade": "fail",
+     "answer": "The hardest natural substance is a mineral or mineral.\n\n (1 word, 1 word)\n\n (1 word, 1 word)\n\n (1 word, 1 word)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 9,
+      "eol_stop_lp": -15.2523,
+      "eol_stop_rank": 9835
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.6785,
+      "stop_rank": 194
+     },
+     "profile": {
+      "prompt_tokens": 27,
+      "prefill_tps": 70.364,
+      "gen_tokens": 48,
+      "decode_tps": 11.095,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 16,
+      "dtc_steps": 33
+     }
+    },
+    {
+     "id": "q50",
+     "set": "quiz",
+     "prompt": "Who wrote the play Romeo and Juliet? Answer with just the answer.",
+     "first_line": "The play \"Rome and Juliet\" was written by William Shakespeare.",
+     "grade": "pass",
+     "answer": "The play \"Rome and Juliet\" was written by William Shakespeare.\n However, since the question asks for the answer to be just the answer, I'll state: \"The play 'Rome and Juliet' was written by William Shakespeare.\"\n (This",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 12,
+      "eol_stop_lp": -20.5546,
+      "eol_stop_rank": 1599
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.4601,
+      "stop_rank": 82
+     },
+     "profile": {
+      "prompt_tokens": 28,
+      "prefill_tps": 72.083,
+      "gen_tokens": 48,
+      "decode_tps": 11.811,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 10,
+      "dtc_steps": 39
+     }
+    },
+    {
+     "id": "m01",
+     "set": "multi",
+     "prompt": "Maya buys 4 pens at 3 dollars each and pays with a 20 dollar bill. How many dollars of change does she get? Answer with just the answer.",
+     "first_line": "Maya pays with a 20 dollar bill. The change is 20 - 4 * 3 = 2 dollars.",
+     "grade": "fail",
+     "answer": "Maya pays with a 20 dollar bill. The change is 20 - 4 * 3 = 2 dollars.\n So, the answer is \\boxed{2}.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 27,
+      "eol_stop_lp": -15.7364,
+      "eol_stop_rank": 626
+     },
+     "stop_after_newline": {
+      "stop_lp": -11.6354,
+      "stop_rank": 266
+     },
+     "profile": {
+      "prompt_tokens": 51,
+      "prefill_tps": 60.44,
+      "gen_tokens": 48,
+      "decode_tps": 10.959,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 13,
+      "dtc_steps": 37
+     }
+    },
+    {
+     "id": "m02",
+     "set": "multi",
+     "prompt": "A train travels at 60 kilometers per hour for 3 hours, then at 40 kilometers per hour for 2 hours. How many kilometers does it travel in total? Answer with just the answer.",
+     "first_line": "The train travels at 60 km/h for 3 hours and 40 km/h for 2 hours. The total distance is calculated as:",
+     "grade": "fail",
+     "answer": "The train travels at 60 km/h for 3 hours and 40 km/h for 2 hours. The total distance is calculated as:\n\n 60 * 3 + 40 *",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 30,
+      "eol_stop_lp": -17.2616,
+      "eol_stop_rank": 321
+     },
+     "stop_after_newline": {
+      "stop_lp": -12.4554,
+      "stop_rank": 100
+     },
+     "profile": {
+      "prompt_tokens": 57,
+      "prefill_tps": 73.598,
+      "gen_tokens": 48,
+      "decode_tps": 12.499,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 45
+     }
+    },
+    {
+     "id": "m03",
+     "set": "multi",
+     "prompt": "Tom has 3 boxes with 12 apples in each box. He gives away 10 apples. How many apples does he have left? Answer with just the answer.",
+     "first_line": "12",
+     "grade": "fail",
+     "answer": "12\n\n 12\n\n 12\n\n 12\n\n 12\n\n 12\n\n 12\n\n 12\n\n 12\n\n 12",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -14.7229,
+      "eol_stop_rank": 843
+     },
+     "stop_after_newline": {
+      "stop_lp": -10.2461,
+      "stop_rank": 99
+     },
+     "profile": {
+      "prompt_tokens": 50,
+      "prefill_tps": 60.144,
+      "gen_tokens": 48,
+      "decode_tps": 14.471,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 3,
+      "dtc_steps": 47
+     }
+    },
+    {
+     "id": "m04",
+     "set": "multi",
+     "prompt": "What is (8 + 4) times 5, minus 7? Answer with just the answer.",
+     "first_line": "The expression is (8 + 4) × 5 - 7.",
+     "grade": "fail",
+     "answer": "The expression is (8 + 4) × 5 - 7.\n First, calculate (8 + 4):\n  8 + 4 = 12\n  12 × 5",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 17,
+      "eol_stop_lp": -15.8416,
+      "eol_stop_rank": 180
+     },
+     "stop_after_newline": {
+      "stop_lp": -12.829,
+      "stop_rank": 630
+     },
+     "profile": {
+      "prompt_tokens": 36,
+      "prefill_tps": 52.878,
+      "gen_tokens": 48,
+      "decode_tps": 13.659,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 42
+     }
+    },
+    {
+     "id": "m05",
+     "set": "multi",
+     "prompt": "A rectangle is 7 meters long and 5 meters wide. What is its perimeter in meters? Answer with just the answer.",
+     "first_line": "The perimeter of a rectangle is calculated by adding twice the length and twice the width. For a rectangle with a length of 7 meters and a width of 5 meters, the perimeter is calculated as follows: (2 * 7)",
+     "grade": "fail",
+     "answer": "The perimeter of a rectangle is calculated by adding twice the length and twice the width. For a rectangle with a length of 7 meters and a width of 5 meters, the perimeter is calculated as follows: (2 * 7)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48
+     },
+     "profile": {
+      "prompt_tokens": 40,
+      "prefill_tps": 60.411,
+      "gen_tokens": 48,
+      "decode_tps": 12.3,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 9,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "m06",
+     "set": "multi",
+     "prompt": "Sara reads 15 pages a day. How many pages does she read in 2 weeks? Answer with just the answer.",
+     "first_line": "150",
+     "grade": "fail",
+     "answer": "150\n\n150 pages.\n (150)\n\n 150 pages.\n (150)\n\n 150 pages.\n (150)\n\n 150 pages.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 3,
+      "eol_stop_lp": -14.3954,
+      "eol_stop_rank": 313
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.0737,
+      "stop_rank": 86
+     },
+     "profile": {
+      "prompt_tokens": 41,
+      "prefill_tps": 62.718,
+      "gen_tokens": 48,
+      "decode_tps": 12.364,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 11,
+      "dtc_steps": 39
+     }
+    },
+    {
+     "id": "m07",
+     "set": "multi",
+     "prompt": "A shirt costs 40 dollars and is discounted by 25 percent. What is the sale price in dollars? Answer with just the answer.",
+     "first_line": "The sale price is $30.",
+     "grade": "pass",
+     "answer": "The sale price is $30.\n\n (40 - 25%) = 15\n\n 40 - 25% = 15\n\n 15 is the sale price in dollars.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -15.2602,
+      "eol_stop_rank": 385
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.2311,
+      "stop_rank": 82
+     },
+     "profile": {
+      "prompt_tokens": 44,
+      "prefill_tps": 71.957,
+      "gen_tokens": 48,
+      "decode_tps": 11.761,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 9,
+      "dtc_steps": 41
+     }
+    },
+    {
+     "id": "m08",
+     "set": "multi",
+     "prompt": "A class has 28 students. Half of them play soccer, and 4 of the soccer players also play chess. How many soccer players do not play chess? Answer with just the answer.",
+     "first_line": "The number of soccer players who do not play chess is 24.",
+     "grade": "fail",
+     "answer": "The number of soccer players who do not play chess is 24.\n This is calculated by subtracting the 4 soccer players who also play chess from the total of 28 soccer players. Therefore, 28 - 4 =",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 14,
+      "eol_stop_lp": -16.178,
+      "eol_stop_rank": 250
+     },
+     "stop_after_newline": {
+      "stop_lp": -10.4287,
+      "stop_rank": 66
+     },
+     "profile": {
+      "prompt_tokens": 54,
+      "prefill_tps": 71.24,
+      "gen_tokens": 48,
+      "decode_tps": 13.259,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 4,
+      "dtc_steps": 46
+     }
+    },
+    {
+     "id": "m09",
+     "set": "multi",
+     "prompt": "What is 3 squared plus 4 squared? Answer with just the answer.",
+     "first_line": "41",
+     "grade": "fail",
+     "answer": "41\n\n41\n\n41\n41\n41\n41\n41\n41\n41\n41\n41\n41\n41\n41\n41",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -14.0117,
+      "eol_stop_rank": 119
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.9971,
+      "stop_rank": 25
+     },
+     "profile": {
+      "prompt_tokens": 30,
+      "prefill_tps": 78.352,
+      "gen_tokens": 48,
+      "decode_tps": 13.917,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 2,
+      "dtc_steps": 47
+     }
+    },
+    {
+     "id": "m10",
+     "set": "multi",
+     "prompt": "Ben is twice as old as Ana. Ana is 9 years old. How old will Ben be in 5 years? Answer with just the answer.",
+     "first_line": "45",
+     "grade": "fail",
+     "answer": "45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45\n\n45",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -14.518,
+      "eol_stop_rank": 296
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.1957,
+      "stop_rank": 66
+     },
+     "profile": {
+      "prompt_tokens": 45,
+      "prefill_tps": 74.8,
+      "gen_tokens": 48,
+      "decode_tps": 13.355,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 45
+     }
+    },
+    {
+     "id": "m11",
+     "set": "multi",
+     "prompt": "What is 1000 minus 3 times 125? Answer with just the answer.",
+     "first_line": "650",
+     "grade": "fail",
+     "answer": "650\n\n650\n\n650\n650\n650\n650\n650\n650\n650\n650\n650\n6",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 3,
+      "eol_stop_lp": -13.3619,
+      "eol_stop_rank": 69
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.2194,
+      "stop_rank": 18
+     },
+     "profile": {
+      "prompt_tokens": 36,
+      "prefill_tps": 62.778,
+      "gen_tokens": 48,
+      "decode_tps": 13.558,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 3,
+      "dtc_steps": 47
+     }
+    },
+    {
+     "id": "m12",
+     "set": "multi",
+     "prompt": "A baker makes 6 trays of 8 muffins and sells 30 of them. How many muffins are left? Answer with just the answer.",
+     "first_line": "The total number of muffins is 6 * 8 = 48. After selling 30, the remaining number is 49 - 30 = 19. So, the answer is \\boxed{",
+     "grade": "fail",
+     "answer": "The total number of muffins is 6 * 8 = 48. After selling 30, the remaining number is 49 - 30 = 19. So, the answer is \\boxed{",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48
+     },
+     "profile": {
+      "prompt_tokens": 48,
+      "prefill_tps": 75.911,
+      "gen_tokens": 48,
+      "decode_tps": 12.434,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 6,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "r01",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: In the village of Orlen, the mill opens at 6 AM. The bakery opens two hours after the mill, and the market opens one hour after the bakery.\nQuestion: At what time does the market open? Answer with just the answer.",
+     "first_line": "The market opens at 7 AM.",
+     "grade": "fail",
+     "answer": "The market opens at 7 AM.\n\n (This is a placeholder example and does not reflect real-world scenarios.)\n\n (This is a placeholder example and does not reflect real-world scenarios.)\n\n (This is a",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 7,
+      "eol_stop_lp": -17.2853,
+      "eol_stop_rank": 588
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.2527,
+      "stop_rank": 61
+     },
+     "profile": {
+      "prompt_tokens": 77,
+      "prefill_tps": 74.226,
+      "gen_tokens": 48,
+      "decode_tps": 12.025,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 11,
+      "dtc_steps": 40
+     }
+    },
+    {
+     "id": "r02",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: Kira has three pets: a cat named Bolt, a dog named Pebble, and a parrot named Juno. The dog is the oldest, and the parrot is younger than the cat.\nQuestion: Which pet is the youngest? Give its name. Answer with just the answer.",
+     "first_line": "The youngest pet is the parrot, which is named **Peg** (assuming the question refers to a specific pet, but the text does not specify a name for the parter or other details).",
+     "grade": "fail",
+     "answer": "The youngest pet is the parrot, which is named **Peg** (assuming the question refers to a specific pet, but the text does not specify a name for the parter or other details).",
+     "termination": {
+      "natural_stop": true,
+      "gen_steps": 42,
+      "eol_step": 40,
+      "eol_stop_lp": -18.6208,
+      "eol_stop_rank": 1978
+     },
+     "stop_after_newline": {
+      "stop_lp": -0.6103,
+      "stop_rank": 0
+     },
+     "profile": {
+      "prompt_tokens": 83,
+      "prefill_tps": 64.504,
+      "gen_tokens": 41,
+      "decode_tps": 13.863,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 45,
+      "dtc_steps": 0
+     }
+    },
+    {
+     "id": "r03",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: The Tarn Bridge is 340 meters long. The Vell Bridge is 120 meters shorter than the Tarn Bridge.\nQuestion: How long is the Vell Bridge, in meters? Answer with just the answer.",
+     "first_line": "The Vell Bridge is 120 meters long.",
+     "grade": "fail",
+     "answer": "The Vell Bridge is 120 meters long.\n\n[Answer: 120 meters]\n\n (120 meters)\n\n (120 meters)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 11,
+      "eol_stop_lp": -20.9063,
+      "eol_stop_rank": 798
+     },
+     "stop_after_newline": {
+      "stop_lp": -7.6204,
+      "stop_rank": 37
+     },
+     "profile": {
+      "prompt_tokens": 71,
+      "prefill_tps": 72.484,
+      "gen_tokens": 48,
+      "decode_tps": 12.287,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 8,
+      "dtc_steps": 43
+     }
+    },
+    {
+     "id": "r04",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: In the game of Skiv, a red token is worth 5 points, a blue token is worth 3 points, and a green token is worth 1 point. Lio has 2 red tokens and 3 blue tokens.\nQuestion: How many points does Lio have? Answer with just the answer.",
+     "first_line": "Llo",
+     "grade": "fail",
+     "answer": "Llo\n The total points Llo has is 11.\n\n The answer is: \\boxed{11}\n\n (11)\n\n (1",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 2,
+      "eol_stop_lp": -11.9602,
+      "eol_stop_rank": 607
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.97,
+      "stop_rank": 85
+     },
+     "profile": {
+      "prompt_tokens": 89,
+      "prefill_tps": 68.691,
+      "gen_tokens": 48,
+      "decode_tps": 14.5,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 51,
+      "dtc_steps": 0
+     }
+    },
+    {
+     "id": "r05",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: The Fennick library is closed every Tuesday and open every other day. Mara wants to visit on the day after Monday.\nQuestion: Will the library be open when Mara visits? Answer yes or no. Answer with just the answer.",
+     "first_line": "Yes",
+     "grade": "fail",
+     "answer": "Yes\n\n Yes\n\n No\n\n Yes\n\n No\n\n Yes\n\n No\n\n Yes\n\n No\n\n Yes\n\n No\n\n Yes",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 1,
+      "eol_stop_lp": -14.9531,
+      "eol_stop_rank": 166
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.24,
+      "stop_rank": 136
+     },
+     "profile": {
+      "prompt_tokens": 72,
+      "prefill_tps": 71.511,
+      "gen_tokens": 48,
+      "decode_tps": 12.675,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 7,
+      "dtc_steps": 44
+     }
+    },
+    {
+     "id": "r06",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: Dr. Ilsen discovered the mineral quarrite in 1931. Twelve years later, her student Pavo first described its blue form.\nQuestion: In what year was the blue form first described? Answer with just the answer.",
+     "first_line": "The blue form was first described in 1931 + 12 = 1943.",
+     "grade": "pass",
+     "answer": "The blue form was first described in 1931 + 12 = 1943.\n However, the question asks for the year the blue form was first described, which is 1943.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 22,
+      "eol_stop_lp": -16.9411,
+      "eol_stop_rank": 454
+     },
+     "stop_after_newline": {
+      "stop_lp": -9.6731,
+      "stop_rank": 47
+     },
+     "profile": {
+      "prompt_tokens": 74,
+      "prefill_tps": 65.069,
+      "gen_tokens": 48,
+      "decode_tps": 14.487,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 51,
+      "dtc_steps": 0
+     }
+    },
+    {
+     "id": "r07",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: Five runners finished a race. Ada finished before Bea. Cal finished after Bea but before Dov. Eli finished last.\nQuestion: Who finished fourth? Answer with just the answer.",
+     "first_line": "The answer is: Dov.",
+     "grade": "pass",
+     "answer": "The answer is: Dov.\n\n (Explain your answer here)\n\n (Explain your answer here)\n\n (Explain your answer here)",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 6,
+      "eol_stop_lp": -12.3348,
+      "eol_stop_rank": 828
+     },
+     "stop_after_newline": {
+      "stop_lp": -5.4987,
+      "stop_rank": 15
+     },
+     "profile": {
+      "prompt_tokens": 61,
+      "prefill_tps": 70.104,
+      "gen_tokens": 48,
+      "decode_tps": 13.64,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 50,
+      "dtc_steps": 0
+     }
+    },
+    {
+     "id": "r08",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: The planet Vorra has two moons. Ise orbits Vorra in 9 days, and Telo takes three times as long as Ise.\nQuestion: How many days does Telo take to orbit Vorra? Answer with just the answer.",
+     "first_line": "Telo takes 27 days to orbit Vorra.",
+     "grade": "pass",
+     "answer": "Telo takes 27 days to orbit Vorra.\n\n9 days.\n\n (3 times 9 = 27)\n\n9 days.",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 11,
+      "eol_stop_lp": -17.207,
+      "eol_stop_rank": 328
+     },
+     "stop_after_newline": {
+      "stop_lp": -6.711,
+      "stop_rank": 31
+     },
+     "profile": {
+      "prompt_tokens": 76,
+      "prefill_tps": 68.906,
+      "gen_tokens": 48,
+      "decode_tps": 12.9,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 9,
+      "dtc_steps": 42
+     }
+    },
+    {
+     "id": "r09",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: A jar holds only marbles: 4 are red, 6 are green, and the rest are white. There are 15 marbles in all.\nQuestion: How many marbles are white? Answer with just the answer.",
+     "first_line": "The number of white marbles is 5.",
+     "grade": "pass",
+     "answer": "The number of white marbles is 5.\n\nThe answer is \\boxed{5}.\n\n (The answer is 5 white marbles.)\n\n (The answer is \\boxed{5",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 9,
+      "eol_stop_lp": -17.6082,
+      "eol_stop_rank": 838
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.2122,
+      "stop_rank": 43
+     },
+     "profile": {
+      "prompt_tokens": 73,
+      "prefill_tps": 64.352,
+      "gen_tokens": 48,
+      "decode_tps": 13.763,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 51,
+      "dtc_steps": 0
+     }
+    },
+    {
+     "id": "r10",
+     "set": "pass",
+     "prompt": "Read the passage and answer the question.\nPassage: The city of Quell is north of Dara. Dara is north of Mirn.\nQuestion: Which of the three cities is farthest south? Answer with just the answer.",
+     "first_line": "The answer is: D.",
+     "grade": "fail",
+     "answer": "The answer is: D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer is D.\n The answer",
+     "termination": {
+      "natural_stop": false,
+      "gen_steps": 48,
+      "eol_step": 5,
+      "eol_stop_lp": -9.5318,
+      "eol_stop_rank": 318
+     },
+     "stop_after_newline": {
+      "stop_lp": -8.8388,
+      "stop_rank": 129
+     },
+     "profile": {
+      "prompt_tokens": 62,
+      "prefill_tps": 72.983,
+      "gen_tokens": 48,
+      "decode_tps": 14.056,
+      "ram_peak_mb": 346.3,
+      "vram_used_peak_mib": 3673,
+      "lane": "cuda",
+      "expand_steps": 5,
+      "dtc_steps": 45
+     }
+    }
+   ]
+  }
+ }
+}

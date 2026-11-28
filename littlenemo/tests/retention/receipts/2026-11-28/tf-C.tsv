@@ -1,0 +1,5 @@
+base	start=0	tune_nll=16.874914	tune_tok=16	tune_first=0/4	tune_all=0/4	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=1886.3	hash=83d9e002eb8d6847
+base_h8	start=56	tune_nll=16.870409	tune_tok=16	tune_first=0/4	tune_all=0/4	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=12.4	hash=982b9cfd0d376bf6
+X1	start=8	tune_nll=1.710133	tune_tok=16	tune_first=4/4	tune_all=4/4	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=1542.2	hash=e589deed576d0222
+ref	start=0	tune_nll=0.119446	tune_tok=16	tune_first=4/4	tune_all=4/4	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=2060.2	hash=8baa1469e7aa1785
+ref_h8	start=0	tune_nll=0.120095	tune_tok=16	tune_first=4/4	tune_all=4/4	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=2690.5	hash=48c17fba743f4704

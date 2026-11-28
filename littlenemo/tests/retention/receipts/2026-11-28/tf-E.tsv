@@ -1,0 +1,3 @@
+base	start=0	tune_nll=163.605913	tune_tok=164	tune_first=17/50	tune_all=16/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=613.0	hash=2dbb65ab1fdc090b
+X1	start=8	tune_nll=99.731068	tune_tok=164	tune_first=34/50	tune_all=32/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=792.1	hash=e722ac0a7d2b3ed3
+ref	start=0	tune_nll=24.290164	tune_tok=164	tune_first=47/50	tune_all=45/50	hold_nll=0.000000	hold_tok=0	hold_first=0/0	hold_all=0/0	sec=902.9	hash=6d76c8f8052da1a5

@@ -45,6 +45,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -380,6 +381,56 @@ static int argmax(const float *logits) {
     return best;
 }
 
+/* Logit telemetry for the retention battery (off unless the environment
+ * sets NEMO_LOGIT_TOPK=K, 1..20): before each generated token, one
+ * LOGIT line with the chosen token's log-probability, the margin to the
+ * runner-up, the summed log-probability and best rank of the stop set
+ * (end of text, 2, 11 and the turn end 12), and the top K tokens. It only
+ * reads the logits, so the generated text is unchanged. */
+static int g_logit_topk = -1;
+static void logit_report(const engine *e, const float *lg, int step, int chosen) {
+    if (g_logit_topk < 0) {
+        const char *v = getenv("NEMO_LOGIT_TOPK");
+        g_logit_topk = v ? atoi(v) : 0;
+        if (g_logit_topk > 20) g_logit_topk = 20;
+        if (g_logit_topk < 0) g_logit_topk = 0;
+    }
+    if (g_logit_topk == 0) return;
+    float mx = lg[0];
+    for (int i = 1; i < NEMO_VOCAB; i++) if (lg[i] > mx) mx = lg[i];
+    double s = 0.0;
+    for (int i = 0; i < NEMO_VOCAB; i++) s += exp((double)lg[i] - mx);
+    double lz = log(s) + mx;
+    int top[20]; double tv[20];
+    int k = g_logit_topk;
+    for (int j = 0; j < k; j++) { top[j] = -1; tv[j] = -1e30; }
+    for (int i = 0; i < NEMO_VOCAB; i++) {
+        double v = lg[i];
+        if (v <= tv[k - 1]) continue;
+        int j = k - 1;
+        while (j > 0 && v > tv[j - 1]) { top[j] = top[j - 1]; tv[j] = tv[j - 1]; j--; }
+        top[j] = i; tv[j] = v;
+    }
+    int stop[4] = {e->eos_id, 2, 11, 12}, ns = 0, uniq[4];
+    for (int j = 0; j < 4; j++) {
+        int dup = 0;
+        for (int q = 0; q < ns; q++) if (uniq[q] == stop[j]) dup = 1;
+        if (!dup && stop[j] >= 0 && stop[j] < NEMO_VOCAB) uniq[ns++] = stop[j];
+    }
+    double es = 0.0; int best = NEMO_VOCAB;
+    for (int j = 0; j < ns; j++) {
+        float sv = lg[uniq[j]];
+        es += exp((double)sv - mx);
+        int r = 0;
+        for (int i = 0; i < NEMO_VOCAB; i++) if (lg[i] > sv || (lg[i] == sv && i < uniq[j])) r++;
+        if (r < best) best = r;
+    }
+    printf("LOGIT step=%d tok=%d lp=%.4f margin=%.4f stop_lp=%.4f stop_rank=%d top=",
+           step, chosen, lg[chosen] - lz, k > 1 ? tv[0] - tv[1] : 0.0, log(es) + mx - lz, best);
+    for (int j = 0; j < k; j++) printf("%s%d:%.4f", j ? "," : "", top[j], tv[j] - lz);
+    printf("\n");
+}
+
 static void run_turn_raw(engine *e, const char *prompt_text, int think_on) {
     int ids[8192];
     int n = nemo_tokenizer_encode(e->tk, prompt_text, ids, 8192);
@@ -453,6 +504,7 @@ static void run_turn_raw(engine *e, const char *prompt_text, int think_on) {
     while (generated < e->max_new) {
         double t0 = now_ms();
         int next = argmax(logits);
+        logit_report(e, logits, generated, next);
         if (next == e->eos_id || (e->chat && (next == 2 || next == 11)))
             break;
         generated++;

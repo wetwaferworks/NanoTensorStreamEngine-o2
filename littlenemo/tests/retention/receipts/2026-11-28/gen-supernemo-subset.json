@@ -1,0 +1,247 @@
+{
+ "started": "2026-11-27 19:26:18 -0500",
+ "wall_s": 1223.033,
+ "questions": {
+  "command": [
+   "build\\gpustream\\bin\\sn-engine.exe",
+   "--max-new",
+   "24",
+   "--pack",
+   "<path>",
+   "--shapes",
+   "<path>",
+   "--config",
+   "<path>",
+   "--tokenizer",
+   "<path>",
+   "--threads",
+   "12",
+   "--below-normal",
+   "--gpu-mb",
+   "3000"
+  ],
+  "ready": "READY nemo-engine 3 model=SuperNemo weights=packed layers=88 cores=12 threads=12 mode=custom simd=0 accel=cuda chat=1 think=0 moe=512 media=image",
+  "hw": "",
+  "max_new": 24,
+  "load_s": 22.601,
+  "launches": 1,
+  "pauses": [],
+  "wall_s": 1222.21,
+  "gpu": {
+   "vram_used_peak_mib": 3777,
+   "gpu_util_mean": 22.6,
+   "samples": 1027
+  },
+  "items": [
+   {
+    "id": 1,
+    "prompt": "Name the biggest planet in the solar system. Answer with just the answer.",
+    "first_line": "Jupiter",
+    "grade": "pass",
+    "answer": "Jupiter",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 31,
+     "prefill_tps": 0.496,
+     "gen_tokens": 2,
+     "decode_tps": 0.1491,
+     "ram_peak_mb": 3558.5,
+     "vram_used_peak_mib": 3769,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 2,
+    "prompt": "Canada's capital city is which city? Answer with just the answer.",
+    "first_line": "Ottawa",
+    "grade": "pass",
+    "answer": "Ottawa",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 30,
+     "prefill_tps": 0.411,
+     "gen_tokens": 3,
+     "decode_tps": 0.1442,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3769,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 3,
+    "prompt": "A train travels at 60 kilometers per hour for 3 hours, then at 40 kilometers per hour for 2 hours. How many kilometers does it travel in total? Answer with just the answer.",
+    "first_line": "220",
+    "grade": "fail",
+    "answer": "220",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 59,
+     "prefill_tps": 0.627,
+     "gen_tokens": 3,
+     "decode_tps": 0.1733,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3773,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 4,
+    "prompt": "A shirt costs 40 dollars and is discounted by 25 percent. What is the sale price in dollars? Answer with just the answer.",
+    "first_line": "30",
+    "grade": "pass",
+    "answer": "30",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 46,
+     "prefill_tps": 0.583,
+     "gen_tokens": 2,
+     "decode_tps": 0.2089,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3773,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 5,
+    "prompt": "Read the passage and answer the question.\nPassage: Five runners finished a race. Ada finished before Bea. Cal finished after Bea but before Dov. Eli finished last.\nQuestion: Who finished fourth? Answer with just the answer.",
+    "first_line": "Dov",
+    "grade": "pass",
+    "answer": "Dov",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 63,
+     "prefill_tps": 0.686,
+     "gen_tokens": 2,
+     "decode_tps": 0.206,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3773,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 6,
+    "prompt": "Read the passage and answer the question.\nPassage: In the game of Skiv, a red token is worth 5 points, a blue token is worth 3 points, and a green token is worth 1 point. Lio has 2 red tokens and 3 blue tokens.\nQuestion: How many points does Lio have? Answer with just the answer.",
+    "first_line": "19",
+    "grade": "pass",
+    "answer": "19",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 91,
+     "prefill_tps": 0.737,
+     "gen_tokens": 2,
+     "decode_tps": 0.158,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3777,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 7,
+    "prompt": "What is the capital city of the country of Zantoria? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+    "first_line": "I don not know.",
+    "grade": "fail",
+    "answer": "I don not know.",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 57,
+     "prefill_tps": 0.651,
+     "gen_tokens": 5,
+     "decode_tps": 0.1817,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3777,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 8,
+    "prompt": "How many moons does the planet Krellis have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+    "first_line": "I don not know.",
+    "grade": "fail",
+    "answer": "I don not know.",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 56,
+     "prefill_tps": 0.578,
+     "gen_tokens": 5,
+     "decode_tps": 0.1394,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3777,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 9,
+    "prompt": "Who painted the Mona Lisa? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+    "first_line": "Leonardo da Vinci",
+    "grade": "pass",
+    "answer": "Leonardo da Vinci",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 50,
+     "prefill_tps": 0.504,
+     "gen_tokens": 4,
+     "decode_tps": 0.1722,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3777,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   },
+   {
+    "id": 10,
+    "prompt": "Respond with only a JSON object that has the key \"city\" with the value \"Paris\".",
+    "first_line": "{",
+    "grade": "pass",
+    "answer": "{\n  \"city\": \"Paris\"\n}",
+    "termination": {},
+    "profile": {
+     "prompt_tokens": 36,
+     "prefill_tps": 0.473,
+     "gen_tokens": 9,
+     "decode_tps": 0.1625,
+     "ram_peak_mb": 4432.9,
+     "vram_used_peak_mib": 3777,
+     "expand_steps": null,
+     "dtc_steps": null
+    }
+   }
+  ],
+  "score": {
+   "n": 10,
+   "passes": 7,
+   "hedges": 0,
+   "fails": 3,
+   "score": "7/10"
+  },
+  "summary": {
+   "prefill_tps": {
+    "mean": 0.575,
+    "min": 0.411,
+    "median": 0.583,
+    "max": 0.737
+   },
+   "decode_tps": {
+    "mean": 0.17,
+    "min": 0.1394,
+    "median": 0.1722,
+    "max": 0.2089
+   },
+   "decode_tps_pooled": 0.129,
+   "prefill_tps_pooled": 0.587,
+   "gen_tokens": 37,
+   "prompt_tokens": 519,
+   "ram_peak_mb": 4432.9,
+   "vram_card_peak_mib": 3777,
+   "expand_steps": 0,
+   "dtc_steps": 0
+  }
+ }
+}

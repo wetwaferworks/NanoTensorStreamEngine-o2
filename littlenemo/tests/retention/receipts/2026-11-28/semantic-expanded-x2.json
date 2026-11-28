@@ -1,0 +1,99 @@
+{
+ "arm": "expanded-x2",
+ "grader": "Grok Bot, read by hand against essays.json facts; a factual error is a claim that is false, not a missing fact",
+ "items": [
+  {
+   "id": 1,
+   "topic": "photosynthesis",
+   "errors": [],
+   "degeneration": "title only, then blank lines to the cap",
+   "semantic": "fail",
+   "why": "no content at all after the heading (0/7 facts)"
+  },
+  {
+   "id": 2,
+   "topic": "water cycle",
+   "errors": [],
+   "degeneration": "'conds'; repeats '(150 words)' to the cap",
+   "semantic": "pass",
+   "why": "evaporation, condensation, clouds, precipitation, collection and return to the ocean all right"
+  },
+  {
+   "id": 3,
+   "topic": "seasons",
+   "errors": [
+    "'when a location is tilted toward the equator, it experiences warmer temperatures year-round' (false: tilt toward the Sun gives summer, not year-round warmth)"
+   ],
+   "degeneration": "repeats '(150 words)'",
+   "semantic": "fail",
+   "why": "axial tilt named as the cause (right), but one false sentence; borderline"
+  },
+  {
+   "id": 4,
+   "topic": "human heart",
+   "errors": [],
+   "degeneration": "'sinoatquary', 'circans'; paragraphs repeat",
+   "semantic": "pass",
+   "why": "four chambers, atria and ventricles, valves, cardiac muscle, SA-node pacemaker all right; no lung circuit"
+  },
+  {
+   "id": 5,
+   "topic": "world war ii",
+   "errors": [
+    "'over 200 countries' (about 30 took part)",
+    "'unconditional surrender of Japan in 1947' (1945; the same essay says 1945 later)",
+    "'Allied invasion of Germany in 1944' (the invasion of Germany was 1945; D-Day was France)"
+   ],
+   "degeneration": "stray </think> and restart",
+   "semantic": "fail",
+   "why": "dates and sides mostly right, but three false claims"
+  },
+  {
+   "id": 6,
+   "topic": "declaration of independence",
+   "errors": [
+    "quoted line 'That no human has a right to the fruits of the earth' is not in the Declaration",
+    "'initially called The Declaration of Independence before being officially named the Declaration of Independence' (meaningless)"
+   ],
+   "degeneration": "'underscaled'; repeats '(199 words)'",
+   "semantic": "fail",
+   "why": "Jefferson, July 4 1776 and the National Archives are right; one invented quote"
+  },
+  {
+   "id": 7,
+   "topic": "dna",
+   "errors": [],
+   "degeneration": "repeats the same two sentences",
+   "semantic": "fail",
+   "why": "double helix and complementary strands only: no bases, no pairing rules (2/8 facts); thin, no false claim"
+  },
+  {
+   "id": 8,
+   "topic": "solar system",
+   "errors": [
+    "'The Sun, a star of about 90% the mass of Earth' (the Sun is about 333,000 Earth masses and 99.8% of the system)"
+   ],
+   "degeneration": "repeats '(150 words)'",
+   "semantic": "fail",
+   "why": "planets in order right; one wrong claim about the Sun"
+  },
+  {
+   "id": 9,
+   "topic": "vaccines",
+   "errors": [],
+   "degeneration": "repeats '(150 words)'",
+   "semantic": "pass",
+   "why": "antigens, antibodies, memory cells, weakened or inactivated pathogens all right"
+  },
+  {
+   "id": 10,
+   "topic": "newton's laws",
+   "errors": [
+    "'formulated in 1666' (Principia 1687; 1666 is when the ideas began; minor)"
+   ],
+   "degeneration": "repeats '(299 words)'",
+   "semantic": "pass",
+   "why": "states all three laws correctly, unlike the packed arm which never reached them"
+  }
+ ]
+}

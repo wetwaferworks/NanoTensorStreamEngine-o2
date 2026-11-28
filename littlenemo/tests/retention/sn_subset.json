@@ -1,0 +1,134 @@
+{
+ "name": "SuperNemo retention subset",
+ "created": "2026-11-27",
+ "notes": "Ten battery items for SuperNemo (about 0.1 to 0.35 tokens/s): two paraphrases the Little Nemo pack gets wrong or right, two multi-step problems, two novel passages, two made-up entities, one answerable control and one JSON instruction. rid is the battery id; run with littlenemo/tests/quiz/run_round.py --style supernemo --questions this-file --skip-essays and regrade with grade_retention.py.",
+ "questions": [
+  {
+   "id": 1,
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Name the biggest planet in the solar system. Answer with just the answer.",
+   "expect": "Jupiter",
+   "tf": true,
+   "group": "jupiter",
+   "case_sensitive": false,
+   "gen": true,
+   "rid": "p_jupiter_2",
+   "kind": "short-answer"
+  },
+  {
+   "id": 2,
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Canada's capital city is which city? Answer with just the answer.",
+   "expect": "Ottawa",
+   "tf": true,
+   "group": "ottawa",
+   "case_sensitive": false,
+   "gen": true,
+   "rid": "p_ottawa_3",
+   "kind": "short-answer"
+  },
+  {
+   "id": 3,
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A train travels at 60 kilometers per hour for 3 hours, then at 40 kilometers per hour for 2 hours. How many kilometers does it travel in total? Answer with just the answer.",
+   "expect": "260",
+   "tf": true,
+   "gen": true,
+   "rid": "m02",
+   "kind": "short-answer"
+  },
+  {
+   "id": 4,
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A shirt costs 40 dollars and is discounted by 25 percent. What is the sale price in dollars? Answer with just the answer.",
+   "expect": "30",
+   "tf": true,
+   "gen": true,
+   "rid": "m07",
+   "kind": "short-answer"
+  },
+  {
+   "id": 5,
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: Five runners finished a race. Ada finished before Bea. Cal finished after Bea but before Dov. Eli finished last.\nQuestion: Who finished fourth? Answer with just the answer.",
+   "expect": "Dov",
+   "tf": true,
+   "gen": true,
+   "rid": "r07",
+   "kind": "short-answer"
+  },
+  {
+   "id": 6,
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: In the game of Skiv, a red token is worth 5 points, a blue token is worth 3 points, and a green token is worth 1 point. Lio has 2 red tokens and 3 blue tokens.\nQuestion: How many points does Lio have? Answer with just the answer.",
+   "expect": "19",
+   "tf": true,
+   "gen": true,
+   "rid": "r04",
+   "kind": "short-answer"
+  },
+  {
+   "id": 7,
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What is the capital city of the country of Zantoria? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true,
+   "rid": "u01",
+   "kind": "short-answer"
+  },
+  {
+   "id": 8,
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "How many moons does the planet Krellis have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true,
+   "rid": "u05",
+   "kind": "short-answer"
+  },
+  {
+   "id": 9,
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "Who painted the Mona Lisa? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Leonardo da Vinci",
+   "accept": [
+    "Leonardo",
+    "da Vinci"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true,
+   "rid": "k04",
+   "kind": "short-answer"
+  },
+  {
+   "id": 10,
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Respond with only a JSON object that has the key \"city\" with the value \"Paris\".",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "json": {
+     "city": "Paris"
+    }
+   },
+   "gen": true,
+   "rid": "i04",
+   "kind": "short-answer"
+  }
+ ]
+}

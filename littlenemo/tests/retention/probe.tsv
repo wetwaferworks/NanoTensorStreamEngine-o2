@@ -1,0 +1,194 @@
+# NanoTensor retention battery, 2026-11-27, built by build_battery.py. id, set, category, prompt, teacher-forced answer.
+q01	quiz	math	What is 12 times 12? Answer with just the answer.	144
+q02	quiz	math	What is 15 plus 27? Answer with just the answer.	42
+q03	quiz	math	What is 100 minus 37? Answer with just the answer.	63
+q04	quiz	math	What is 72 divided by 8? Answer with just the answer.	9
+q05	quiz	math	What is the square root of 144? Answer with just the answer.	12
+q06	quiz	math	What is 2 to the power of 10? Answer with just the answer.	1024
+q07	quiz	math	What is 25 percent of 200? Answer with just the answer.	50
+q08	quiz	math	What is 13 times 3? Answer with just the answer.	39
+q09	quiz	math	What is 1000 divided by 8? Answer with just the answer.	125
+q10	quiz	math	What is 3 cubed? Answer with just the answer.	27
+q11	quiz	capital	What is the capital of France? Answer with just the answer.	Paris
+q12	quiz	capital	What is the capital of Japan? Answer with just the answer.	Tokyo
+q13	quiz	capital	What is the capital of Italy? Answer with just the answer.	Rome
+q14	quiz	capital	What is the capital of Canada? Answer with just the answer.	Ottawa
+q15	quiz	capital	What is the capital of Australia? Answer with just the answer.	Canberra
+q16	quiz	capital	What is the capital of Germany? Answer with just the answer.	Berlin
+q17	quiz	capital	What is the capital of Egypt? Answer with just the answer.	Cairo
+q18	quiz	capital	What is the capital of Spain? Answer with just the answer.	Madrid
+q19	quiz	capital	What is the capital of Kenya? Answer with just the answer.	Nairobi
+q20	quiz	capital	What is the capital of Brazil? Answer with just the answer.	Brasilia
+q21	quiz	chem-symbol	What is the chemical symbol for gold? Answer with just the answer.	Au
+q22	quiz	chem-symbol	What is the chemical symbol for silver? Answer with just the answer.	Ag
+q23	quiz	chem-symbol	What is the chemical symbol for iron? Answer with just the answer.	Fe
+q24	quiz	chem-symbol	What is the chemical symbol for sodium? Answer with just the answer.	Na
+q25	quiz	chem-symbol	What is the chemical symbol for potassium? Answer with just the answer.	K
+q26	quiz	chem-symbol	What is the chemical symbol for oxygen? Answer with just the answer.	O
+q27	quiz	chem-symbol	What is the chemical symbol for lead? Answer with just the answer.	Pb
+q28	quiz	chem-symbol	What is the chemical symbol for helium? Answer with just the answer.	He
+q29	quiz	date	In what year did humans first land on the Moon? Answer with just the answer.	1969
+q30	quiz	date	In what year did World War II end? Answer with just the answer.	1945
+q31	quiz	date	In what year was the United States Declaration of Independence adopted? Answer with just the answer.	1776
+q32	quiz	date	In what year did the Berlin Wall fall? Answer with just the answer.	1989
+q33	quiz	date	In what year did Christopher Columbus first reach the Americas? Answer with just the answer.	1492
+q34	quiz	date	In what year did the Titanic sink? Answer with just the answer.	1912
+q35	quiz	date	In what year did World War I begin? Answer with just the answer.	1914
+q36	quiz	units	How many centimeters are in one meter? Answer with just the answer.	100
+q37	quiz	units	How many grams are in one kilogram? Answer with just the answer.	1000
+q38	quiz	units	How many seconds are in one hour? Answer with just the answer.	3600
+q39	quiz	units	How many inches are in one foot? Answer with just the answer.	12
+q40	quiz	units	How many feet are in one yard? Answer with just the answer.	3
+q41	quiz	units	How many days are in a leap year? Answer with just the answer.	366
+q42	quiz	units	How many milliliters are in one liter? Answer with just the answer.	1000
+q43	quiz	science	At sea level, at how many degrees Celsius does water boil? Answer with just the answer.	100
+q44	quiz	science	What is the largest planet in our solar system? Answer with just the answer.	Jupiter
+q45	quiz	science	What planet is closest to the Sun? Answer with just the answer.	Mercury
+q46	quiz	science	What is the chemical formula for water? Answer with just the answer.	H2O
+q47	quiz	science	How many continents are there on Earth? Answer with just the answer.	7
+q48	quiz	science	How many legs does an insect have? Answer with just the answer.	6
+q49	quiz	science	What is the hardest natural substance? Answer with just the answer.	diamond
+q50	quiz	general	Who wrote the play Romeo and Juliet? Answer with just the answer.	Shakespeare
+c04	cand	math	What is 72 divided by 8? Answer with just the answer.	7
+c05	cand	math	What is the square root of 144? Answer with just the answer.	42
+c08	cand	math	What is 13 times 3? Answer with just the answer.	49
+c14	cand	capital	What is the capital of Canada? Answer with just the answer.	Toronto
+c31	cand	date	In what year was the United States Declaration of Independence adopted? Answer with just the answer.	1789
+c37	cand	units	How many grams are in one kilogram? Answer with just the answer.	44.39
+c38	cand	units	How many seconds are in one hour? Answer with just the answer.	60
+c39	cand	units	How many inches are in one foot? Answer with just the answer.	60
+c41	cand	units	How many days are in a leap year? Answer with just the answer.	365
+c42	cand	units	How many milliliters are in one liter? Answer with just the answer.	1
+c44	cand	science	What is the largest planet in our solar system? Answer with just the answer.	Earth
+c45	cand	science	What planet is closest to the Sun? Answer with just the answer.	Mars
+p_ottawa_1	para	paraphrase	What is the capital of Canada? Answer with just the answer.	Ottawa
+p_ottawa_2	para	paraphrase	Which city is the capital of Canada? Answer with just the answer.	Ottawa
+p_ottawa_3	para	paraphrase	Canada's capital city is which city? Answer with just the answer.	Ottawa
+p_jupiter_1	para	paraphrase	Which planet is the largest in our solar system? Answer with just the answer.	Jupiter
+p_jupiter_2	para	paraphrase	Name the biggest planet in the solar system. Answer with just the answer.	Jupiter
+p_jupiter_3	para	paraphrase	Of all the planets orbiting the Sun, which one is the largest? Answer with just the answer.	Jupiter
+p_mercury_1	para	paraphrase	Which planet orbits closest to the Sun? Answer with just the answer.	Mercury
+p_mercury_2	para	paraphrase	Name the planet nearest to the Sun. Answer with just the answer.	Mercury
+p_mercury_3	para	paraphrase	What is the innermost planet of the solar system? Answer with just the answer.	Mercury
+p_leap_1	para	paraphrase	A leap year has how many days? Answer with just the answer.	366
+p_leap_2	para	paraphrase	How many days does a leap year contain? Answer with just the answer.	366
+p_leap_3	para	paraphrase	Count the days in a leap year. How many are there? Answer with just the answer.	366
+p_paris_1	para	paraphrase	What is the capital of France? Answer with just the answer.	Paris
+p_paris_2	para	paraphrase	Which city is the capital of France? Answer with just the answer.	Paris
+p_paris_3	para	paraphrase	France's capital city is which city? Answer with just the answer.	Paris
+p_moon_1	para	paraphrase	In which year did humans first land on the Moon? Answer with just the answer.	1969
+p_moon_2	para	paraphrase	What year was the first crewed Moon landing? Answer with just the answer.	1969
+p_moon_3	para	paraphrase	Apollo 11 landed on the Moon in what year? Answer with just the answer.	1969
+p_gold_1	para	paraphrase	What is the chemical symbol for gold? Answer with just the answer.	Au
+p_gold_2	para	paraphrase	Which element symbol stands for gold? Answer with just the answer.	Au
+p_gold_3	para	paraphrase	Gold is written with what chemical symbol? Answer with just the answer.	Au
+p_insect_1	para	paraphrase	How many legs does an insect have? Answer with just the answer.	6
+p_insect_2	para	paraphrase	An insect has how many legs? Answer with just the answer.	6
+p_insect_3	para	paraphrase	Count the legs on a typical adult insect. How many are there? Answer with just the answer.	6
+p_romeo_1	para	paraphrase	Who wrote Romeo and Juliet? Answer with just the answer.	Shakespeare
+p_romeo_2	para	paraphrase	Romeo and Juliet was written by whom? Answer with just the answer.	Shakespeare
+p_romeo_3	para	paraphrase	Name the author of the play Romeo and Juliet. Answer with just the answer.	Shakespeare
+p_decl_1	para	paraphrase	In what year was the United States Declaration of Independence adopted? Answer with just the answer.	1776
+p_decl_2	para	paraphrase	The Declaration of Independence was adopted in which year? Answer with just the answer.	1776
+p_decl_3	para	paraphrase	What year did the American colonies adopt the Declaration of Independence? Answer with just the answer.	1776
+p_water_1	para	paraphrase	What is the chemical formula for water? Answer with just the answer.	H2O
+p_water_2	para	paraphrase	Water has what chemical formula? Answer with just the answer.	H2O
+p_water_3	para	paraphrase	Write the chemical formula of water. Answer with just the answer.	H2O
+p_hour_1	para	paraphrase	How many seconds are in one hour? Answer with just the answer.	3600
+p_hour_2	para	paraphrase	One hour contains how many seconds? Answer with just the answer.	3600
+p_hour_3	para	paraphrase	If you count every second in an hour, how many seconds is that? Answer with just the answer.	3600
+p_hexagon_1	para	paraphrase	How many sides does a hexagon have? Answer with just the answer.	6
+p_hexagon_2	para	paraphrase	A hexagon has how many sides? Answer with just the answer.	6
+p_hexagon_3	para	paraphrase	Count the sides of a hexagon. How many are there? Answer with just the answer.	6
+m01	multi	multistep	Maya buys 4 pens at 3 dollars each and pays with a 20 dollar bill. How many dollars of change does she get? Answer with just the answer.	8
+m02	multi	multistep	A train travels at 60 kilometers per hour for 3 hours, then at 40 kilometers per hour for 2 hours. How many kilometers does it travel in total? Answer with just the answer.	260
+m03	multi	multistep	Tom has 3 boxes with 12 apples in each box. He gives away 10 apples. How many apples does he have left? Answer with just the answer.	26
+m04	multi	multistep	What is (8 + 4) times 5, minus 7? Answer with just the answer.	53
+m05	multi	multistep	A rectangle is 7 meters long and 5 meters wide. What is its perimeter in meters? Answer with just the answer.	24
+m06	multi	multistep	Sara reads 15 pages a day. How many pages does she read in 2 weeks? Answer with just the answer.	210
+m07	multi	multistep	A shirt costs 40 dollars and is discounted by 25 percent. What is the sale price in dollars? Answer with just the answer.	30
+m08	multi	multistep	A class has 28 students. Half of them play soccer, and 4 of the soccer players also play chess. How many soccer players do not play chess? Answer with just the answer.	10
+m09	multi	multistep	What is 3 squared plus 4 squared? Answer with just the answer.	25
+m10	multi	multistep	Ben is twice as old as Ana. Ana is 9 years old. How old will Ben be in 5 years? Answer with just the answer.	23
+m11	multi	multistep	What is 1000 minus 3 times 125? Answer with just the answer.	625
+m12	multi	multistep	A baker makes 6 trays of 8 muffins and sells 30 of them. How many muffins are left? Answer with just the answer.	18
+r01	pass	passage	Read the passage and answer the question.\nPassage: In the village of Orlen, the mill opens at 6 AM. The bakery opens two hours after the mill, and the market opens one hour after the bakery.\nQuestion: At what time does the market open? Answer with just the answer.	9 AM
+r02	pass	passage	Read the passage and answer the question.\nPassage: Kira has three pets: a cat named Bolt, a dog named Pebble, and a parrot named Juno. The dog is the oldest, and the parrot is younger than the cat.\nQuestion: Which pet is the youngest? Give its name. Answer with just the answer.	Juno
+r03	pass	passage	Read the passage and answer the question.\nPassage: The Tarn Bridge is 340 meters long. The Vell Bridge is 120 meters shorter than the Tarn Bridge.\nQuestion: How long is the Vell Bridge, in meters? Answer with just the answer.	220
+r04	pass	passage	Read the passage and answer the question.\nPassage: In the game of Skiv, a red token is worth 5 points, a blue token is worth 3 points, and a green token is worth 1 point. Lio has 2 red tokens and 3 blue tokens.\nQuestion: How many points does Lio have? Answer with just the answer.	19
+r05	pass	passage	Read the passage and answer the question.\nPassage: The Fennick library is closed every Tuesday and open every other day. Mara wants to visit on the day after Monday.\nQuestion: Will the library be open when Mara visits? Answer yes or no. Answer with just the answer.	No
+r06	pass	passage	Read the passage and answer the question.\nPassage: Dr. Ilsen discovered the mineral quarrite in 1931. Twelve years later, her student Pavo first described its blue form.\nQuestion: In what year was the blue form first described? Answer with just the answer.	1943
+r07	pass	passage	Read the passage and answer the question.\nPassage: Five runners finished a race. Ada finished before Bea. Cal finished after Bea but before Dov. Eli finished last.\nQuestion: Who finished fourth? Answer with just the answer.	Dov
+r08	pass	passage	Read the passage and answer the question.\nPassage: The planet Vorra has two moons. Ise orbits Vorra in 9 days, and Telo takes three times as long as Ise.\nQuestion: How many days does Telo take to orbit Vorra? Answer with just the answer.	27
+r09	pass	passage	Read the passage and answer the question.\nPassage: A jar holds only marbles: 4 are red, 6 are green, and the rest are white. There are 15 marbles in all.\nQuestion: How many marbles are white? Answer with just the answer.	5
+r10	pass	passage	Read the passage and answer the question.\nPassage: The city of Quell is north of Dara. Dara is north of Mirn.\nQuestion: Which of the three cities is farthest south? Answer with just the answer.	Mirn
+u01	calib	unanswerable	What is the capital city of the country of Zantoria? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u02	calib	unanswerable	In what year did the explorer Hendrik Valmoor reach the summit of Mount Ostrel? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u03	calib	unanswerable	What is the chemical symbol for the element vorinium? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u04	calib	unanswerable	Who won the 1987 Nobel Prize in Interplanetary Gardening? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u05	calib	unanswerable	How many moons does the planet Krellis have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u06	calib	unanswerable	What is the phone number of the Blue Heron Cafe in the town of Pellford? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u07	calib	unanswerable	What was the population of the city of Ardenmoor in the year 1600? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+u08	calib	unanswerable	What is the title of the third novel by the author Imogen Tarsk? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	I don't know
+k01	calib	answerable	What is the capital of Italy? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	Rome
+k02	calib	answerable	What is the chemical symbol for oxygen? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	O
+k03	calib	answerable	How many continents are there on Earth? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	7
+k04	calib	answerable	Who painted the Mona Lisa? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	Leonardo da Vinci
+k05	calib	answerable	What is the capital of Japan? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	Tokyo
+k06	calib	answerable	How many sides does a triangle have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	3
+k07	calib	answerable	What gas do plants absorb from the air for photosynthesis? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	Carbon dioxide
+k08	calib	answerable	What is the largest ocean on Earth? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.	Pacific
+l01	long	long-context	Read these notes, then answer the question.\nNotes: The Birch station was rebuilt in 1927. The Rowan bakery closes at 5 PM. The Harbor orchard opens at 3 PM. The Birch bakery holds 29 people. The Sable garden closes at 12 AM. The Birch garden serves 76 workers. The code for the blue door is 4817. The Rowan orchard employs 7 workers. The Birch garden closes at 9 AM. The Marlow orchard closes at 5 PM. The Quarry bakery employs 83 people. The Juniper library serves 16 workers. The Iris tram closes at 6 AM. The Pippin bakery serves 13 people. The Aster station holds 8 visitors. The Harbor orchard was rebuilt in 1963. The Thistle orchard closes at 1 AM. The Thistle museum opens at 8 PM. The Juniper bakery employs 32 visitors. The Dune tram was rebuilt in 1860. The Thistle orchard opens at 10 AM. The Fable ferry holds 74 people. The Sable tram was rebuilt in 1952. The Juniper ferry employs 10 visitors. The Iris station closes at 7 PM. The Juniper tram serves 41 visitors. The Sable ferry employs 15 people. The Kestrel bakery holds 76 workers. The Linden bakery employs 59 visitors. The Onyx library serves 90 visitors. The Juniper workshop closes at 1 PM. The Fable library was rebuilt in 1913. The Harbor library employs 14 people. The Ember library opens at 8 AM. The Sable orchard was rebuilt in 1877. The Harbor station serves 49 visitors. The Rowan library was rebuilt in 1932. The Rowan library employs 5 people. The Quarry library opens at 4 AM. The Ember ferry closes at 3 AM. The Cobalt library opens at 8 PM. The Fable museum holds 39 workers. The Linden bakery opens at 12 AM. The Birch ferry employs 5 visitors. The Iris workshop employs 64 people. The Rowan orchard opens at 11 PM. The Pippin ferry employs 88 people. The Garnet lighthouse employs 87 visitors. The Rowan orchard opens at 9 AM. The Birch tram employs 60 visitors. The Rowan lighthouse serves 21 people. The Dune tram holds 4 people. The Fable workshop serves 10 workers. The Pippin workshop serves 63 people. The Harbor workshop was rebuilt in 1976. The Aster tram closes at 4 PM. The Thistle tram serves 26 workers. The Garnet ferry serves 26 workers. The Iris lighthouse employs 83 workers. The Quarry lighthouse holds 63 people. The Thistle lighthouse employs 28 workers.\nQuestion: What is the code for the blue door? Answer with just the answer.	4817
+l02	long	long-context	Read these notes, then answer the question.\nNotes: The Marlow station holds 53 people. The Linden station was rebuilt in 1879. The Cobalt garden serves 33 workers. The Nettle garden employs 63 workers. The Fable station opens at 5 AM. The Thistle station employs 76 workers. The Aster tram serves 33 visitors. The Quarry tram holds 86 people. The Onyx ferry employs 9 visitors. The Sable lighthouse was rebuilt in 1859. The Dune orchard employs 55 people. The Ember workshop closes at 2 PM. The Rowan lighthouse was rebuilt in 1925. The Fable bakery opens at 8 PM. The Juniper station closes at 10 AM. The Juniper tram was rebuilt in 1880. The Garnet orchard opens at 6 AM. The Fable bakery closes at 9 AM. The Dune orchard was rebuilt in 1867. The Thistle garden holds 19 workers. The Dune tram holds 12 people. The Kestrel orchard closes at 8 PM. The Sable workshop closes at 5 PM. The Pippin library serves 32 visitors. The Aster library was rebuilt in 1892. The Garnet tram closes at 2 AM. The Rowan orchard was rebuilt in 1960. The Thistle station opens at 10 PM. The Pippin museum serves 15 visitors. The Fable lighthouse holds 31 workers. The code for the blue door is 2093. The Quarry ferry serves 21 workers. The Cobalt library serves 82 people. The Quarry museum serves 69 people. The Cobalt tram serves 62 workers. The Ember workshop closes at 10 AM. The Harbor orchard closes at 3 AM. The Dune museum serves 81 visitors. The Birch station holds 51 visitors. The Harbor bakery employs 25 visitors. The Nettle garden employs 39 people. The Aster workshop serves 16 workers. The Birch station closes at 3 AM. The Pippin tram closes at 8 PM. The Onyx museum holds 64 people. The Garnet ferry serves 10 workers. The Dune museum holds 83 people. The Quarry tram holds 64 people. The Linden bakery opens at 6 AM. The Cobalt workshop holds 11 workers. The Onyx bakery was rebuilt in 1966. The Linden garden serves 45 visitors. The Pippin bakery closes at 1 PM. The Linden ferry serves 49 workers. The Juniper tram opens at 7 AM. The Garnet bakery closes at 2 PM. The Fable ferry employs 86 visitors. The Sable lighthouse opens at 11 AM. The Aster orchard holds 7 visitors. The Harbor garden holds 43 visitors. The Marlow lighthouse holds 83 workers.\nQuestion: What is the code for the blue door? Answer with just the answer.	2093
+l03	long	long-context	Read these notes, then answer the question.\nNotes: The Sable orchard holds 30 people. The Dune station serves 55 workers. The Ember lighthouse opens at 5 PM. The Garnet garden serves 40 people. The Ember station holds 18 visitors. The Thistle lighthouse serves 88 people. The Ember station closes at 4 PM. The Birch station was rebuilt in 1864. The Pippin ferry serves 35 people. The Dune garden closes at 4 PM. The Juniper museum employs 31 workers. The Quarry ferry was rebuilt in 1990. The Birch garden employs 24 visitors. The Kestrel tram was rebuilt in 1904. The Nettle tram serves 12 workers. The Ember workshop employs 80 visitors. The Harbor lighthouse was rebuilt in 1935. The Pippin workshop serves 35 visitors. The Rowan ferry serves 32 workers. The Ember orchard holds 86 people. The Aster ferry employs 82 workers. The Garnet station employs 29 people. The Linden orchard holds 43 visitors. The Sable workshop opens at 10 AM. The Kestrel tram closes at 8 PM. The Sable lighthouse opens at 1 AM. The Cobalt bakery employs 45 workers. The Kestrel garden holds 13 visitors. The Juniper tram holds 75 workers. The Garnet library holds 87 people. The Nettle library holds 60 visitors. The Iris ferry was rebuilt in 1947. The Onyx museum opens at 4 AM. The Dune station was rebuilt in 1893. The Linden tram serves 78 people. The Aster library serves 55 workers. The Thistle lighthouse closes at 3 AM. The Rowan museum opens at 11 PM. The Juniper tram closes at 11 PM. The Nettle orchard was rebuilt in 1971. The Aster workshop closes at 11 PM. The Rowan library opens at 11 AM. The Fable museum opens at 1 PM. The Marlow library serves 77 visitors. The Juniper orchard was rebuilt in 2005. The Iris museum was rebuilt in 1911. The Quarry lighthouse was rebuilt in 1906. The Dune workshop employs 18 visitors. The Linden orchard holds 43 visitors. The Onyx workshop holds 90 workers. The Garnet library holds 71 visitors. The Sable bakery opens at 11 AM. The Juniper bakery serves 69 workers. The Sable ferry serves 25 people. The code for the blue door is 7354. The Ember tram opens at 4 AM. The Juniper lighthouse employs 57 workers. The Nettle orchard serves 9 visitors. The Nettle tram opens at 7 PM. The Dune garden closes at 10 AM. The Garnet tram holds 13 visitors.\nQuestion: What is the code for the blue door? Answer with just the answer.	7354
+l04	long	long-context	Read these notes, then answer the question.\nNotes: The Dune bakery closes at 12 AM. The Iris lighthouse was rebuilt in 1888. The Fable orchard serves 9 workers. The Quarry orchard was rebuilt in 1922. The Harbor library employs 81 people. The Onyx library holds 70 visitors. The Fable library employs 76 visitors. The Iris lighthouse serves 72 workers. The Quarry bakery opens at 6 AM. The Cobalt lighthouse holds 51 people. The Ember library serves 56 visitors. The Ember museum serves 15 workers. The Linden garden holds 6 people. The Harbor station holds 18 people. The Quarry station closes at 5 PM. The Fable lighthouse opens at 9 PM. The Ember museum was rebuilt in 1943. The Cobalt tram serves 72 people. The Thistle bakery was rebuilt in 1863. The Kestrel bakery was rebuilt in 1918. The Juniper tram holds 9 workers. The Sable ferry employs 79 visitors. The Sable museum holds 72 workers. The Birch library holds 39 visitors. The code for the green door is 3391. The Linden station opens at 2 PM. The Iris library employs 43 workers. The Iris bakery employs 56 visitors. The Nettle station employs 32 visitors. The Harbor tram opens at 9 AM. The Ember workshop holds 58 people. The Sable bakery holds 70 visitors. The Linden workshop holds 51 workers. The Rowan lighthouse holds 29 workers. The Thistle ferry was rebuilt in 1903. The Quarry orchard closes at 10 PM. The Birch ferry holds 65 people. The Fable lighthouse serves 26 visitors. The Dune library holds 41 people. The Cobalt station holds 70 workers. The Harbor workshop holds 61 visitors. The Quarry garden employs 34 visitors. The Kestrel tram opens at 9 PM. The Rowan tram was rebuilt in 1961. The Garnet workshop closes at 7 AM. The Cobalt tram employs 29 workers. The Onyx library was rebuilt in 1965. The Sable workshop closes at 6 PM. The Garnet station opens at 3 AM. The Pippin station serves 69 workers. The Fable bakery employs 83 workers. The Onyx tram employs 58 visitors. The Fable library opens at 9 AM. The Kestrel ferry was rebuilt in 1985. The Juniper ferry serves 6 people. The Harbor lighthouse closes at 1 AM. The Garnet lighthouse was rebuilt in 2003. The Dune library closes at 3 PM. The Nettle library opens at 11 PM. The Nettle bakery employs 5 visitors. The Marlow garden serves 60 people. The code for the red door is 6128. The Quarry library closes at 8 AM. The Thistle lighthouse employs 24 people. The Cobalt garden closes at 8 AM. The Juniper lighthouse employs 10 visitors. The Marlow library serves 43 visitors. The Linden ferry opens at 11 PM. The Marlow museum serves 18 people. The Garnet bakery holds 71 workers. The Harbor museum was rebuilt in 1960. The Pippin library closes at 1 AM. The Harbor ferry was rebuilt in 1896. The Birch workshop holds 29 workers. The Sable orchard opens at 12 PM. The Cobalt orchard serves 55 people. The Juniper bakery serves 28 visitors. The Dune orchard holds 75 workers. The Quarry tram serves 70 visitors. The Onyx library employs 77 workers. The Birch library serves 15 visitors. The Fable garden employs 29 visitors. The Garnet lighthouse serves 11 workers. The Dune station holds 15 workers. The Fable orchard employs 78 visitors. The Aster garden was rebuilt in 1979. The Kestrel lighthouse holds 62 visitors. The Marlow workshop was rebuilt in 1983. The Dune ferry employs 28 visitors. The Kestrel lighthouse was rebuilt in 1975. The Fable museum serves 58 people. The Pippin station serves 82 workers. The Quarry library opens at 1 PM. The Fable museum employs 6 visitors. The Linden tram serves 34 workers. The Fable museum opens at 6 PM. The Harbor orchard holds 81 people. The Juniper museum closes at 3 AM. The Rowan garden closes at 12 PM. The Ember museum employs 81 workers. The Fable workshop opens at 4 PM. The Thistle lighthouse holds 49 workers. The Onyx museum serves 46 workers. The Linden station closes at 4 AM. The Marlow ferry was rebuilt in 1905. The Harbor tram opens at 7 PM. The Birch station opens at 5 PM. The Quarry station was rebuilt in 1916. The Aster garden closes at 3 PM. The Birch station closes at 4 AM. The Thistle museum serves 45 visitors. The Birch museum serves 87 visitors. The Thistle orchard serves 55 visitors. The Thistle orchard was rebuilt in 1964. The Thistle ferry was rebuilt in 1987. The Nettle garden opens at 9 AM. The Nettle bakery employs 8 visitors. The Onyx lighthouse opens at 1 PM. The Thistle garden closes at 9 AM. The Thistle tram was rebuilt in 1988. The Juniper ferry closes at 1 AM. The Onyx ferry closes at 10 PM.\nQuestion: What is the code for the red door? Answer with just the answer.	6128
+t01	term	turn-end	What is 12 times 12? Answer with just the answer.	144\n
+t02	term	turn-end	What is 15 plus 27? Answer with just the answer.	42\n
+t03	term	turn-end	What is 100 minus 37? Answer with just the answer.	63\n
+t04	term	turn-end	What is 72 divided by 8? Answer with just the answer.	9\n
+t05	term	turn-end	What is the square root of 144? Answer with just the answer.	12\n
+t06	term	turn-end	What is 2 to the power of 10? Answer with just the answer.	1024\n
+t07	term	turn-end	What is 25 percent of 200? Answer with just the answer.	50\n
+t08	term	turn-end	What is 13 times 3? Answer with just the answer.	39\n
+t09	term	turn-end	What is 1000 divided by 8? Answer with just the answer.	125\n
+t10	term	turn-end	What is 3 cubed? Answer with just the answer.	27\n
+t11	term	turn-end	What is the capital of France? Answer with just the answer.	Paris\n
+t12	term	turn-end	What is the capital of Japan? Answer with just the answer.	Tokyo\n
+t13	term	turn-end	What is the capital of Italy? Answer with just the answer.	Rome\n
+t14	term	turn-end	What is the capital of Canada? Answer with just the answer.	Ottawa\n
+t15	term	turn-end	What is the capital of Australia? Answer with just the answer.	Canberra\n
+t16	term	turn-end	What is the capital of Germany? Answer with just the answer.	Berlin\n
+t17	term	turn-end	What is the capital of Egypt? Answer with just the answer.	Cairo\n
+t18	term	turn-end	What is the capital of Spain? Answer with just the answer.	Madrid\n
+t19	term	turn-end	What is the capital of Kenya? Answer with just the answer.	Nairobi\n
+t20	term	turn-end	What is the capital of Brazil? Answer with just the answer.	Brasilia\n
+t21	term	turn-end	What is the chemical symbol for gold? Answer with just the answer.	Au\n
+t22	term	turn-end	What is the chemical symbol for silver? Answer with just the answer.	Ag\n
+t23	term	turn-end	What is the chemical symbol for iron? Answer with just the answer.	Fe\n
+t24	term	turn-end	What is the chemical symbol for sodium? Answer with just the answer.	Na\n
+t25	term	turn-end	What is the chemical symbol for potassium? Answer with just the answer.	K\n
+t26	term	turn-end	What is the chemical symbol for oxygen? Answer with just the answer.	O\n
+t27	term	turn-end	What is the chemical symbol for lead? Answer with just the answer.	Pb\n
+t28	term	turn-end	What is the chemical symbol for helium? Answer with just the answer.	He\n
+t29	term	turn-end	In what year did humans first land on the Moon? Answer with just the answer.	1969\n
+t30	term	turn-end	In what year did World War II end? Answer with just the answer.	1945\n
+t31	term	turn-end	In what year was the United States Declaration of Independence adopted? Answer with just the answer.	1776\n
+t32	term	turn-end	In what year did the Berlin Wall fall? Answer with just the answer.	1989\n
+t33	term	turn-end	In what year did Christopher Columbus first reach the Americas? Answer with just the answer.	1492\n
+t34	term	turn-end	In what year did the Titanic sink? Answer with just the answer.	1912\n
+t35	term	turn-end	In what year did World War I begin? Answer with just the answer.	1914\n
+t36	term	turn-end	How many centimeters are in one meter? Answer with just the answer.	100\n
+t37	term	turn-end	How many grams are in one kilogram? Answer with just the answer.	1000\n
+t38	term	turn-end	How many seconds are in one hour? Answer with just the answer.	3600\n
+t39	term	turn-end	How many inches are in one foot? Answer with just the answer.	12\n
+t40	term	turn-end	How many feet are in one yard? Answer with just the answer.	3\n
+t41	term	turn-end	How many days are in a leap year? Answer with just the answer.	366\n
+t42	term	turn-end	How many milliliters are in one liter? Answer with just the answer.	1000\n
+t43	term	turn-end	At sea level, at how many degrees Celsius does water boil? Answer with just the answer.	100\n
+t44	term	turn-end	What is the largest planet in our solar system? Answer with just the answer.	Jupiter\n
+t45	term	turn-end	What planet is closest to the Sun? Answer with just the answer.	Mercury\n
+t46	term	turn-end	What is the chemical formula for water? Answer with just the answer.	H2O\n
+t47	term	turn-end	How many continents are there on Earth? Answer with just the answer.	7\n
+t48	term	turn-end	How many legs does an insect have? Answer with just the answer.	6\n
+t49	term	turn-end	What is the hardest natural substance? Answer with just the answer.	diamond\n
+t50	term	turn-end	Who wrote the play Romeo and Juliet? Answer with just the answer.	Shakespeare\n

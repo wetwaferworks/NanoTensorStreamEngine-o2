@@ -1,0 +1,2269 @@
+{
+ "name": "NanoTensor retention battery",
+ "created": "2026-11-27",
+ "notes": "Matched items for raw bf16, packed, expanded and higher-precision-head arms. tf items are teacher-forced by ln_retain (gold answer scored after the engine's first-turn chat template, thinking off); every item with gen true is also generated greedily by the CUDA engine. No model, pack or machine path is stored here.",
+ "conditions": {
+  "decoding": "greedy",
+  "chat_template": true,
+  "thinking": false,
+  "fresh_conversation_per_item": true
+ },
+ "items": [
+  {
+   "id": "q01",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 12 times 12? Answer with just the answer.",
+   "expect": "144",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q02",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 15 plus 27? Answer with just the answer.",
+   "expect": "42",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q03",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 100 minus 37? Answer with just the answer.",
+   "expect": "63",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q04",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 72 divided by 8? Answer with just the answer.",
+   "expect": "9",
+   "accept": [
+    "nine"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q05",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is the square root of 144? Answer with just the answer.",
+   "expect": "12",
+   "accept": [
+    "twelve"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q06",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 2 to the power of 10? Answer with just the answer.",
+   "expect": "1024",
+   "accept": [
+    "1,024"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q07",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 25 percent of 200? Answer with just the answer.",
+   "expect": "50",
+   "accept": [
+    "fifty"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q08",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 13 times 3? Answer with just the answer.",
+   "expect": "39",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q09",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 1000 divided by 8? Answer with just the answer.",
+   "expect": "125",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q10",
+   "set": "quiz",
+   "category": "math",
+   "prompt": "What is 3 cubed? Answer with just the answer.",
+   "expect": "27",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q11",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of France? Answer with just the answer.",
+   "expect": "Paris",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q12",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Japan? Answer with just the answer.",
+   "expect": "Tokyo",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q13",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Italy? Answer with just the answer.",
+   "expect": "Rome",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q14",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Canada? Answer with just the answer.",
+   "expect": "Ottawa",
+   "wrong": [
+    "Toronto",
+    "Montreal",
+    "Vancouver"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q15",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Australia? Answer with just the answer.",
+   "expect": "Canberra",
+   "wrong": [
+    "Sydney",
+    "Melbourne"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q16",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Germany? Answer with just the answer.",
+   "expect": "Berlin",
+   "wrong": [
+    "Bonn",
+    "Munich"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q17",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Egypt? Answer with just the answer.",
+   "expect": "Cairo",
+   "wrong": [
+    "Alexandria"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q18",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Spain? Answer with just the answer.",
+   "expect": "Madrid",
+   "wrong": [
+    "Barcelona"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q19",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Kenya? Answer with just the answer.",
+   "expect": "Nairobi",
+   "wrong": [
+    "Mombasa"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q20",
+   "set": "quiz",
+   "category": "capital",
+   "prompt": "What is the capital of Brazil? Answer with just the answer.",
+   "expect": "Brasilia",
+   "accept": [
+    "Brasília"
+   ],
+   "wrong": [
+    "Rio de Janeiro",
+    "Sao Paulo",
+    "São Paulo"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q21",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+   "expect": "Au",
+   "wrong": [
+    "Ag",
+    "Go"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q22",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for silver? Answer with just the answer.",
+   "expect": "Ag",
+   "wrong": [
+    "Au",
+    "Si",
+    "Sv"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q23",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for iron? Answer with just the answer.",
+   "expect": "Fe",
+   "wrong": [
+    "Ir"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q24",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for sodium? Answer with just the answer.",
+   "expect": "Na",
+   "wrong": [
+    "So",
+    "S",
+    "Sd"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q25",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for potassium? Answer with just the answer.",
+   "expect": "K",
+   "wrong": [
+    "P",
+    "Po",
+    "Pt"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q26",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for oxygen? Answer with just the answer.",
+   "expect": "O",
+   "wrong": [
+    "Ox",
+    "Os"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q27",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for lead? Answer with just the answer.",
+   "expect": "Pb",
+   "wrong": [
+    "Le",
+    "Ld",
+    "L"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q28",
+   "set": "quiz",
+   "category": "chem-symbol",
+   "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+   "expect": "He",
+   "wrong": [
+    "H",
+    "Hl",
+    "Hm"
+   ],
+   "tf": true,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "q29",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did humans first land on the Moon? Answer with just the answer.",
+   "expect": "1969",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q30",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did World War II end? Answer with just the answer.",
+   "expect": "1945",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q31",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+   "expect": "1776",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q32",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did the Berlin Wall fall? Answer with just the answer.",
+   "expect": "1989",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q33",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did Christopher Columbus first reach the Americas? Answer with just the answer.",
+   "expect": "1492",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q34",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did the Titanic sink? Answer with just the answer.",
+   "expect": "1912",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q35",
+   "set": "quiz",
+   "category": "date",
+   "prompt": "In what year did World War I begin? Answer with just the answer.",
+   "expect": "1914",
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q36",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many centimeters are in one meter? Answer with just the answer.",
+   "expect": "100",
+   "accept": [
+    "one hundred"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q37",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+   "expect": "1000",
+   "accept": [
+    "1,000",
+    "one thousand"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q38",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many seconds are in one hour? Answer with just the answer.",
+   "expect": "3600",
+   "accept": [
+    "3,600"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q39",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many inches are in one foot? Answer with just the answer.",
+   "expect": "12",
+   "accept": [
+    "twelve"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q40",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many feet are in one yard? Answer with just the answer.",
+   "expect": "3",
+   "accept": [
+    "three"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q41",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many days are in a leap year? Answer with just the answer.",
+   "expect": "366",
+   "wrong": [
+    "365"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q42",
+   "set": "quiz",
+   "category": "units",
+   "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+   "expect": "1000",
+   "accept": [
+    "1,000",
+    "one thousand"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q43",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "At sea level, at how many degrees Celsius does water boil? Answer with just the answer.",
+   "expect": "100",
+   "accept": [
+    "one hundred"
+   ],
+   "wrong": [
+    "212"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q44",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+   "expect": "Jupiter",
+   "wrong": [
+    "Earth",
+    "Saturn",
+    "Neptune",
+    "Uranus"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q45",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+   "expect": "Mercury",
+   "wrong": [
+    "Venus",
+    "Earth",
+    "Mars"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q46",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "What is the chemical formula for water? Answer with just the answer.",
+   "expect": "H2O",
+   "accept": [
+    "H₂O"
+   ],
+   "wrong": [
+    "HO2",
+    "H2O2",
+    "CO2"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q47",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "How many continents are there on Earth? Answer with just the answer.",
+   "expect": "7",
+   "accept": [
+    "seven"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q48",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "How many legs does an insect have? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "wrong": [
+    "8",
+    "eight"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q49",
+   "set": "quiz",
+   "category": "science",
+   "prompt": "What is the hardest natural substance? Answer with just the answer.",
+   "expect": "diamond",
+   "accept": [
+    "diamonds"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "q50",
+   "set": "quiz",
+   "category": "general",
+   "prompt": "Who wrote the play Romeo and Juliet? Answer with just the answer.",
+   "expect": "Shakespeare",
+   "accept": [
+    "William Shakespeare"
+   ],
+   "tf": true,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "c04",
+   "set": "cand",
+   "category": "math",
+   "prompt": "What is 72 divided by 8? Answer with just the answer.",
+   "expect": "7",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q04"
+  },
+  {
+   "id": "c05",
+   "set": "cand",
+   "category": "math",
+   "prompt": "What is the square root of 144? Answer with just the answer.",
+   "expect": "42",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q05"
+  },
+  {
+   "id": "c08",
+   "set": "cand",
+   "category": "math",
+   "prompt": "What is 13 times 3? Answer with just the answer.",
+   "expect": "49",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q08"
+  },
+  {
+   "id": "c14",
+   "set": "cand",
+   "category": "capital",
+   "prompt": "What is the capital of Canada? Answer with just the answer.",
+   "expect": "Toronto",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q14"
+  },
+  {
+   "id": "c31",
+   "set": "cand",
+   "category": "date",
+   "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+   "expect": "1789",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q31"
+  },
+  {
+   "id": "c37",
+   "set": "cand",
+   "category": "units",
+   "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+   "expect": "44.39",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q37"
+  },
+  {
+   "id": "c38",
+   "set": "cand",
+   "category": "units",
+   "prompt": "How many seconds are in one hour? Answer with just the answer.",
+   "expect": "60",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q38"
+  },
+  {
+   "id": "c39",
+   "set": "cand",
+   "category": "units",
+   "prompt": "How many inches are in one foot? Answer with just the answer.",
+   "expect": "60",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q39"
+  },
+  {
+   "id": "c41",
+   "set": "cand",
+   "category": "units",
+   "prompt": "How many days are in a leap year? Answer with just the answer.",
+   "expect": "365",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q41"
+  },
+  {
+   "id": "c42",
+   "set": "cand",
+   "category": "units",
+   "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+   "expect": "1",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q42"
+  },
+  {
+   "id": "c44",
+   "set": "cand",
+   "category": "science",
+   "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+   "expect": "Earth",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q44"
+  },
+  {
+   "id": "c45",
+   "set": "cand",
+   "category": "science",
+   "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+   "expect": "Mars",
+   "tf": true,
+   "gen": false,
+   "gold_of": "q45"
+  },
+  {
+   "id": "p_ottawa_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What is the capital of Canada? Answer with just the answer.",
+   "expect": "Ottawa",
+   "tf": true,
+   "group": "ottawa",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_ottawa_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Which city is the capital of Canada? Answer with just the answer.",
+   "expect": "Ottawa",
+   "tf": true,
+   "group": "ottawa",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_ottawa_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Canada's capital city is which city? Answer with just the answer.",
+   "expect": "Ottawa",
+   "tf": true,
+   "group": "ottawa",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_jupiter_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Which planet is the largest in our solar system? Answer with just the answer.",
+   "expect": "Jupiter",
+   "tf": true,
+   "group": "jupiter",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_jupiter_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Name the biggest planet in the solar system. Answer with just the answer.",
+   "expect": "Jupiter",
+   "tf": true,
+   "group": "jupiter",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_jupiter_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Of all the planets orbiting the Sun, which one is the largest? Answer with just the answer.",
+   "expect": "Jupiter",
+   "tf": true,
+   "group": "jupiter",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_mercury_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Which planet orbits closest to the Sun? Answer with just the answer.",
+   "expect": "Mercury",
+   "tf": true,
+   "group": "mercury",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_mercury_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Name the planet nearest to the Sun. Answer with just the answer.",
+   "expect": "Mercury",
+   "tf": true,
+   "group": "mercury",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_mercury_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What is the innermost planet of the solar system? Answer with just the answer.",
+   "expect": "Mercury",
+   "tf": true,
+   "group": "mercury",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_leap_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "A leap year has how many days? Answer with just the answer.",
+   "expect": "366",
+   "tf": true,
+   "group": "leap",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_leap_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "How many days does a leap year contain? Answer with just the answer.",
+   "expect": "366",
+   "tf": true,
+   "group": "leap",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_leap_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Count the days in a leap year. How many are there? Answer with just the answer.",
+   "expect": "366",
+   "tf": true,
+   "group": "leap",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_paris_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What is the capital of France? Answer with just the answer.",
+   "expect": "Paris",
+   "tf": true,
+   "group": "paris",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_paris_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Which city is the capital of France? Answer with just the answer.",
+   "expect": "Paris",
+   "tf": true,
+   "group": "paris",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_paris_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "France's capital city is which city? Answer with just the answer.",
+   "expect": "Paris",
+   "tf": true,
+   "group": "paris",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_moon_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "In which year did humans first land on the Moon? Answer with just the answer.",
+   "expect": "1969",
+   "tf": true,
+   "group": "moon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_moon_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What year was the first crewed Moon landing? Answer with just the answer.",
+   "expect": "1969",
+   "tf": true,
+   "group": "moon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_moon_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Apollo 11 landed on the Moon in what year? Answer with just the answer.",
+   "expect": "1969",
+   "tf": true,
+   "group": "moon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_gold_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+   "expect": "Au",
+   "tf": true,
+   "group": "gold",
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "p_gold_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Which element symbol stands for gold? Answer with just the answer.",
+   "expect": "Au",
+   "tf": true,
+   "group": "gold",
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "p_gold_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Gold is written with what chemical symbol? Answer with just the answer.",
+   "expect": "Au",
+   "tf": true,
+   "group": "gold",
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "p_insect_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "How many legs does an insect have? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "insect",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_insect_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "An insect has how many legs? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "insect",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_insect_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Count the legs on a typical adult insect. How many are there? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "insect",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_romeo_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Who wrote Romeo and Juliet? Answer with just the answer.",
+   "expect": "Shakespeare",
+   "accept": [
+    "William Shakespeare"
+   ],
+   "tf": true,
+   "group": "romeo",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_romeo_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Romeo and Juliet was written by whom? Answer with just the answer.",
+   "expect": "Shakespeare",
+   "accept": [
+    "William Shakespeare"
+   ],
+   "tf": true,
+   "group": "romeo",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_romeo_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Name the author of the play Romeo and Juliet. Answer with just the answer.",
+   "expect": "Shakespeare",
+   "accept": [
+    "William Shakespeare"
+   ],
+   "tf": true,
+   "group": "romeo",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_decl_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+   "expect": "1776",
+   "tf": true,
+   "group": "decl",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_decl_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "The Declaration of Independence was adopted in which year? Answer with just the answer.",
+   "expect": "1776",
+   "tf": true,
+   "group": "decl",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_decl_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What year did the American colonies adopt the Declaration of Independence? Answer with just the answer.",
+   "expect": "1776",
+   "tf": true,
+   "group": "decl",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_water_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "What is the chemical formula for water? Answer with just the answer.",
+   "expect": "H2O",
+   "accept": [
+    "H₂O"
+   ],
+   "tf": true,
+   "group": "water",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_water_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Water has what chemical formula? Answer with just the answer.",
+   "expect": "H2O",
+   "accept": [
+    "H₂O"
+   ],
+   "tf": true,
+   "group": "water",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_water_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Write the chemical formula of water. Answer with just the answer.",
+   "expect": "H2O",
+   "accept": [
+    "H₂O"
+   ],
+   "tf": true,
+   "group": "water",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hour_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "How many seconds are in one hour? Answer with just the answer.",
+   "expect": "3600",
+   "accept": [
+    "3,600"
+   ],
+   "tf": true,
+   "group": "hour",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hour_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "One hour contains how many seconds? Answer with just the answer.",
+   "expect": "3600",
+   "accept": [
+    "3,600"
+   ],
+   "tf": true,
+   "group": "hour",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hour_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "If you count every second in an hour, how many seconds is that? Answer with just the answer.",
+   "expect": "3600",
+   "accept": [
+    "3,600"
+   ],
+   "tf": true,
+   "group": "hour",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hexagon_1",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "How many sides does a hexagon have? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "hexagon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hexagon_2",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "A hexagon has how many sides? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "hexagon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "p_hexagon_3",
+   "set": "para",
+   "category": "paraphrase",
+   "prompt": "Count the sides of a hexagon. How many are there? Answer with just the answer.",
+   "expect": "6",
+   "accept": [
+    "six"
+   ],
+   "tf": true,
+   "group": "hexagon",
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "m01",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "Maya buys 4 pens at 3 dollars each and pays with a 20 dollar bill. How many dollars of change does she get? Answer with just the answer.",
+   "expect": "8",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m02",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A train travels at 60 kilometers per hour for 3 hours, then at 40 kilometers per hour for 2 hours. How many kilometers does it travel in total? Answer with just the answer.",
+   "expect": "260",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m03",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "Tom has 3 boxes with 12 apples in each box. He gives away 10 apples. How many apples does he have left? Answer with just the answer.",
+   "expect": "26",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m04",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "What is (8 + 4) times 5, minus 7? Answer with just the answer.",
+   "expect": "53",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m05",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A rectangle is 7 meters long and 5 meters wide. What is its perimeter in meters? Answer with just the answer.",
+   "expect": "24",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m06",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "Sara reads 15 pages a day. How many pages does she read in 2 weeks? Answer with just the answer.",
+   "expect": "210",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m07",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A shirt costs 40 dollars and is discounted by 25 percent. What is the sale price in dollars? Answer with just the answer.",
+   "expect": "30",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m08",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A class has 28 students. Half of them play soccer, and 4 of the soccer players also play chess. How many soccer players do not play chess? Answer with just the answer.",
+   "expect": "10",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m09",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "What is 3 squared plus 4 squared? Answer with just the answer.",
+   "expect": "25",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m10",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "Ben is twice as old as Ana. Ana is 9 years old. How old will Ben be in 5 years? Answer with just the answer.",
+   "expect": "23",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m11",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "What is 1000 minus 3 times 125? Answer with just the answer.",
+   "expect": "625",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "m12",
+   "set": "multi",
+   "category": "multistep",
+   "prompt": "A baker makes 6 trays of 8 muffins and sells 30 of them. How many muffins are left? Answer with just the answer.",
+   "expect": "18",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r01",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: In the village of Orlen, the mill opens at 6 AM. The bakery opens two hours after the mill, and the market opens one hour after the bakery.\nQuestion: At what time does the market open? Answer with just the answer.",
+   "expect": "9 AM",
+   "accept": [
+    "9:00 AM",
+    "9 a.m.",
+    "9am",
+    "9:00"
+   ],
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r02",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: Kira has three pets: a cat named Bolt, a dog named Pebble, and a parrot named Juno. The dog is the oldest, and the parrot is younger than the cat.\nQuestion: Which pet is the youngest? Give its name. Answer with just the answer.",
+   "expect": "Juno",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r03",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: The Tarn Bridge is 340 meters long. The Vell Bridge is 120 meters shorter than the Tarn Bridge.\nQuestion: How long is the Vell Bridge, in meters? Answer with just the answer.",
+   "expect": "220",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r04",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: In the game of Skiv, a red token is worth 5 points, a blue token is worth 3 points, and a green token is worth 1 point. Lio has 2 red tokens and 3 blue tokens.\nQuestion: How many points does Lio have? Answer with just the answer.",
+   "expect": "19",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r05",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: The Fennick library is closed every Tuesday and open every other day. Mara wants to visit on the day after Monday.\nQuestion: Will the library be open when Mara visits? Answer yes or no. Answer with just the answer.",
+   "expect": "No",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r06",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: Dr. Ilsen discovered the mineral quarrite in 1931. Twelve years later, her student Pavo first described its blue form.\nQuestion: In what year was the blue form first described? Answer with just the answer.",
+   "expect": "1943",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r07",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: Five runners finished a race. Ada finished before Bea. Cal finished after Bea but before Dov. Eli finished last.\nQuestion: Who finished fourth? Answer with just the answer.",
+   "expect": "Dov",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r08",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: The planet Vorra has two moons. Ise orbits Vorra in 9 days, and Telo takes three times as long as Ise.\nQuestion: How many days does Telo take to orbit Vorra? Answer with just the answer.",
+   "expect": "27",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r09",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: A jar holds only marbles: 4 are red, 6 are green, and the rest are white. There are 15 marbles in all.\nQuestion: How many marbles are white? Answer with just the answer.",
+   "expect": "5",
+   "accept": [
+    "five"
+   ],
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "r10",
+   "set": "pass",
+   "category": "passage",
+   "prompt": "Read the passage and answer the question.\nPassage: The city of Quell is north of Dara. Dara is north of Mirn.\nQuestion: Which of the three cities is farthest south? Answer with just the answer.",
+   "expect": "Mirn",
+   "tf": true,
+   "gen": true
+  },
+  {
+   "id": "u01",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What is the capital city of the country of Zantoria? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u02",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "In what year did the explorer Hendrik Valmoor reach the summit of Mount Ostrel? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u03",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What is the chemical symbol for the element vorinium? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u04",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "Who won the 1987 Nobel Prize in Interplanetary Gardening? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u05",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "How many moons does the planet Krellis have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u06",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What is the phone number of the Blue Heron Cafe in the town of Pellford? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u07",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What was the population of the city of Ardenmoor in the year 1600? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "u08",
+   "set": "calib",
+   "category": "unanswerable",
+   "prompt": "What is the title of the third novel by the author Imogen Tarsk? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "I don't know",
+   "tf": true,
+   "abstain": true,
+   "gen": true
+  },
+  {
+   "id": "k01",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "What is the capital of Italy? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Rome",
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k02",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "What is the chemical symbol for oxygen? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "O",
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": true,
+   "gen": true
+  },
+  {
+   "id": "k03",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "How many continents are there on Earth? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "7",
+   "accept": [
+    "seven"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k04",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "Who painted the Mona Lisa? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Leonardo da Vinci",
+   "accept": [
+    "Leonardo",
+    "da Vinci"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k05",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "What is the capital of Japan? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Tokyo",
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k06",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "How many sides does a triangle have? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "3",
+   "accept": [
+    "three"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k07",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "What gas do plants absorb from the air for photosynthesis? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Carbon dioxide",
+   "accept": [
+    "CO2",
+    "carbon dioxide"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "k08",
+   "set": "calib",
+   "category": "answerable",
+   "prompt": "What is the largest ocean on Earth? Answer with just the answer. If the question has no real answer or you do not know it, reply exactly: I don't know.",
+   "expect": "Pacific",
+   "accept": [
+    "Pacific Ocean"
+   ],
+   "tf": true,
+   "abstain": false,
+   "case_sensitive": false,
+   "gen": true
+  },
+  {
+   "id": "i01",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Reply with the word yes in all capital letters and nothing else.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "exact": "YES"
+   },
+   "gen": true
+  },
+  {
+   "id": "i02",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "List three fruits, one per line, with nothing else.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "lines": 3
+   },
+   "gen": true
+  },
+  {
+   "id": "i03",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Answer in exactly one word: what color is a clear daytime sky?",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "words": 1,
+    "any": [
+     "blue"
+    ]
+   },
+   "gen": true
+  },
+  {
+   "id": "i04",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Respond with only a JSON object that has the key \"city\" with the value \"Paris\".",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "json": {
+     "city": "Paris"
+    }
+   },
+   "gen": true
+  },
+  {
+   "id": "i05",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Count from 1 to 5, separated by commas, and nothing else.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "regex": "^\\s*1\\s*,\\s*2\\s*,\\s*3\\s*,\\s*4\\s*,\\s*5\\.?\\s*$"
+   },
+   "gen": true
+  },
+  {
+   "id": "i06",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Repeat this sentence exactly: The quick brown fox jumps over the lazy dog.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "exact": "The quick brown fox jumps over the lazy dog."
+   },
+   "gen": true
+  },
+  {
+   "id": "i07",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "What is the capital of France? Reply in lowercase letters only.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "exact": "paris",
+    "lower": true
+   },
+   "gen": true
+  },
+  {
+   "id": "i08",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Start your reply with the word Certainly, then name one primary color.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "starts": "Certainly",
+    "any": [
+     "red",
+     "blue",
+     "yellow"
+    ]
+   },
+   "gen": true
+  },
+  {
+   "id": "i09",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Write the numbers 3, 1 and 2 in increasing order, separated by spaces, and nothing else.",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "regex": "^\\s*1 2 3\\.?\\s*$"
+   },
+   "gen": true
+  },
+  {
+   "id": "i10",
+   "set": "instr",
+   "category": "instruction",
+   "prompt": "Give a one-sentence answer that ends with an exclamation mark: what do bees make?",
+   "expect": "",
+   "tf": false,
+   "check": {
+    "ends": "!",
+    "any": [
+     "honey"
+    ],
+    "lines": 1
+   },
+   "gen": true
+  },
+  {
+   "id": "l01",
+   "set": "long",
+   "category": "long-context",
+   "prompt": "Read these notes, then answer the question.\nNotes: The Birch station was rebuilt in 1927. The Rowan bakery closes at 5 PM. The Harbor orchard opens at 3 PM. The Birch bakery holds 29 people. The Sable garden closes at 12 AM. The Birch garden serves 76 workers. The code for the blue door is 4817. The Rowan orchard employs 7 workers. The Birch garden closes at 9 AM. The Marlow orchard closes at 5 PM. The Quarry bakery employs 83 people. The Juniper library serves 16 workers. The Iris tram closes at 6 AM. The Pippin bakery serves 13 people. The Aster station holds 8 visitors. The Harbor orchard was rebuilt in 1963. The Thistle orchard closes at 1 AM. The Thistle museum opens at 8 PM. The Juniper bakery employs 32 visitors. The Dune tram was rebuilt in 1860. The Thistle orchard opens at 10 AM. The Fable ferry holds 74 people. The Sable tram was rebuilt in 1952. The Juniper ferry employs 10 visitors. The Iris station closes at 7 PM. The Juniper tram serves 41 visitors. The Sable ferry employs 15 people. The Kestrel bakery holds 76 workers. The Linden bakery employs 59 visitors. The Onyx library serves 90 visitors. The Juniper workshop closes at 1 PM. The Fable library was rebuilt in 1913. The Harbor library employs 14 people. The Ember library opens at 8 AM. The Sable orchard was rebuilt in 1877. The Harbor station serves 49 visitors. The Rowan library was rebuilt in 1932. The Rowan library employs 5 people. The Quarry library opens at 4 AM. The Ember ferry closes at 3 AM. The Cobalt library opens at 8 PM. The Fable museum holds 39 workers. The Linden bakery opens at 12 AM. The Birch ferry employs 5 visitors. The Iris workshop employs 64 people. The Rowan orchard opens at 11 PM. The Pippin ferry employs 88 people. The Garnet lighthouse employs 87 visitors. The Rowan orchard opens at 9 AM. The Birch tram employs 60 visitors. The Rowan lighthouse serves 21 people. The Dune tram holds 4 people. The Fable workshop serves 10 workers. The Pippin workshop serves 63 people. The Harbor workshop was rebuilt in 1976. The Aster tram closes at 4 PM. The Thistle tram serves 26 workers. The Garnet ferry serves 26 workers. The Iris lighthouse employs 83 workers. The Quarry lighthouse holds 63 people. The Thistle lighthouse employs 28 workers.\nQuestion: What is the code for the blue door? Answer with just the answer.",
+   "expect": "4817",
+   "tf": true,
+   "depth": 0.1,
+   "gen": true
+  },
+  {
+   "id": "l02",
+   "set": "long",
+   "category": "long-context",
+   "prompt": "Read these notes, then answer the question.\nNotes: The Marlow station holds 53 people. The Linden station was rebuilt in 1879. The Cobalt garden serves 33 workers. The Nettle garden employs 63 workers. The Fable station opens at 5 AM. The Thistle station employs 76 workers. The Aster tram serves 33 visitors. The Quarry tram holds 86 people. The Onyx ferry employs 9 visitors. The Sable lighthouse was rebuilt in 1859. The Dune orchard employs 55 people. The Ember workshop closes at 2 PM. The Rowan lighthouse was rebuilt in 1925. The Fable bakery opens at 8 PM. The Juniper station closes at 10 AM. The Juniper tram was rebuilt in 1880. The Garnet orchard opens at 6 AM. The Fable bakery closes at 9 AM. The Dune orchard was rebuilt in 1867. The Thistle garden holds 19 workers. The Dune tram holds 12 people. The Kestrel orchard closes at 8 PM. The Sable workshop closes at 5 PM. The Pippin library serves 32 visitors. The Aster library was rebuilt in 1892. The Garnet tram closes at 2 AM. The Rowan orchard was rebuilt in 1960. The Thistle station opens at 10 PM. The Pippin museum serves 15 visitors. The Fable lighthouse holds 31 workers. The code for the blue door is 2093. The Quarry ferry serves 21 workers. The Cobalt library serves 82 people. The Quarry museum serves 69 people. The Cobalt tram serves 62 workers. The Ember workshop closes at 10 AM. The Harbor orchard closes at 3 AM. The Dune museum serves 81 visitors. The Birch station holds 51 visitors. The Harbor bakery employs 25 visitors. The Nettle garden employs 39 people. The Aster workshop serves 16 workers. The Birch station closes at 3 AM. The Pippin tram closes at 8 PM. The Onyx museum holds 64 people. The Garnet ferry serves 10 workers. The Dune museum holds 83 people. The Quarry tram holds 64 people. The Linden bakery opens at 6 AM. The Cobalt workshop holds 11 workers. The Onyx bakery was rebuilt in 1966. The Linden garden serves 45 visitors. The Pippin bakery closes at 1 PM. The Linden ferry serves 49 workers. The Juniper tram opens at 7 AM. The Garnet bakery closes at 2 PM. The Fable ferry employs 86 visitors. The Sable lighthouse opens at 11 AM. The Aster orchard holds 7 visitors. The Harbor garden holds 43 visitors. The Marlow lighthouse holds 83 workers.\nQuestion: What is the code for the blue door? Answer with just the answer.",
+   "expect": "2093",
+   "tf": true,
+   "depth": 0.5,
+   "gen": true
+  },
+  {
+   "id": "l03",
+   "set": "long",
+   "category": "long-context",
+   "prompt": "Read these notes, then answer the question.\nNotes: The Sable orchard holds 30 people. The Dune station serves 55 workers. The Ember lighthouse opens at 5 PM. The Garnet garden serves 40 people. The Ember station holds 18 visitors. The Thistle lighthouse serves 88 people. The Ember station closes at 4 PM. The Birch station was rebuilt in 1864. The Pippin ferry serves 35 people. The Dune garden closes at 4 PM. The Juniper museum employs 31 workers. The Quarry ferry was rebuilt in 1990. The Birch garden employs 24 visitors. The Kestrel tram was rebuilt in 1904. The Nettle tram serves 12 workers. The Ember workshop employs 80 visitors. The Harbor lighthouse was rebuilt in 1935. The Pippin workshop serves 35 visitors. The Rowan ferry serves 32 workers. The Ember orchard holds 86 people. The Aster ferry employs 82 workers. The Garnet station employs 29 people. The Linden orchard holds 43 visitors. The Sable workshop opens at 10 AM. The Kestrel tram closes at 8 PM. The Sable lighthouse opens at 1 AM. The Cobalt bakery employs 45 workers. The Kestrel garden holds 13 visitors. The Juniper tram holds 75 workers. The Garnet library holds 87 people. The Nettle library holds 60 visitors. The Iris ferry was rebuilt in 1947. The Onyx museum opens at 4 AM. The Dune station was rebuilt in 1893. The Linden tram serves 78 people. The Aster library serves 55 workers. The Thistle lighthouse closes at 3 AM. The Rowan museum opens at 11 PM. The Juniper tram closes at 11 PM. The Nettle orchard was rebuilt in 1971. The Aster workshop closes at 11 PM. The Rowan library opens at 11 AM. The Fable museum opens at 1 PM. The Marlow library serves 77 visitors. The Juniper orchard was rebuilt in 2005. The Iris museum was rebuilt in 1911. The Quarry lighthouse was rebuilt in 1906. The Dune workshop employs 18 visitors. The Linden orchard holds 43 visitors. The Onyx workshop holds 90 workers. The Garnet library holds 71 visitors. The Sable bakery opens at 11 AM. The Juniper bakery serves 69 workers. The Sable ferry serves 25 people. The code for the blue door is 7354. The Ember tram opens at 4 AM. The Juniper lighthouse employs 57 workers. The Nettle orchard serves 9 visitors. The Nettle tram opens at 7 PM. The Dune garden closes at 10 AM. The Garnet tram holds 13 visitors.\nQuestion: What is the code for the blue door? Answer with just the answer.",
+   "expect": "7354",
+   "tf": true,
+   "depth": 0.9,
+   "gen": true
+  },
+  {
+   "id": "l04",
+   "set": "long",
+   "category": "long-context",
+   "prompt": "Read these notes, then answer the question.\nNotes: The Dune bakery closes at 12 AM. The Iris lighthouse was rebuilt in 1888. The Fable orchard serves 9 workers. The Quarry orchard was rebuilt in 1922. The Harbor library employs 81 people. The Onyx library holds 70 visitors. The Fable library employs 76 visitors. The Iris lighthouse serves 72 workers. The Quarry bakery opens at 6 AM. The Cobalt lighthouse holds 51 people. The Ember library serves 56 visitors. The Ember museum serves 15 workers. The Linden garden holds 6 people. The Harbor station holds 18 people. The Quarry station closes at 5 PM. The Fable lighthouse opens at 9 PM. The Ember museum was rebuilt in 1943. The Cobalt tram serves 72 people. The Thistle bakery was rebuilt in 1863. The Kestrel bakery was rebuilt in 1918. The Juniper tram holds 9 workers. The Sable ferry employs 79 visitors. The Sable museum holds 72 workers. The Birch library holds 39 visitors. The code for the green door is 3391. The Linden station opens at 2 PM. The Iris library employs 43 workers. The Iris bakery employs 56 visitors. The Nettle station employs 32 visitors. The Harbor tram opens at 9 AM. The Ember workshop holds 58 people. The Sable bakery holds 70 visitors. The Linden workshop holds 51 workers. The Rowan lighthouse holds 29 workers. The Thistle ferry was rebuilt in 1903. The Quarry orchard closes at 10 PM. The Birch ferry holds 65 people. The Fable lighthouse serves 26 visitors. The Dune library holds 41 people. The Cobalt station holds 70 workers. The Harbor workshop holds 61 visitors. The Quarry garden employs 34 visitors. The Kestrel tram opens at 9 PM. The Rowan tram was rebuilt in 1961. The Garnet workshop closes at 7 AM. The Cobalt tram employs 29 workers. The Onyx library was rebuilt in 1965. The Sable workshop closes at 6 PM. The Garnet station opens at 3 AM. The Pippin station serves 69 workers. The Fable bakery employs 83 workers. The Onyx tram employs 58 visitors. The Fable library opens at 9 AM. The Kestrel ferry was rebuilt in 1985. The Juniper ferry serves 6 people. The Harbor lighthouse closes at 1 AM. The Garnet lighthouse was rebuilt in 2003. The Dune library closes at 3 PM. The Nettle library opens at 11 PM. The Nettle bakery employs 5 visitors. The Marlow garden serves 60 people. The code for the red door is 6128. The Quarry library closes at 8 AM. The Thistle lighthouse employs 24 people. The Cobalt garden closes at 8 AM. The Juniper lighthouse employs 10 visitors. The Marlow library serves 43 visitors. The Linden ferry opens at 11 PM. The Marlow museum serves 18 people. The Garnet bakery holds 71 workers. The Harbor museum was rebuilt in 1960. The Pippin library closes at 1 AM. The Harbor ferry was rebuilt in 1896. The Birch workshop holds 29 workers. The Sable orchard opens at 12 PM. The Cobalt orchard serves 55 people. The Juniper bakery serves 28 visitors. The Dune orchard holds 75 workers. The Quarry tram serves 70 visitors. The Onyx library employs 77 workers. The Birch library serves 15 visitors. The Fable garden employs 29 visitors. The Garnet lighthouse serves 11 workers. The Dune station holds 15 workers. The Fable orchard employs 78 visitors. The Aster garden was rebuilt in 1979. The Kestrel lighthouse holds 62 visitors. The Marlow workshop was rebuilt in 1983. The Dune ferry employs 28 visitors. The Kestrel lighthouse was rebuilt in 1975. The Fable museum serves 58 people. The Pippin station serves 82 workers. The Quarry library opens at 1 PM. The Fable museum employs 6 visitors. The Linden tram serves 34 workers. The Fable museum opens at 6 PM. The Harbor orchard holds 81 people. The Juniper museum closes at 3 AM. The Rowan garden closes at 12 PM. The Ember museum employs 81 workers. The Fable workshop opens at 4 PM. The Thistle lighthouse holds 49 workers. The Onyx museum serves 46 workers. The Linden station closes at 4 AM. The Marlow ferry was rebuilt in 1905. The Harbor tram opens at 7 PM. The Birch station opens at 5 PM. The Quarry station was rebuilt in 1916. The Aster garden closes at 3 PM. The Birch station closes at 4 AM. The Thistle museum serves 45 visitors. The Birch museum serves 87 visitors. The Thistle orchard serves 55 visitors. The Thistle orchard was rebuilt in 1964. The Thistle ferry was rebuilt in 1987. The Nettle garden opens at 9 AM. The Nettle bakery employs 8 visitors. The Onyx lighthouse opens at 1 PM. The Thistle garden closes at 9 AM. The Thistle tram was rebuilt in 1988. The Juniper ferry closes at 1 AM. The Onyx ferry closes at 10 PM.\nQuestion: What is the code for the red door? Answer with just the answer.",
+   "expect": "6128",
+   "wrong": [
+    "3391"
+   ],
+   "tf": true,
+   "depth": 0.5,
+   "gen": true
+  },
+  {
+   "id": "t01",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 12 times 12? Answer with just the answer.",
+   "expect": "144\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t02",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 15 plus 27? Answer with just the answer.",
+   "expect": "42\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t03",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 100 minus 37? Answer with just the answer.",
+   "expect": "63\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t04",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 72 divided by 8? Answer with just the answer.",
+   "expect": "9\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t05",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the square root of 144? Answer with just the answer.",
+   "expect": "12\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t06",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 2 to the power of 10? Answer with just the answer.",
+   "expect": "1024\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t07",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 25 percent of 200? Answer with just the answer.",
+   "expect": "50\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t08",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 13 times 3? Answer with just the answer.",
+   "expect": "39\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t09",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 1000 divided by 8? Answer with just the answer.",
+   "expect": "125\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t10",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is 3 cubed? Answer with just the answer.",
+   "expect": "27\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t11",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of France? Answer with just the answer.",
+   "expect": "Paris\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t12",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Japan? Answer with just the answer.",
+   "expect": "Tokyo\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t13",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Italy? Answer with just the answer.",
+   "expect": "Rome\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t14",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Canada? Answer with just the answer.",
+   "expect": "Ottawa\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t15",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Australia? Answer with just the answer.",
+   "expect": "Canberra\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t16",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Germany? Answer with just the answer.",
+   "expect": "Berlin\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t17",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Egypt? Answer with just the answer.",
+   "expect": "Cairo\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t18",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Spain? Answer with just the answer.",
+   "expect": "Madrid\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t19",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Kenya? Answer with just the answer.",
+   "expect": "Nairobi\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t20",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the capital of Brazil? Answer with just the answer.",
+   "expect": "Brasilia\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t21",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for gold? Answer with just the answer.",
+   "expect": "Au\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t22",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for silver? Answer with just the answer.",
+   "expect": "Ag\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t23",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for iron? Answer with just the answer.",
+   "expect": "Fe\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t24",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for sodium? Answer with just the answer.",
+   "expect": "Na\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t25",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for potassium? Answer with just the answer.",
+   "expect": "K\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t26",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for oxygen? Answer with just the answer.",
+   "expect": "O\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t27",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for lead? Answer with just the answer.",
+   "expect": "Pb\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t28",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical symbol for helium? Answer with just the answer.",
+   "expect": "He\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t29",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did humans first land on the Moon? Answer with just the answer.",
+   "expect": "1969\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t30",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did World War II end? Answer with just the answer.",
+   "expect": "1945\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t31",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year was the United States Declaration of Independence adopted? Answer with just the answer.",
+   "expect": "1776\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t32",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did the Berlin Wall fall? Answer with just the answer.",
+   "expect": "1989\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t33",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did Christopher Columbus first reach the Americas? Answer with just the answer.",
+   "expect": "1492\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t34",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did the Titanic sink? Answer with just the answer.",
+   "expect": "1912\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t35",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "In what year did World War I begin? Answer with just the answer.",
+   "expect": "1914\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t36",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many centimeters are in one meter? Answer with just the answer.",
+   "expect": "100\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t37",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many grams are in one kilogram? Answer with just the answer.",
+   "expect": "1000\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t38",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many seconds are in one hour? Answer with just the answer.",
+   "expect": "3600\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t39",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many inches are in one foot? Answer with just the answer.",
+   "expect": "12\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t40",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many feet are in one yard? Answer with just the answer.",
+   "expect": "3\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t41",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many days are in a leap year? Answer with just the answer.",
+   "expect": "366\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t42",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many milliliters are in one liter? Answer with just the answer.",
+   "expect": "1000\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t43",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "At sea level, at how many degrees Celsius does water boil? Answer with just the answer.",
+   "expect": "100\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t44",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the largest planet in our solar system? Answer with just the answer.",
+   "expect": "Jupiter\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t45",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What planet is closest to the Sun? Answer with just the answer.",
+   "expect": "Mercury\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t46",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the chemical formula for water? Answer with just the answer.",
+   "expect": "H2O\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t47",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many continents are there on Earth? Answer with just the answer.",
+   "expect": "7\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t48",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "How many legs does an insect have? Answer with just the answer.",
+   "expect": "6\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t49",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "What is the hardest natural substance? Answer with just the answer.",
+   "expect": "diamond\\n",
+   "tf": true,
+   "gen": false
+  },
+  {
+   "id": "t50",
+   "set": "term",
+   "category": "turn-end",
+   "prompt": "Who wrote the play Romeo and Juliet? Answer with just the answer.",
+   "expect": "Shakespeare\\n",
+   "tf": true,
+   "gen": false
+  }
+ ]
+}
