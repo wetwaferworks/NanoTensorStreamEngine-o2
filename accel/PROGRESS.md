@@ -6,7 +6,7 @@ branch scratch/accel-2026-11-26 off ef39281. This note predates the merge: the w
 (sync: tar on box -> CopyFromBox to <xfer-dir>
 -> `tar -xf` in the worktree; the scratch drive is outside the CopyFromBox root).
 Run everything at BelowNormal; leave CPU for the GUI (pythonw) and
-Mr Data's baselines.
+the baseline runs.
 
 ## DONE (do not redo)
 - Three lanes (cuda / opencl-gpu / opencl-igpu), all suites pass

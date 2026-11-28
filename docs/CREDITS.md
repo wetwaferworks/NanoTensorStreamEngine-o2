@@ -159,7 +159,6 @@ built with Grok Bot by SpaceX.
 | ChatGPT 6.2 Sol | Review of 2026-11-25: the H and M findings on tensor-local bounds, door-word publication, startup line honesty, argument quoting (`shlex` on Windows), short-read handling in `nq2-streamtest`, script execution bits (`build-all.sh`), and the tokenizer added-token fix. |
 | Boardy | Review of 2026-11-25, including the forward-depth item (full-depth logits receipts). |
 | Sonnet | Behavioral gate L2 roll-in, phase 2 (2026-11-25); the PQ d8 and d4 values cited in the behavioral gate record. |
-| Mr Data | Baselines (the workstation baseline runs referred to in the accel notes). |
 | Neon | The behavioral gate item (2026-11-24) that became `nq2-logitcmp` and the lab engines' logit dumps. |
 | The review crew of 2026-11-25 | The DTC code review (no P0, four P1, six P2, all P1 fixed) and its hardening regression. |
 | kimi-k3-in-c | Its memory-for-speed ladder inspired the expand-lane residency dial. |
