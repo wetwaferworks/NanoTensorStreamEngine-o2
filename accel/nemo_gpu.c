@@ -14,11 +14,20 @@
  */
 #define _POSIX_C_SOURCE 200809L
 #include "nemo_gpu.h"
+#include "pool.h"
 
 #include <math.h>
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
+#include <math.h>
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <time.h>
 
 #ifdef _WIN32
@@ -170,6 +179,11 @@ struct nemo_gpu {
     CUdeviceptr rt, brt;                     /* refinement GEMV / GEMM outputs (expanded packs only) */
     int nref;                                /* refinement tensors resident */
     uint64_t ref_bytes;
+    int head_host;                           /* 1: int8 lm_head and its GEMV live on the host */
+    int8_t *head_q;                          /* VOCAB * H, host */
+    float *head_sc, *h_host;
+    nemo_pool head_pool;
+    int head_pool_ok;
     char err[256];
 };
 
@@ -629,16 +643,116 @@ static int up_pq(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *na
  * the same pack with the same geometry. Its GEMV is added to the base
  * GEMV's output (y = W x + R x, fixed order), so the layer computes with
  * W + R. A pack without refinements loads exactly as before. */
-static int up_pqr(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o, gpq *r) {
+typedef struct { char name[300], base[256]; int rows, cols, layer, pidx; gpq *r; } rpend;
+
+static int up_pqr(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, const char *name, int rows, int cols, gpq *o, gpq *r, rpend *pend, int *npend) {
     if (up_pq(g, k, cp, name, rows, cols, o)) return -1;
     char rn[300];
     snprintf(rn, sizeof rn, "%s.refine", name);
-    if (pack_find(k, rn) < 0) return 0;
-    uint64_t before = g->info.pack_bytes;
-    if (up_pq2(g, k, cp, name, rn, rows, cols, r)) return -1;
-    g->nref++;
-    g->ref_bytes += g->info.pack_bytes - before;
+    int i = pack_find(k, rn);
+    if (i < 0) return 0;
+    rpend *p = &pend[(*npend)++];
+    memset(p, 0, sizeof *p);
+    snprintf(p->name, sizeof p->name, "%s", rn);
+    snprintf(p->base, sizeof p->base, "%s", name);
+    p->rows = rows; p->cols = cols; p->r = r; p->pidx = i;
+    const char *ls = strstr(name, "layers.");
+    p->layer = ls ? atoi(ls + 7) : 999;
     return 0;
+}
+
+/* Bytes a refine tensor will occupy on the device (conservative: include
+ * the compact frame and the half book). */
+static size_t refine_bytes_of(const pack *k, int i, int half_book) {
+    uint64_t nb = k->nb[i];
+    size_t isz = (size_t)(nb * k->idxw), fsz = (size_t)(nb * 2);
+    size_t bb = (size_t)k->entries * k->block * (half_book ? 2 : 4);
+    return isz + (size_t)nb * 4 + 2 * fsz + bb;
+}
+
+/* Default layer order, from the 27 Nov 2026 probe (best triples first).
+ * Overridden by NEMO_GPU_REFINE=all|off|auto|11,10,8,... */
+static int refine_pri(int layer, const char *spec) {
+    if (spec && !strcmp(spec, "off")) return 10000;
+    if (spec && strcmp(spec, "all") && strcmp(spec, "auto") && spec[0]) {
+        char buf[256]; snprintf(buf, sizeof buf, "%s", spec);
+        int p = 0;
+        for (char *tok = strtok(buf, ","); tok; tok = strtok(NULL, ","), p++) {
+            while (*tok == ' ') tok++;
+            if (isdigit((unsigned char)*tok) && atoi(tok) == layer) return p;
+        }
+        return 10000;
+    }
+    static const int pref[] = {11, 10, 8, 21, 14, 9, 20, 15, 12, 13, 22, 23, -1};
+    for (int i = 0; pref[i] >= 0; i++) if (pref[i] == layer) return i;
+    return 100 + layer;
+}
+
+/* Upload whole layers in priority order while they fit in `budget`. A
+ * layer is kept or skipped as a unit, so a projection is never half-refined. */
+static int up_refine_fit(nemo_gpu *g, pack *k, const nemo_checkpoint *cp, rpend *pend, int npend, size_t budget) {
+    if (npend <= 0) return 0;
+    int order[224];
+    for (int i = 0; i < npend; i++) order[i] = i;
+    for (int a = 0; a < npend; a++) for (int b = a + 1; b < npend; b++) {
+        int pa = refine_pri(pend[order[a]].layer, getenv("NEMO_GPU_REFINE"));
+        int pb = refine_pri(pend[order[b]].layer, getenv("NEMO_GPU_REFINE"));
+        if (pb < pa || (pb == pa && pend[order[b]].layer < pend[order[a]].layer)) {
+            int t = order[a]; order[a] = order[b]; order[b] = t;
+        }
+    }
+    size_t left = budget;
+    int skipped = 0;
+    for (int i = 0; i < npend; ) {
+        int layer = pend[order[i]].layer, j = i, take = 1;
+        size_t need = 0;
+        while (j < npend && pend[order[j]].layer == layer) {
+            need += refine_bytes_of(k, pend[order[j]].pidx, g->half_book);
+            j++;
+        }
+        if (need > left || refine_pri(layer, getenv("NEMO_GPU_REFINE")) >= 10000) take = 0;
+        for (int t = i; t < j; t++) {
+            rpend *p = &pend[order[t]];
+            if (!take) { skipped++; continue; }
+            uint64_t before = g->info.pack_bytes;
+            if (up_pq2(g, k, cp, p->base, p->name, p->rows, p->cols, p->r)) return -1;
+            g->nref++;
+            g->ref_bytes += g->info.pack_bytes - before;
+        }
+        if (take) left -= need;
+        i = j;
+    }
+    g->info.refine_skipped = skipped;
+    g->info.refine_budget = budget;
+    return 0;
+}
+
+static float host_dot(const int8_t *q, const float *x) {
+#ifdef __AVX2__
+    __m256 acc = _mm256_setzero_ps();
+    int c = 0;
+    for (; c + 16 <= H; c += 16) {
+        __m128i v = _mm_loadu_si128((const __m128i *)(q + c));
+        __m256i i16 = _mm256_cvtepi8_epi16(v);
+        __m256i lo = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(i16));
+        __m256i hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(i16, 1));
+        acc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(lo), _mm256_loadu_ps(x + c), acc);
+        acc = _mm256_fmadd_ps(_mm256_cvtepi32_ps(hi), _mm256_loadu_ps(x + c + 8), acc);
+    }
+    float t[8]; _mm256_storeu_ps(t, acc);
+    float s = t[0] + t[1] + t[2] + t[3] + t[4] + t[5] + t[6] + t[7];
+    for (; c < H; c++) s += (float)q[c] * x[c];
+    return s;
+#else
+    float s = 0.0f;
+    for (int c = 0; c < H; c++) s += (float)q[c] * x[c];
+    return s;
+#endif
+}
+typedef struct { const int8_t *q; const float *sc, *x; float *y; } host_job;
+static void host_rows(void *ctx, int begin, int end) {
+    host_job *j = ctx;
+    for (int r = begin; r < end; r++) j->y[r] = j->sc[r] * host_dot(j->q + (size_t)r * H, j->x);
 }
 
 /* ---- launches ---- */
@@ -837,6 +951,13 @@ int nemo_gpu_step(nemo_gpu *g, int token, float *logits) {
 int nemo_gpu_logits(nemo_gpu *g, float *logits) {
     if (!g->valid) return -2;
     if (rmsnorm(g, g->x, g->norm_f, g->h)) return -1;
+    if (g->head_host) {
+        if (ck(g, g->cu.MemcpyDtoH(g->h_host, g->h, (size_t)H * 4), "hidden copy")) return -1;
+        host_job j = { g->head_q, g->head_sc, g->h_host, logits };
+        if (g->head_pool_ok) nemo_pool_for(&g->head_pool, VOCAB, host_rows, &j);
+        else host_rows(&j, 0, VOCAB);
+        return 0;
+    }
     int rows = VOCAB, cols = H;
     if (g->head_i8) {
         void *a[] = {&g->lm_head, &g->head_scale, &g->h, &g->logits, &rows, &cols};
@@ -1034,6 +1155,8 @@ void nemo_gpu_close(nemo_gpu *g) {
     }
     if (g->emb_f) fclose(g->emb_f);
     free(g->emb_host);
+    free(g->head_q); free(g->head_sc); free(g->h_host);
+    if (g->head_pool_ok) nemo_pool_shutdown(&g->head_pool);
     dl_close(g->lrtc);
     dl_close(g->lcu);
     free(g);
@@ -1177,14 +1300,15 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
     cp_ok = 1;
     if (pack_open(&k, pack_path, why, wl)) goto fail;
     char nm[256];
+    rpend pend[224]; int npend = 0;
 #define NM(leaf) (snprintf(nm, sizeof nm, "backbone.layers.%d.%s", l, leaf), nm)
     for (int l = 0; l < g->layer_limit; l++) {
         glayer *L = &g->L[l];
         L->type = LAYER_PATTERN[l];
         if (up_param(g, &cp, NM("norm.weight"), H, &L->norm_w)) goto ferr;
         if (L->type == 'M') {
-            if (up_pqr(g, &k, &cp, NM("mixer.in_proj.weight"), PROJ, H, &L->p0, &L->r0)) goto ferr;
-            if (up_pqr(g, &k, &cp, NM("mixer.out_proj.weight"), H, INNER, &L->p1, &L->r1)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.in_proj.weight"), PROJ, H, &L->p0, &L->r0, pend, &npend)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.out_proj.weight"), H, INNER, &L->p1, &L->r1, pend, &npend)) goto ferr;
             if (up_param(g, &cp, NM("mixer.conv1d.weight"), (uint64_t)CONV * 4, &L->conv_w)
                 || up_param(g, &cp, NM("mixer.conv1d.bias"), CONV, &L->conv_b)
                 || up_param(g, &cp, NM("mixer.A_log"), NHEAD, &L->a_log)
@@ -1193,13 +1317,13 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
                 || up_param(g, &cp, NM("mixer.norm.weight"), INNER, &L->gnorm_w)) goto ferr;
             if (dalloc(g, &L->ssm, (size_t)NHEAD * HDIM * NSTATE * 4) || dalloc(g, &L->win, (size_t)CONV * 16)) goto ferr;
         } else if (L->type == '-') {
-            if (up_pqr(g, &k, &cp, NM("mixer.up_proj.weight"), MLP, H, &L->p0, &L->r0)) goto ferr;
-            if (up_pqr(g, &k, &cp, NM("mixer.down_proj.weight"), H, MLP, &L->p1, &L->r1)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.up_proj.weight"), MLP, H, &L->p0, &L->r0, pend, &npend)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.down_proj.weight"), H, MLP, &L->p1, &L->r1, pend, &npend)) goto ferr;
         } else {
-            if (up_pqr(g, &k, &cp, NM("mixer.q_proj.weight"), NQ * AD, H, &L->p0, &L->r0)
-                || up_pqr(g, &k, &cp, NM("mixer.k_proj.weight"), NKV * AD, H, &L->p1, &L->r1)
-                || up_pqr(g, &k, &cp, NM("mixer.v_proj.weight"), NKV * AD, H, &L->p2, &L->r2)
-                || up_pqr(g, &k, &cp, NM("mixer.o_proj.weight"), H, NQ * AD, &L->p3, &L->r3)) goto ferr;
+            if (up_pqr(g, &k, &cp, NM("mixer.q_proj.weight"), NQ * AD, H, &L->p0, &L->r0, pend, &npend)
+                || up_pqr(g, &k, &cp, NM("mixer.k_proj.weight"), NKV * AD, H, &L->p1, &L->r1, pend, &npend)
+                || up_pqr(g, &k, &cp, NM("mixer.v_proj.weight"), NKV * AD, H, &L->p2, &L->r2, pend, &npend)
+                || up_pqr(g, &k, &cp, NM("mixer.o_proj.weight"), H, NQ * AD, &L->p3, &L->r3, pend, &npend)) goto ferr;
             size_t kv = (size_t)g->max_pos * NKV * AD * 2;
             if (dalloc(g, &L->kc, kv) || dalloc(g, &L->vc, kv)) goto ferr;
         }
@@ -1211,22 +1335,66 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         || dalloc(g, &g->mid, MLP * 4) || dalloc(g, &g->q, NQ * AD * 4) || dalloc(g, &g->k, NKV * AD * 4)
         || dalloc(g, &g->vv, NKV * AD * 4) || dalloc(g, &g->logits, (size_t)VOCAB * 4)
         || dalloc(g, &g->scores, (size_t)NQ * g->max_pos * 8) || dalloc(g, &g->xs, (MLP / 16 + 64) * 4)) goto ferr;
+    {
+        /* VRAM plan: measure free memory after the base pack and the
+         * workspaces, then keep as many whole refine layers as still leave
+         * room for the int8 lm_head, a 64 MiB margin, and (when we can)
+         * the EXPAND fp32 books. NEMO_GPU_REFINE=auto|off|all|11,10,8 */
+        size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
+        g->info.vram_free_after_pack = fr;
+        const char *force = getenv("NEMO_GPU_HEAD");
+        const char *rspec = getenv("NEMO_GPU_REFINE");
+        if (!rspec || !rspec[0]) rspec = "auto";
+        g->head_host = force && !strcmp(force, "host");
+        size_t head_need = g->head_host ? 0 : (size_t)VOCAB * H; /* int8 */
+        size_t head_mgn = g->head_host ? (16u << 20) : (64u << 20);
+        size_t exp_rsv = (88u << 20) + (48u << 20);
+        if (getenv("NEMO_GPU_NO_EXPAND") && getenv("NEMO_GPU_NO_EXPAND")[0] == '1') exp_rsv = (16u << 20);
+        size_t budget = 0, reserve = head_need + head_mgn + exp_rsv;
+        if (!strcmp(rspec, "all")) budget = fr;           /* try every refine tensor */
+        else if (fr > reserve) budget = fr - reserve;
+        else if (fr > head_need + head_mgn + (16u << 20)) {
+            /* not enough for EXPAND books as well; keep a small safety margin */
+            budget = fr - head_need - head_mgn - (16u << 20);
+            exp_rsv = (16u << 20);
+        }
+        if (up_refine_fit(g, &k, &cp, pend, npend, budget)) goto ferr;
+        fprintf(stderr, "nemo_gpu: VRAM plan: %.0f MiB free after the base pack; head %s %.0f + %.0f margin; EXPAND reserve %.0f; refine budget %.0f MiB; kept %d tensors (%.1f MiB), skipped %d\n",
+                fr / 1048576.0, g->head_host ? "host" : "int8", head_need / 1048576.0, head_mgn / 1048576.0,
+                exp_rsv / 1048576.0, budget / 1048576.0, g->nref, g->ref_bytes / 1048576.0, g->info.refine_skipped);
+    }
     if (g->nref && dalloc(g, &g->rt, PROJ * 4)) goto ferr;
     {
-        /* lm_head: bf16, resident, uploaded in 64 MiB chunks */
+        /* lm_head: bf16, resident, uploaded in 64 MiB chunks; or int8 on
+         * the host when NEMO_GPU_HEAD=host (the GEMV runs on the CPU). */
         const nemo_tensor_info *t = nemo_find(&cp, "lm_head.weight");
         if (!t || !t->is_bf16 || t->count != (uint64_t)VOCAB * H) { snprintf(g->err, sizeof g->err, "lm_head missing or not bf16"); goto ferr; }
         size_t bytes = (size_t)t->count * 2;
         size_t fr = 0, tt = 0; g->cu.MemGetInfo(&fr, &tt);
         const char *force = getenv("NEMO_GPU_HEAD");
-        g->head_i8 = (force && !strcmp(force, "int8")) || fr < bytes + (96u << 20);
-        if (force && !strcmp(force, "bf16")) g->head_i8 = 0;
+        g->head_i8 = g->head_host || (force && !strcmp(force, "int8")) || fr < bytes + (96u << 20);
+        if (force && !strcmp(force, "bf16")) { g->head_i8 = 0; g->head_host = 0; }
         size_t dbytes = g->head_i8 ? (size_t)t->count : bytes;
-        if (fr < dbytes + (64u << 20)) {
+        if (!g->head_host && fr < dbytes + (64u << 20)) {
             snprintf(g->err, sizeof g->err, "VRAM: lm_head needs %.0f MiB, %.0f MiB free after the pack", dbytes / 1048576.0, fr / 1048576.0);
             goto ferr;
         }
-        if (dalloc(g, &g->lm_head, dbytes)) goto ferr;
+        if (g->head_host) {
+            g->head_q = (int8_t *)malloc(dbytes);
+            g->head_sc = (float *)malloc(sizeof(float) * VOCAB);
+            g->h_host = (float *)malloc(sizeof(float) * H);
+            if (!g->head_q || !g->head_sc || !g->h_host) { snprintf(g->err, sizeof g->err, "lm_head host alloc failed"); goto ferr; }
+        } else
+        if (!g->head_host && dalloc(g, &g->lm_head, dbytes)) goto ferr;
+        if (g->head_host) {
+            int ht = 4;
+            const char *hts = getenv("NEMO_GPU_HEAD_THREADS");
+            if (hts && *hts) ht = atoi(hts);
+            if (ht < 1) ht = 1;
+            if (ht > 8) ht = 8;
+            memset(&g->head_pool, 0, sizeof g->head_pool);
+            if (nemo_pool_init(&g->head_pool, ht) == 0) g->head_pool_ok = 1;
+        }
         float *scales = g->head_i8 ? (float *)malloc(sizeof(float) * VOCAB) : NULL;
         FILE *f = fopen(t->shard_path, "rb");
         size_t rows_per = 4096, chunk = rows_per * H * 2;
@@ -1251,7 +1419,12 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
                     for (int c = 0; c < H; c++) { uint32_t u = (uint32_t)w[r * H + c] << 16; float v; memcpy(&v, &u, 4);
                         long q = lrintf(v / s); if (q > 127) q = 127; if (q < -127) q = -127; qb[r * H + c] = (int8_t)q; }
                 }
-                rcu = ck(g, g->cu.MemcpyHtoD(g->lm_head + r0 * H, qb, rows_per * H), "lm_head upload");
+                if (g->head_host) {
+                    memcpy(g->head_q + r0 * H, qb, rows_per * H);
+                    rcu = 0;
+                } else {
+                    rcu = ck(g, g->cu.MemcpyHtoD(g->lm_head + r0 * H, qb, rows_per * H), "lm_head upload");
+                }
             } else {
                 rcu = ck(g, g->cu.MemcpyHtoD(g->lm_head + r0 * H * 2, buf, n), "lm_head upload");
             }
@@ -1259,13 +1432,21 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         }
         fclose(f); free(buf); free(qb);
         if (g->head_i8) {
-            int rcs = up(g, &g->head_scale, scales, sizeof(float) * VOCAB);
-            free(scales);
-            if (rcs) goto ferr;
+            if (g->head_host) {
+                memcpy(g->head_sc, scales, sizeof(float) * VOCAB);
+                free(scales);
+            } else {
+                int rcs = up(g, &g->head_scale, scales, sizeof(float) * VOCAB);
+                free(scales);
+                if (rcs) goto ferr;
+            }
         }
         bytes = dbytes + (g->head_i8 ? sizeof(float) * VOCAB : 0);
         g->info.head_bytes = bytes;
         g->info.bytes_per_token += bytes;
+        if (g->head_host)
+            fprintf(stderr, "nemo_gpu: lm_head on the host (int8 per-row, %d CPU lanes), %.0f MiB RAM\n",
+                    g->head_pool_ok ? nemo_pool_threads(&g->head_pool) : 1, bytes / 1048576.0);
     }
     {
         const nemo_tensor_info *e = nemo_find(&cp, "backbone.embeddings.weight");
@@ -1283,6 +1464,7 @@ int nemo_gpu_open(nemo_gpu **out, const char *ckpt_dir, const char *pack_path,
         fprintf(stderr, "nemo_gpu: expanded pack: %d refinement tensors, %.1f MiB on the device\n",
                 g->nref, g->ref_bytes / 1048576.0);
     g->info.head_int8 = g->head_i8;
+    g->info.head_host = g->head_host;
     g->info.full_ok = g->full_ok;
     g->info.snap_ok = g->snap_ok;
     g->info.exact = g->exact;

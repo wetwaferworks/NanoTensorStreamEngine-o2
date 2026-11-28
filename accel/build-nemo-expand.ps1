@@ -33,7 +33,7 @@ foreach ($name in @('attn','forward','json','loader','mamba','nn','pool','tokeni
 $ln = @('attn','forward','json','loader','mamba','nn','nn_simd','pool','tokenizer') | ForEach-Object { "$obj\ln_$_.o" }
 $testln = $ln | Where-Object { $_ -notmatch 'tokenizer' }
 
-gcc @F '-Ilittlenemo\src' '-c' '-o' "$obj\nemo_gpu.o" 'accel\nemo_gpu.c'; cc 'nemo_gpu.c'
+gcc @F '-mavx2' '-mfma' '-Ilittlenemo\src' '-c' '-o' "$obj\nemo_gpu.o" 'accel\nemo_gpu.c'; cc 'nemo_gpu.c'
 gcc @F '-Ilittlenemo\src' '-Iaccel' '-c' '-o' "$obj\nemo_calib.o" 'accel\nemo_calib.c'; cc 'nemo_calib.c'
 gcc @F '-Ilittlenemo\src' '-c' '-o' "$obj\nemo_predict.o" 'accel\nemo_predict.c'; cc 'nemo_predict.c'
 gcc @F '-Ilittlenemo\src' '-c' '-o' "$obj\nemo_tokpipe.o" 'accel\nemo_tokpipe.c'; cc 'nemo_tokpipe.c'
@@ -49,5 +49,6 @@ gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_selftest_slots.c @test
 gcc @F '-mavx2' '-mfma' '-Ilittlenemo\src' littlenemo\expand\ln_sens.c @ln -o "$bin\ln_sens.exe" -lm; cc 'ln_sens.c'
 gcc @F '-Ilittlenemo\src' littlenemo\expand\ln_resid.c @ln -o "$bin\ln_resid.exe" -lm; cc 'ln_resid.c'
 gcc @F tools\nq2-merge-refine.c -o "$bin\nq2-merge-refine.exe"; cc 'nq2-merge-refine.c'
+gcc @F '-mavx2' '-mfma' '-Ilittlenemo\src' littlenemo\expand\ln_headbench.c @ln -o "$bin\ln_headbench.exe" -lm; cc 'ln_headbench.c'
 
-"built $bin\nemo-engine-cuda-x.exe, the layer, pack-ident and slot tests, ln_sens.exe, ln_resid.exe and nq2-merge-refine.exe"
+"built $bin\nemo-engine-cuda-x.exe, the layer, pack-ident and slot tests, ln_sens.exe, ln_resid.exe, nq2-merge-refine.exe and ln_headbench.exe"

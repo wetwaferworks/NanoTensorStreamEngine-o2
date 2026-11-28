@@ -8,7 +8,13 @@
  * original weights); their GEMV is added to the base one. Norms, conv, SSM parameters, embeddings and lm_head
  * come from the checkpoint directory (bf16). The lm_head is resident on
  * the GPU as bf16, or as int8 with one scale per row when the bf16 copy
- * does not fit in free VRAM (NEMO_GPU_HEAD, engine flag --lm-head). The
+ * does not fit in free VRAM (NEMO_GPU_HEAD, engine flag --lm-head).
+ * NEMO_GPU_HEAD=host keeps the int8 head in host RAM and runs its GEMV
+ * on the CPU after the GPU layers, freeing the head's VRAM for refinements.
+ * NEMO_GPU_REFINE=auto (default) uploads refine tensors in a fixed priority
+ * until the measured free VRAM after the pack would leave room for the
+ * int8 head, a 64 MiB margin, and the EXPAND fp32 books; off loads none,
+ * all loads every refine tensor (and may then fail to place the head). The
  * embedding row is read on the host per token.
  *
  * The CUDA driver API and NVRTC are loaded at run time (no CUDA SDK at
@@ -37,8 +43,12 @@ typedef struct {
     int head_int8;             /* 1: lm_head stored int8 per-row scaled (bf16 did not fit) */
     int full_ok;               /* 1: the full (bf16-faithful decode) kernel can run: EXPAND possible */
     int snap_ok;               /* 1: a step can be snapshotted and redone at full precision */
-    int refine_tensors;        /* expanded pack: projections carrying a refinement tensor */
+    int refine_tensors;        /* expanded pack: refinement tensors resident (after the VRAM budget) */
     uint64_t refine_bytes;     /* of pack_bytes, the refinement tensors' share */
+    int refine_skipped;        /* refine tensors present in the pack but not uploaded */
+    int head_host;             /* 1: lm_head lives in host RAM (int8 per-row); none of it is on the device */
+    uint64_t vram_free_after_pack; /* bytes free after the base pack and workspaces, before the head */
+    uint64_t refine_budget;    /* bytes the card still had for refinements under the head+EXPAND margin */
 } nemo_gpu_info;
 
 /* Open the CUDA lane and upload everything. ckpt_dir must hold the
