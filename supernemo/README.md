@@ -71,5 +71,5 @@ What is guaranteed (tests: `test_sn_pqk`, `test_sn_spec`, `test_sn_cache`, `test
   Admission and eviction are decided on the main thread from token counts between pool jobs, so the state is deterministic.
 - Speculative decoding is token-identical to plain greedy by construction (exact verification, rollback of Mamba/KV state).
   It only pays when the draft acceptance rate is high enough: verifying k+1 tokens reads the union of their experts. On the
-  real pack about 80% of drafts were accepted and decode got 15 to 33% faster, so it is on by default since 2026-11-27 (JD's
+  real pack 12 of 15 drafts (about 80%, from only 5 cycles) were accepted and decode got 15 to 33% faster, so it is on by default since 2026-11-27 (JD's
   go); `--no-spec` turns it off. A pack without an MTP head simply runs without it.

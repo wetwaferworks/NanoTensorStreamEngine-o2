@@ -23,7 +23,7 @@ With the stream on, the engine works like this for every MoE layer of every toke
 6. **Let go.** The slots are not pinned to anything: the next token reuses them. The least recently used slot is the one that
    gets the next expert, so experts that keep getting picked stay on the card for free.
 7. **Look ahead.** While the card works on this layer, the engine runs the *next* MoE layer's router on this layer's input
-   (right about two times in three) and sends the experts it picks ahead of time. When the next layer starts, most of its
+   (right about 87 percent of the time in the default mode: 258 wrong of 2,043 early sends) and sends the experts it picks ahead of time. When the next layer starts, most of its
    experts are already on the card. The real router still decides what is computed, so a wrong guess costs a copy, never
    a different answer.
 
@@ -144,7 +144,7 @@ with or without it.
 | The layer's most used experts so far | 18 to 29% |
 | The first two together (about 37 experts) | 75 to 78% |
 
-**Speculative decoding (MTP head, 3 drafts):** 80% of drafts accepted (first draft 100%, second 80%, third 75%). The
+**Speculative decoding (MTP head, 3 drafts):** 80% of drafts accepted in the run that measured it (12 of 15, from only 5 cycles, so a small sample; first draft 100%, second 80%, third 75%). The
 misses were ends of the answer (it drafted "." where the model wanted to stop) and a list order slip (" Earth" drafted
 where the model wanted " Venus"). It is token-identical by design.
 
@@ -256,7 +256,7 @@ What the table shows, in plain words:
 - It also **starved the RAM expert cache**: with early fetch off the cache served 8,887 of 15,840 expert loads, with it on only
   5,000. Experts that arrived early skipped the cache, so the cache stopped learning, and more loads went to the pack on disk,
   which is the slowest step by far. (Addressed in Round 7 below.)
-- MTP itself is fine: 80% of drafts accepted (12 of 15), and with early fetch on it was the faster half (0.093 against 0.061).
+- MTP itself is fine: 80% of drafts accepted (12 of 15, from only 5 cycles), and with early fetch on it was the faster half (0.093 against 0.061).
 - The pinned cache is a win when early fetch is off (0.117 against 0.092 with it off, rows 3 and 5).
 - Stream-only mode (rows 6 and 7) is slower than dense-on-card plus stream, as expected: the dense mixers then run on the CPU.
 - Targets: JD's 10 tok/s (4 GB card) and 30 tok/s (8 GB cards) goals do not apply to this 120B-A12B model. JD's call (1:25 AM): about

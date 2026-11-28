@@ -4,17 +4,17 @@ Direction by JD. Co-implementation by Cortana, built with Grok Bot by SpaceX.
 
 NTSE squeezes big models into small packs. This report answers the question that matters most: after squeezing, how much of the original model's intelligence is left, and how fast does it run? Speed and accuracy are shown side by side for every configuration, against the original ("raw") model.
 
-In short, the shipping Little Nemo pack keeps about 29 percent of the original model's first-answer hits (31 of 119, against 106). The small x2 refinement that still fits a 4 GB card keeps 49 percent (52 of 119), and the larger x1 refinement, which only runs on the CPU, keeps 56 percent (59 of 119). Both packs that fit the card decode at about 13 tokens per second when the machine is shared, and 16.2 on a quieter morning (pooled decode on the 50-question set). Almost all of the loss comes from compressing the Mamba `in_proj` and `out_proj` weights: putting the original values back in those alone returns the quiz to the original's score (47 of 50) and restores the habit of stopping at the end of a turn. Giving those projections more bits, in a size that still fits 4 GB, is the next step. SuperNemo's answers on the card match the CPU path (identical whole-model hash); the speed features do not change accuracy.
+In short, the shipping Little Nemo pack keeps about 29 percent of the original model's first-answer hits (31 of 119, against 106). The small x2 refinement that still fits a 4 GB card keeps 49 percent (52 of 119), and the larger x1 refinement, which only runs on the CPU, keeps 56 percent (59 of 119). Both packs that fit the card decode at about 13 tokens per second when the machine is shared, and 16.2 on a quieter morning (pooled decode on the 50-question set). Almost all of the loss comes from compressing the Mamba `in_proj` and `out_proj` weights: putting the original values back in those alone returns the quiz to the original's score (47 of 50) and restores the habit of stopping at the end of a turn. Giving those projections more bits, in a size that still fits 4 GB, is the next step. SuperNemo's stream-only lane matches the CPU path bit for bit (identical whole-model hash); its faster dense lane has its own float noise and a different hash.
 
 Everything here was measured on one bench machine (RTX 3050 Ti Laptop 4 GB, i5-12450H, 16 GB RAM) on 27 and 28 November 2026. All timings are real-world: other jobs shared the CPU and the card while these ran, so read the ratios more than the last digit. Anything we did not measure is marked pending. The full detail, with every table and receipt, is in [RETENTION-BATTERY-2026-11-27.md](RETENTION-BATTERY-2026-11-27.md).
 
 ## The short version
 
 1. **Little Nemo (Nemotron Nano 9B v2) keeps about 29 percent of the original's first-answer hits in the shipping pack, and about 49 percent with the small "x2" refinement that still fits the 4 GB card.** Raw gets 106 of 119 right on the first answer word, the shipping pack 31, x2 52, and the larger x1 (CPU only) 59.
-2. **Speed is fine, accuracy is the gap.** Little Nemo decodes at about 12.6 to 13.9 tokens per second on the card while sharing the machine (16.2 on a quieter morning, pooled decode on the 50-question set), above the 10 tokens per second floor. x2 costs no measurable speed.
+2. **Speed is fine, accuracy is the gap.** Little Nemo decodes at about 12.6 to 13.9 tokens per second on the card while sharing the machine (16.2 on a quieter morning, pooled decode on the 50-question set), above the 10 tokens per second floor by median (the slowest single items ran at 8.848 and 8.86). x2 costs no measurable speed.
 3. **We found where the loss lives.** The Mamba `in_proj` and `out_proj` weights are almost all of it. Put the original weights back in just those, in all 27 Mamba layers, and the quiz returns to the original's score (17 to 47 of 50) and the model stops talking at the right moment again (stop probability 0.017 to 0.9997). That pack was not built at speed yet; it is the next step.
 4. **The output head is not the problem.** An 8-bit head against a 16-bit head changes the loss by at most 0.008 per token.
-5. **SuperNemo (Nemotron 3.5 Super VL, 120B-A12B) gives the same answers on the card as on the CPU** (identical whole-model hash) and passes its 5-question quiz subset, at about 0.1 to 0.3 tokens per second on this card. A raw SuperNemo comparison was not possible here.
+5. **SuperNemo (Nemotron 3.5 Super VL, 120B-A12B) gives the same answers on the card as on the CPU in its stream-only lane** (identical whole-model hash, about 0.025 to 0.035 tokens per second), and passes its 5-question quiz subset on the faster dense lane (`--gpu-mb 3000`, about 0.1 to 0.3 tokens per second, whose hash differs from the CPU's). A raw SuperNemo comparison was not possible here.
 
 ## How we measure
 
@@ -36,6 +36,8 @@ Configurations: **raw** is the original bf16 model. **Packed** is the shipping 2
 | packed + original Mamba in/out | speed pending (not built as a pack) | pending | pending | pending | pending | 47 (16-bit head, quiz only) | 100% |
 
 "Share of raw" is the configuration's hits divided by the original's 106. The last column is how much of the distance between packed and raw loss the configuration closes. The last row comes from a test that swaps the original weights into the packed model on the CPU, so it shows what is possible, not a pack you can download yet.
+
+Item scope: the 29, 49 and 56 percent figures are over the 119-item set (quiz, reworded questions, multi-step, passage reasoning, calibration). The main-set run scores 20 more candidate-answer items, 139 in all. Across all 139 the packed pack gets 49 first tokens right against the original's 117, about 42 percent, and x1 gets 72, about 62 percent.
 
 ### Full scorecard, Little Nemo (exact scoring, 8-bit head, all the measures in one place)
 
@@ -61,7 +63,7 @@ Configurations: **raw** is the original bf16 model. **Packed** is the shipping 2
 | held-out first token (of 24) | not run | 9 | 13 | not run | not run |
 | decode tok/s on the card (real-world) | n/a | 12.6 | 13.0 | n/a | pending |
 | card peak (MiB) | n/a | 3672 | 3681 | n/a | pending |
-| same result at 1 and 12 threads | not run | identical (exact scorer, 6 items; 72 of 72 generated answers) | not run | not run | not run |
+| same result at 1 and 12 threads | not run | identical (exact CPU scorer, 6 items) | not run | not run | not run |
 
 The ECE and confidence rows use the 8-bit-head runs (raw with the 16-bit head: ECE 0.065). The held-out rows compare the base pack against x2 on 24 items the refinement was not tuned on. The thread check was run on the packed pack only; every other configuration used the same fixed-order scorer, whose hashes are listed in appendix K. "Not run" means we did not measure it, not that the result is zero. The `restored Mamba in/out` column is a CPU experiment on the 50 stop-habit and quiz items only.
 
@@ -121,7 +123,7 @@ After the correct answer and its newline, the original model puts probability 1.
 - **Confidence drifts.** The packed model's confidence no longer tracks being right: expected calibration error 0.256 against 0.065 for the original (mean confidence 0.53 against 0.93).
 - **Wording drift.** Asked to "answer with just the answer", the original writes the bare answer on 47 of 50. The packed model does on 17, and on 18 of its 33 misses the first word is "The". That is why the exact first-token score (16 of 50) sits well under the forgiving generated score (36 of 50). Both are real; they measure different things.
 - **Reworded questions.** The original answers the same fact right all three ways in 11 of 13 groups. Packed manages 2 of 13 (exact), x2 4 of 13.
-- **Results repeat.** The exact scorer gives the same hash on 1 thread and on 12 (`8f3435aec98819af`), and 72 of 72 generated answers matched between default threads and one thread.
+- **Results repeat.** The exact CPU scorer gives the same hash on 1 thread and on 12 (`8f3435aec98819af`, 6 quiz items). That 6-item check is the thread-count evidence. Separately, a repeat generation run with `--host-threads 1` matched the first run on 72 of 72 answers; that shows the run repeats, not that 1 and 12 threads agree.
 
 ## SuperNemo (120B-A12B): speed and accuracy
 
@@ -129,23 +131,23 @@ SuperNemo is a mixture of 512 experts per layer. Its engine, expert cache and ea
 
 | measure | result | note |
 |---|---|---|
-| same answers as the CPU path | **yes**, whole-model hash `b0c32d2989f86f69` on CPU and on the card, 4 and 12 threads | proves the speed features do not change the output; it compares against the same pack on the CPU, not against the raw model |
-| quiz subset, 5 questions (final build, MTP on, early fetch mode 4) | **5/5** | prefill 0.55 and decode 0.081 tok/s pooled, real-world; card peak 3694 MiB |
+| same answers as the CPU path (stream-only lane, about 0.025 to 0.035 tok/s) | **yes**, whole-model hash `b0c32d2989f86f69` on CPU and on the card, 4 and 12 threads | proves the speed features do not change the output; it compares against the same pack on the CPU, not against the raw model. The dense lane (`--gpu-mb 3000`) hashes differently (`5dacc350426a9506`) |
+| quiz subset, 5 questions (dense lane `--gpu-mb 3000`, final build, MTP on, early fetch mode 4) | **5/5** | prefill 0.55 and decode 0.081 tok/s pooled, real-world; card peak 3694 MiB |
 | essays, 2 | 2/2 | earlier round, not rerun after the latest build |
 | 10-question mixed subset (earlier build) | 7/10 | misses: one arithmetic answer (220 for 260) and two made-up-entity items answered "I don not know." instead of the exact phrase |
-| decode speed, 17-token runs | 0.16 to 0.19 tok/s median | see the table in SUPERNEMO.md |
+| decode speed, 17-token runs, dense lane | 0.16 to 0.19 tok/s median | see the table in SUPERNEMO.md |
 | against the raw model | pending | the raw checkpoint is far beyond this machine |
 | relative weight error of the pack | about 0.30 | at the recipe used |
 
-JD's call: about 0.1 to 0.3 tokens per second is realistic for SuperNemo on a 4 GB card. The 10 tokens per second floor was never a SuperNemo target.
+JD's call: about 0.1 to 0.3 tokens per second (dense lane) is realistic for SuperNemo on a 4 GB card; the stream-only lane runs at about 0.025 to 0.035. The 10 tokens per second floor was never a SuperNemo target.
 
 ## Speed against the targets
 
 | goal | result |
 |---|---|
-| Little Nemo at least 10 tok/s on the 4 GB card | met: 12.6 to 13.9 tok/s median, shared machine; 16.2 on a quieter morning (pooled decode, questions) |
+| Little Nemo at least 10 tok/s on the 4 GB card | met by median: 12.6 to 13.9 tok/s, shared machine; 16.2 on a quieter morning (pooled decode, questions). Individual items dipped lower: the slowest ran at 8.848 tok/s (packed) and 8.86 (x2) |
 | Little Nemo 30+ tok/s on 8 GB cards | not measured (only a 4 GB card here) |
-| SuperNemo | 0.1 to 0.3 tok/s on the 4 GB card, as agreed |
+| SuperNemo | 0.1 to 0.3 tok/s on the 4 GB card (dense lane), 0.025 to 0.035 stream-only, as agreed |
 
 ## Next: give the Mamba projections more bits
 
@@ -368,7 +370,7 @@ Teacher-forced long context (4 passages, about 860 tokens each; the strict first
 
 The packed pack's long-context miss is a format miss (it starts "The code for the red door is ..." and the gold is the bare number), not a recall failure; its gold token ranks 1 or 2. x1 gets all four with the bare number.
 
-**Determinism across thread counts.** Teacher-forced: the same 6 quiz items scored with 1 thread (930 s) and 12 threads (149 s) produce the same hash, `8f3435aec98819af`. Generated: packed with the default host threads against packed with `--host-threads 1`, 72 of 72 answers identical. The evaluator uses fixed-order dot products, so thread count changes only the time.
+**Determinism across thread counts.** Teacher-forced: the same 6 quiz items scored with 1 thread (930 s) and 12 threads (149 s) produce the same hash, `8f3435aec98819af`. Generated: a repeat run of packed with `--host-threads 1` against the first packed run, 72 of 72 answers identical. That is a repeat check, not a 1-versus-12 comparison, so the thread evidence is the 6-item scorer check above. The evaluator uses fixed-order dot products, so thread count changes only the time.
 
 ## J. Speed of every run (real-world)
 
@@ -385,7 +387,7 @@ Generation (CUDA lane, `accel=cuda`, int8 lm_head, DTC on). Tok/s are per-item m
 | Little Nemo expanded-x2 | essays | CUDA | 56.5 / 58.2 | 13.1 / 13.0 | 13.0 | 306 | 3681 | 306.9 | meets 10 tok/s floor; below 30 tok/s target |
 | SuperNemo (120B MoE) subset, 24 tokens | short (10 items) | CUDA (sn-engine) | 0.58 / 0.57 | 0.17 / 0.17 | - | 1222 | 3777 | 4432.9 | BELOW 10 tok/s floor; below 30 tok/s target |
 
-Little Nemo is above the 10 tok/s floor on every CUDA arm (12.6 to 13.7 median decode) and about 2.3 times under the 30 tok/s target. The target is for 8 GB cards, and this machine has only the 4 GB one, so the target is unmeasured. The expansion costs no measurable decode speed here (13.0 for x2 against 12.6 for packed) and the card peak is the same within 10 MiB. The SuperNemo subset (10 questions, 24-token answers, the engine as built at 7:26 PM on 11/27, not rerun on later builds) decodes at about 0.17 tok/s on the 4 GB card, so it is far below the floor; it is a correctness check on a few questions, not a speed claim, and the residency work above is what moves that number.
+Little Nemo is above the 10 tok/s floor on every CUDA arm by median decode (12.6 to 13.7; individual items dipped lower, down to 8.848 tok/s for packed and 8.86 for x2) and about 2.3 times under the 30 tok/s target. The target is for 8 GB cards, and this machine has only the 4 GB one, so the target is unmeasured. The expansion costs no measurable decode speed here (13.0 for x2 against 12.6 for packed) and the card peak is the same within 10 MiB. The SuperNemo subset (10 questions, 24-token answers, the engine as built at 7:26 PM on 11/27, not rerun on later builds) decodes at about 0.17 tok/s on the 4 GB card, so it is far below the floor; it is a correctness check on a few questions, not a speed claim, and the residency work above is what moves that number.
 
 Teacher-forced CPU runs (the whole probe set per configuration, 8 CPU threads at below-normal priority; tok/s here is tokens scored per second, not decode speed; the hash is the scorer's fixed-order result):
 

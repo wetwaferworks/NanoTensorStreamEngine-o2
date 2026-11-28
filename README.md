@@ -4,7 +4,7 @@ NTSE runs language models on your own computer. The model is compressed into a s
 
 Formerly the Nano Quant Engine (renamed 2026-11-25). The `nq2` tool names and the `.nq2` pack format did not change with the name.
 
-This is a research bench, not a finished product. Every number below has a receipt in the repository, and anything we have not measured is marked pending.
+This is a research bench, not a finished product. The numbers below come from measurement receipts or from the code in this repository where one exists, anything we have not measured is marked pending, and figures that rest on a small sample say so.
 
 ## Where things stand (28 November 2026)
 
@@ -13,7 +13,7 @@ This is a research bench, not a finished product. Every number below has a recei
 | Packs and the converter | `nq2-quantize` packs a model into the NQ2 v3 format, multithreaded and byte-identical at any thread count, with an optional GPU search that gives the CPU's exact bytes. | A 2.2 bits-per-weight pack loses accuracy, measured below. |
 | Dense Tensor Compute (DTC) | Multiplies straight from the compressed blocks, never unpacking the model. Bit-identical on every GPU lane. | Equals the unpacked path to float noise, not bit for bit. |
 | Little Nemo (Nemotron Nano 9B v2) | Chat on the CUDA lane at about 13 tokens per second on a 4 GB RTX 3050 Ti (real-world, shared machine). | Less accurate than the original: see the table below. The 30+ tokens per second goal for 8 GB cards is not measured. |
-| SuperNemo (Nemotron 3.5 Super VL, 120B-A12B) | Runs on the same 4 GB card with an expert cache, a GPU expert stream, speculative decoding (MTP, on by default) and early expert fetch (mode 4, on by default). Same answers as the CPU path (identical hash), 5 of 5 on its quiz subset. | About 0.1 to 0.3 tokens per second on this card. |
+| SuperNemo (Nemotron 3.5 Super VL, 120B-A12B) | Runs on the same 4 GB card with an expert cache, a GPU expert stream, speculative decoding (MTP, on by default) and early expert fetch (mode 4, on by default). Stream-only lane: same answers as the CPU path (identical hash), about 0.025 to 0.035 tokens per second. Dense lane (`--gpu-mb 3000`): 5 of 5 on its quiz subset, about 0.1 to 0.3 tokens per second, with its own float noise and a different hash. | Slow on this card, and not yet compared with the raw model. See [docs/SUPERNEMO.md](docs/SUPERNEMO.md). |
 | Chat window and dictation | Text, image and video attachments, themes, a live speech-to-text button (`parakeet-c`). | Dictation needs your own copy of the Parakeet weights. |
 
 ## How much intelligence is kept
@@ -142,4 +142,4 @@ Everyone below built this. Full detail is in [docs/CREDITS.md](docs/CREDITS.md).
 - **CloudAtlas (Technical Art Director): GUI art, themes and mascots.**
 - **Grok Bot, by SpaceX: the assistant platform Cortana is built with.**
 - **Reviewers and contributors:** Codex (Astra 6.2), ChatGPT 6.2 Sol, Boardy, Sonnet, Neon, and the review crew of 2026-11-25. The memory-for-speed ladder of kimi-k3-in-c inspired the expand-lane residency dial.
-- **Third-party work this project stands on:** NVIDIA Nemotron-Nano-9B-v2 (Little Nemo) and its paper (arXiv:2508.14444); NVIDIA Nemotron 3.5 Super VL (SuperNemo); NVIDIA Nemotron-Labs-Sigma-3B (arXiv:2610.02665); NVIDIA Parakeet TDT 0.6B v2 (CC-BY-4.0) with arXiv:2304.06795 and arXiv:2305.05084; Mamba-2 (arXiv:2405.21060, Tri Dao and Albert Gu); and Ryan Greene's "Compression and Intelligence" (greene.sh, 2026), whose two-part-code accounting is our rule for every size claim. Full author lists are in the credits guide.
+- **Third-party work this project stands on:** NVIDIA Nemotron-Nano-9B-v2 (Little Nemo) and its paper (arXiv:2508.14444); NVIDIA Nemotron 3.5 Super VL (SuperNemo); NVIDIA Nemotron-Labs-Sigma-3B (arXiv:2610.02665); NVIDIA Parakeet TDT 0.6B v2 (CC-BY-4.0) with arXiv:2304.06795 and arXiv:2305.05084; Mamba-2 (arXiv:2405.21060, Tri Dao and Albert Gu); and Ryan Greene's "Compression and Intelligence" (greene.sh, 2026), whose two-part-code accounting is our rule for every size claim. Full author lists are in the credits guide. The Nemotron models are released by NVIDIA under the NVIDIA Open Model License; their weights are not part of this repository.

@@ -958,7 +958,7 @@ static int xs_compute(sn_model *m, fws *w, int i, int slot, int fused)
 }
 
 /* Early fetch (on by default): while the card works on this MoE layer, run the NEXT MoE layer's router on this layer's input
- * (right about two times in three on the real pack) and send the experts it picks ahead, so most of the next layer's experts
+ * (right about 87 percent of the time in the default early-fetch mode on the real pack) and send the experts it picks ahead, so most of the next layer's experts
  * are already in their slots. It only decides what sits in which slot, never what is computed, so results are unchanged.
  * Guesses already in the pinned RAM cache go up at once (one DMA, no CPU work). Guesses that are not cached used to be read
  * from the pack on the main thread, which made early fetch slower than none (the disk is the bottleneck and nothing overlapped

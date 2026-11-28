@@ -66,5 +66,5 @@ Built and tested on the tiny random-weight models; real-pack numbers are measure
 Toy results show the mechanism works, not real gains: the random MTP head accepts nothing, so speculation is slower there.
 Still to measure on the real pack: seconds per token with DTC on/off, cache hit rate and the budget that fits the 16 GB box,
 the VRAM tier next to `--gpu-mb 3000`, and the real MTP acceptance rate (decides the default of `--spec`).
-Update 2026-11-27 evening: measured on the real pack, about 80% of drafts accepted, so `--spec` is on by default (JD's go).
+Update 2026-11-27 evening: measured on the real pack, 12 of 15 drafts accepted (about 80%, from only 5 cycles), so `--spec` is on by default (JD's go).
 The GPU expert stream's early fetch, pinned RAM cache and stream-only slot cap are on by default too (see GPU-EXPERT-STREAM.md).

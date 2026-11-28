@@ -1,6 +1,6 @@
 # Documentation index
 
-Start with the [project README](../README.md): the credits, an honest status table, a quick start and a one-page architecture. This folder holds one guide per feature. Every flag and number in these guides comes from the code or from a measurement receipt in the tree; where something is not proven, the guide says so.
+Start with the [project README](../README.md): the credits, an honest status table, a quick start and a one-page architecture. This folder holds one guide per feature. Flags come from the code, and measured numbers point to a receipt or a table in the tree where one exists; where something is not proven, or rests on a small sample, the guide says so.
 
 ## Guides
 
