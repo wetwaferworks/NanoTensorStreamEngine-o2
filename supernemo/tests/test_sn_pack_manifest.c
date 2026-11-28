@@ -9,7 +9,8 @@
  *
  *   test_sn_pack_manifest [TINY_PREFIX]
  * Default prefix: testdata/tiny/tiny (run from the tree root) or
- * ../testdata/tiny/tiny (run from supernemo/).
+ * ../testdata/tiny/tiny (run from supernemo/), both relative to the repository.
+ * With no tiny pack present the test prints SKIP and exits 0.
  */
 #include "../src/sn_pack.h"
 
@@ -147,12 +148,11 @@ int main(int argc, char **argv)
         src_prefix,
         "testdata/tiny/tiny",
         "../testdata/tiny/tiny",
-        "D:/scratch/ntse-o2-2026-11-27/testdata/tiny/tiny",
         NULL
     };
     char src_shapes[1100] = "", src_man[1100] = "", src_nq2[1100] = "", src_book[1100] = "";
     int found = 0;
-    for (int i = 0; cands[i]; i++) {
+    for (int i = 0; i < 3; i++) {   /* the argument (if any), then the two relative defaults */
         if (!cands[i]) continue;
         snprintf(src_nq2, sizeof src_nq2, "%s.nq2", cands[i]);
         snprintf(src_book, sizeof src_book, "%s.nq2book", cands[i]);
@@ -167,8 +167,10 @@ int main(int argc, char **argv)
         if (try_src(cands[i], src_shapes) == 0) { src_prefix = cands[i]; found = 1; break; }
     }
     if (!found) {
-        printf("FAIL no tiny pack found (pass a prefix)\n");
-        return 1;
+        /* testdata/ is not part of the repository: build the tiny pack with sn_mktiny and nq2-quantize
+           (see supernemo/README.md), or pass its prefix. Without it there is nothing to mutate. */
+        printf("SKIP no tiny pack found (build one, or pass its prefix as the first argument)\n");
+        return 0;
     }
 
     char dir[512], dst_prefix[600], dst_man[650], dst_nq2[650], dst_book[650];
