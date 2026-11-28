@@ -43,6 +43,7 @@ gcc -O2 -static -o "$bin\nemo-engine-cuda-x.exe" @eng @ln -lm -lpsapi; cc 'link 
 
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\test_nemo_gpu_layers.c "$obj\nemo_gpu.o" @testln -o "$bin\test_nemo_gpu_layers.exe" -lm -lpsapi; cc 'layers test'
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_pack_ident.c "$obj\nemo_gpu.o" @testln -o "$bin\test_nemo_pack_ident.exe" -lm -lpsapi; cc 'pack-ident test'
+gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_hostsplit.c "$obj\nemo_gpu.o" "$obj\nemo_predict.o" @testln -o "$bin\test_nemo_hostsplit.exe" -lm -lpsapi; cc 'hostsplit test'
 gcc @F '-Ilittlenemo\src' '-Iaccel' accel\tests\test_nemo_selftest_slots.c @testln -o "$bin\test_nemo_selftest_slots.exe" -lm -lpsapi; cc 'selftest-slots test'
 
 # expansion tools: CPU sensitivity probe, residual writer, pack merger
@@ -51,4 +52,4 @@ gcc @F '-Ilittlenemo\src' littlenemo\expand\ln_resid.c @ln -o "$bin\ln_resid.exe
 gcc @F tools\nq2-merge-refine.c -o "$bin\nq2-merge-refine.exe"; cc 'nq2-merge-refine.c'
 gcc @F '-mavx2' '-mfma' '-Ilittlenemo\src' littlenemo\expand\ln_headbench.c @ln -o "$bin\ln_headbench.exe" -lm; cc 'ln_headbench.c'
 
-"built $bin\nemo-engine-cuda-x.exe, the layer, pack-ident and slot tests, ln_sens.exe, ln_resid.exe, nq2-merge-refine.exe and ln_headbench.exe"
+"built $bin\nemo-engine-cuda-x.exe, the layer, pack-ident, hostsplit and slot tests, ln_sens.exe, ln_resid.exe, nq2-merge-refine.exe and ln_headbench.exe"
