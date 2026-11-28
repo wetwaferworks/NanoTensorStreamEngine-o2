@@ -7,7 +7,7 @@ Start with the [project README](../README.md): the credits, an honest status tab
 | Guide | Covers |
 |---|---|
 | [INTELLIGENCE-RETENTION.md](INTELLIGENCE-RETENTION.md) | how much intelligence the compressed models keep, with speed beside accuracy for every configuration, and every table behind it |
-| [COMPARISON.md](COMPARISON.md) | how NTSE compares with llama.cpp, ExLlamaV2, MLC-LLM, vLLM, KTransformers and PowerInfer, using only their published figures |
+| [COMPARISON.md](COMPARISON.md) | how NTSE is similar to llama.cpp, and what is different |
 | [SUPERNEMO.md](SUPERNEMO.md) | the 120B SuperNemo engine: expert cache, GPU expert stream, MTP, early expert fetch, results |
 | [EXPAND-REFINE.md](EXPAND-REFINE.md) | expanded packs: a refinement stage for chosen layers, sized to the free VRAM |
 | [RETENTION-BATTERY-2026-11-27.md](RETENTION-BATTERY-2026-11-27.md) | the full retention battery report |

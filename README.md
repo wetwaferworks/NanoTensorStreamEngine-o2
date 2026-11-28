@@ -35,7 +35,7 @@ What we learned:
 - The packed model is less sure of itself and drifts in wording, but it still says "I don't know" for made-up things (8 of 8).
 - Next step: give those projections more bits. All of them at 8 bits makes a 4,784.5 MiB pack that does not fit 4 GB, so we are testing smaller slices.
 
-Full tables, with speed beside accuracy for every configuration, are in [docs/INTELLIGENCE-RETENTION.md](docs/INTELLIGENCE-RETENTION.md). How this compares with llama.cpp and other engines, using only their published figures, is in [docs/COMPARISON.md](docs/COMPARISON.md); we have not yet run any of them on this card.
+Full tables, with speed beside accuracy for every configuration, are in [docs/INTELLIGENCE-RETENTION.md](docs/INTELLIGENCE-RETENTION.md). How this is similar to llama.cpp is in [docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Quick start
 
